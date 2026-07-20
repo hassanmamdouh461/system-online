@@ -289,11 +289,11 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
   };
 
   return (
-    <div className="flex flex-col sm:flex-row gap-2 sm:gap-2.5 md:gap-3 lg:gap-4 h-full overflow-hidden text-gray-800">
+    <div className="flex flex-col sm:flex-row gap-2 sm:gap-2.5 md:gap-3 h-full overflow-hidden text-gray-800 w-full">
       
-      {/* 1. LEFT COLUMN: Payments & Calculator (Width 28%) - Only visible for Takeaway */}
+      {/* 1. LEFT COLUMN: Payments & Calculator (Width 280-320px) - Only visible for Takeaway */}
       {orderMode === 'Takeaway' && (
-        <div className="w-full sm:w-[32%] lg:w-[28%] sm:h-full bg-white p-2 md:p-2.5 rounded-2xl border border-gray-200/80 shadow-sm flex flex-col justify-between overflow-hidden pos-calculator shrink-0">
+        <div className="w-full sm:w-[260px] md:w-[280px] lg:w-[300px] xl:w-[320px] sm:h-full bg-white p-2 md:p-2.5 rounded-2xl border border-gray-200/80 shadow-sm flex flex-col justify-between overflow-hidden pos-calculator shrink-0">
           <div className="overflow-y-auto hide-scrollbar flex-1 pr-0.5 flex flex-col justify-start gap-2 h-full">
             <h2 className="font-extrabold text-xs md:text-sm text-mocha-800 border-b border-gray-100 pb-1.5 shrink-0">
               <span className="font-sans">{t('Payment & Invoice')}</span>
@@ -474,12 +474,12 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
               <p className="text-sm md:text-base font-bold">{t('No items')}</p>
             </div>
           ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2.5 md:gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2 md:gap-2.5">
               {filteredMenuItems.map(item => (
                 <button
                   key={item.id}
                   onClick={() => handleAddItem(item)}
-                  className="bg-gray-50 hover:bg-gray-100 active:scale-95 transition-all p-2.5 rounded-xl border border-gray-200/60 hover:border-gray-300 shadow-sm flex flex-col justify-between items-start text-start min-h-[105px] h-auto relative overflow-hidden group"
+                  className="bg-gray-50 hover:bg-gray-100 active:scale-95 transition-all p-2 sm:p-2.5 rounded-xl border border-gray-200/60 hover:border-gray-300 shadow-sm flex flex-col justify-between items-start text-start min-h-[92px] sm:min-h-[100px] h-auto relative overflow-hidden group"
                 >
                   <span className="font-bold text-xs sm:text-sm md:text-base text-gray-900 group-hover:text-mocha-700 font-sans leading-snug pt-0.5">{t(item.name)}</span>
                   <div className="w-full flex justify-between items-center z-10 mt-2">
@@ -495,8 +495,8 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
         </div>
       </div>
 
-      {/* 3. RIGHT COLUMN: Current Bill & Summary (Width 23%) */}
-      <div className="w-full sm:w-[32%] lg:w-[23%] sm:h-full bg-white p-2.5 md:p-3 rounded-2xl border border-gray-200/80 shadow-sm flex flex-col justify-between overflow-hidden shrink-0">
+      {/* 3. RIGHT COLUMN: Current Bill & Summary (Width 240-280px) */}
+      <div className="w-full sm:w-[240px] md:w-[250px] lg:w-[260px] xl:w-[280px] sm:h-full bg-white p-2 md:p-2.5 rounded-2xl border border-gray-200/80 shadow-sm flex flex-col justify-between overflow-hidden shrink-0">
         <div className="flex-1 flex flex-col overflow-hidden">
           <h2 className="font-extrabold text-base md:text-lg text-mocha-800 border-b border-gray-100 pb-2 shrink-0">{t('Invoice Details')}</h2>
           

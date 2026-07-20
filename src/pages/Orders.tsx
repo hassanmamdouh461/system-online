@@ -208,7 +208,7 @@ export default function Orders({ type = 'all' }: OrdersProps) {
   const { title, desc } = titleMap[type];
 
   return (
-    <div className="flex flex-col h-[calc(100vh-168px)] md:h-[calc(100vh-114px)]">
+    <div className="flex flex-col h-[calc(100vh-80px)] sm:h-[calc(100vh-90px)] w-full">
       {/* Header */}
       {!(type === 'all' && activeView === 'pos') && (
         <div className="mb-2 md:mb-4 shrink-0">

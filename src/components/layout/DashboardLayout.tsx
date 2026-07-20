@@ -42,8 +42,8 @@ export function DashboardLayout() {
         )}
         
         {/* Main Content */}
-        <main className={`flex-1 overflow-y-auto overflow-x-hidden bg-gray-50 p-2.5 sm:p-4 md:p-6 pb-20 sm:pb-4 md:pb-6 ${
-          isManager ? "pt-3 sm:pt-4 md:pt-6" : "pt-[68px] sm:pt-4 md:pt-6"
+        <main className={`flex-1 overflow-y-auto overflow-x-hidden bg-gray-50 p-2 sm:p-3 pb-20 sm:pb-2 md:pb-3 ${
+          isManager ? "pt-2 sm:pt-3" : "pt-[68px] sm:pt-3"
         }`}>
           <Outlet />
         </main>

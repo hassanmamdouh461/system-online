@@ -44,7 +44,7 @@ export function TopNav() {
 
   return (
     <header className="hidden sm:block w-full bg-white border-b border-gray-200 shadow-sm relative z-30">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div className="w-full px-3 sm:px-4 lg:px-6">
         <div className="flex items-center justify-between h-16">
           
           {/* Brand/Logo */}
