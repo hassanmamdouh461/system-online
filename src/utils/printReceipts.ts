@@ -149,7 +149,8 @@ export function printCustomerReceipt(order: Order, lang: 'en' | 'ar' = 'ar') {
           font-size: 11px;
         }
         @media print {
-          body { padding: 0; width: 100%; max-width: 100%; }
+          @page { margin: 0; size: auto; }
+          body { padding: 5px; width: 100%; max-width: 100%; }
         }
       </style>
     </head>
@@ -305,7 +306,8 @@ export function printKitchenReceipt(order: Order, lang: 'en' | 'ar' = 'ar') {
           padding-top: 6px;
         }
         @media print {
-          body { padding: 0; width: 100%; max-width: 100%; }
+          @page { margin: 0; size: auto; }
+          body { padding: 5px; width: 100%; max-width: 100%; }
         }
       </style>
     </head>
@@ -434,7 +436,8 @@ export function printDrinksReceipt(order: Order, lang: 'en' | 'ar' = 'ar') {
           padding-top: 6px;
         }
         @media print {
-          body { padding: 0; width: 100%; max-width: 100%; }
+          @page { margin: 0; size: auto; }
+          body { padding: 5px; width: 100%; max-width: 100%; }
         }
       </style>
     </head>
