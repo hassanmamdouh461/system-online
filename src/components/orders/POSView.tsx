@@ -368,11 +368,11 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
   };
 
   return (
-    <div className="flex flex-col lg:flex-row gap-4 h-full overflow-hidden text-gray-800">
+    <div className="flex flex-col md:flex-row gap-2.5 md:gap-3 lg:gap-4 h-full overflow-hidden text-gray-800">
       
       {/* 1. LEFT COLUMN: Payments & Calculator (Width 28%) - Only visible for Takeaway */}
       {orderMode === 'Takeaway' && (
-        <div className="w-full lg:w-[28%] lg:h-full bg-white p-2 md:p-2.5 rounded-2xl border border-gray-200/80 shadow-sm flex flex-col justify-between overflow-hidden pos-calculator">
+        <div className="w-full md:w-[32%] lg:w-[28%] md:h-full bg-white p-2 md:p-2.5 rounded-2xl border border-gray-200/80 shadow-sm flex flex-col justify-between overflow-hidden pos-calculator shrink-0">
           <div className="overflow-y-auto hide-scrollbar flex-1 pr-0.5 flex flex-col justify-start gap-2 h-full">
             <h2 className="font-extrabold text-xs md:text-sm text-mocha-800 border-b border-gray-100 pb-1.5 shrink-0">
               <span className="font-sans">{t('Payment & Invoice')}</span>
@@ -498,7 +498,7 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
       )}
 
       {/* 2. CENTER COLUMN: Product Grid & Category Filters (Width 2/4) */}
-      <div className="flex-1 lg:h-full bg-white p-4 rounded-2xl border border-gray-200/80 shadow-sm flex flex-col overflow-hidden">
+      <div className="flex-1 md:h-full bg-white p-3 md:p-4 rounded-2xl border border-gray-200/80 shadow-sm flex flex-col overflow-hidden min-w-0">
         {/* Category Selector & Search */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-gray-100 shrink-0">
           {/* Categories */}
@@ -508,7 +508,7 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
                 key={cat}
                 onClick={() => setSelectedCategory(cat)}
                 className={clsx(
-                  "px-5 py-2.5 rounded-xl text-sm md:text-base font-black whitespace-nowrap transition-all border",
+                  "px-4 md:px-5 py-2 md:py-2.5 rounded-xl text-xs md:text-sm lg:text-base font-black whitespace-nowrap transition-all border",
                   selectedCategory === cat
                     ? "bg-mocha-600 text-white border-mocha-700 shadow-sm"
                     : "bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100"
@@ -527,7 +527,7 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
               placeholder={t('Search items...')}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className={`w-full py-2 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-mocha-500 focus:border-transparent text-sm font-semibold ${isRtl ? 'pr-9 pl-4' : 'pl-9 pr-4'}`}
+              className={`w-full py-2 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-mocha-500 focus:border-transparent text-xs md:text-sm font-semibold ${isRtl ? 'pr-9 pl-4' : 'pl-9 pr-4'}`}
             />
             {searchQuery && (
               <button
@@ -541,7 +541,7 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
         </div>
 
         {/* Products Grid */}
-        <div className="flex-1 overflow-y-auto mt-4 pr-1 custom-scrollbar">
+        <div className="flex-1 overflow-y-auto mt-3 md:mt-4 pr-1 custom-scrollbar">
           {successMessage && (
             <div className="bg-green-50 text-green-700 border border-green-200 rounded-xl p-3 mb-4 font-bold text-center text-xs animate-bounce">
               {successMessage}
@@ -553,17 +553,17 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
               <p className="text-sm md:text-base font-bold">{t('No items')}</p>
             </div>
           ) : (
-            <div className="grid grid-cols-3 sm:grid-cols-4 xl:grid-cols-4 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2.5 md:gap-3">
               {filteredMenuItems.map(item => (
                 <button
                   key={item.id}
                   onClick={() => handleAddItem(item)}
-                  className="bg-gray-50 hover:bg-gray-100 active:scale-95 transition-all p-2.5 rounded-xl border border-gray-200/60 hover:border-gray-300 shadow-sm flex flex-col justify-between items-start text-start h-24 sm:h-26 relative overflow-hidden group"
+                  className="bg-gray-50 hover:bg-gray-100 active:scale-95 transition-all p-2.5 rounded-xl border border-gray-200/60 hover:border-gray-300 shadow-sm flex flex-col justify-between items-start text-start min-h-[105px] h-auto relative overflow-hidden group"
                 >
-                  <span className="font-bold text-sm sm:text-base md:text-[16px] text-gray-900 group-hover:text-mocha-700 font-sans leading-snug pt-0.5">{t(item.name)}</span>
-                  <div className="w-full flex justify-between items-center z-10 mt-1">
-                    <span className="font-mono text-base sm:text-lg md:text-xl font-black text-mocha-800">{item.price.toFixed(2)} <span className="text-[10px] sm:text-xs text-gray-400 font-sans font-bold">{isRtl ? 'ج.م' : 'EGP'}</span></span>
-                    <span className="bg-mocha-50 text-mocha-600 text-sm sm:text-base px-2.5 py-0.5 rounded-lg border border-mocha-200 group-hover:bg-mocha-600 group-hover:text-white transition-colors font-black">+</span>
+                  <span className="font-bold text-xs sm:text-sm md:text-base text-gray-900 group-hover:text-mocha-700 font-sans leading-snug pt-0.5">{t(item.name)}</span>
+                  <div className="w-full flex justify-between items-center z-10 mt-2">
+                    <span className="font-mono text-sm sm:text-base md:text-lg font-black text-mocha-800">{item.price.toFixed(2)} <span className="text-[10px] sm:text-xs text-gray-400 font-sans font-bold">{isRtl ? 'ج.م' : 'EGP'}</span></span>
+                    <span className="bg-mocha-50 text-mocha-600 text-xs sm:text-sm px-2 py-0.5 rounded-lg border border-mocha-200 group-hover:bg-mocha-600 group-hover:text-white transition-colors font-black">+</span>
                   </div>
                   {/* Subtle hover icon decoration */}
                   <Coffee size={32} className="absolute -right-2 -bottom-2 text-gray-200/20 group-hover:text-mocha-200/10 transition-all pointer-events-none" />
@@ -575,7 +575,7 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
       </div>
 
       {/* 3. RIGHT COLUMN: Current Bill & Summary (Width 23%) */}
-      <div className="w-full lg:w-[23%] lg:h-full bg-white p-3 md:p-3.5 rounded-2xl border border-gray-200/80 shadow-sm flex flex-col justify-between overflow-hidden">
+      <div className="w-full md:w-[30%] lg:w-[23%] md:h-full bg-white p-2.5 md:p-3 rounded-2xl border border-gray-200/80 shadow-sm flex flex-col justify-between overflow-hidden shrink-0">
         <div className="flex-1 flex flex-col overflow-hidden">
           <h2 className="font-extrabold text-base md:text-lg text-mocha-800 border-b border-gray-100 pb-2 shrink-0">{t('Invoice Details')}</h2>
           
