@@ -341,7 +341,7 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
             </div>
 
             {/* Keypad */}
-            <div className="grid grid-cols-3 gap-1 font-mono flex-1 min-h-0 py-0.5">
+            <div className="grid grid-cols-3 grid-rows-5 gap-1 font-mono flex-1 min-h-0 py-0.5">
               {['7', '8', '9', '4', '5', '6', '1', '2', '3', '.', '0', '00'].map(num => (
                 <button
                   key={num}
@@ -353,14 +353,14 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
               ))}
               <button
                 onClick={() => handleKeypadPress('C')}
-                className="col-span-3 bg-red-500 hover:bg-red-600 text-white text-sm md:text-base font-black rounded-lg border border-red-600 shadow-sm active:scale-95 transition-all flex items-center justify-center py-1"
+                className="col-span-3 bg-red-500 hover:bg-red-600 text-white text-sm md:text-base font-black rounded-lg border border-red-600 shadow-sm active:scale-95 transition-all flex items-center justify-center h-full"
               >
                 C
               </button>
             </div>
 
             {/* Payment Method Selection */}
-            <div className="border-t border-gray-100 pt-1 shrink-0">
+            <div className="pt-0.5 shrink-0">
               <div className="space-y-0.5">
                 <label className="text-[10px] text-gray-500 font-extrabold uppercase block"><span className="font-sans">{t('Payment Method')}</span></label>
                 <div className="flex bg-gray-100 rounded-lg p-0.5 border border-gray-200">
