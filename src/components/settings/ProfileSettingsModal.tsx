@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, User, ShieldCheck, AlertCircle } from 'lucide-react';
+import { X, User, ShieldCheck, AlertCircle, Lock } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { getAdminCredentials, setAdminCredentials } from '../../utils/settingsConfig';
 import { useAuth } from '../../context/AuthContext';
@@ -13,7 +13,6 @@ export function ProfileSettingsModal({ isOpen, onClose }: ProfileSettingsModalPr
   const { t } = useLanguage();
   const { logout } = useAuth();
   
-  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   
@@ -22,8 +21,6 @@ export function ProfileSettingsModal({ isOpen, onClose }: ProfileSettingsModalPr
 
   useEffect(() => {
     if (isOpen) {
-      const creds = getAdminCredentials();
-      setUsername(creds.username);
       setPassword('');
       setConfirmPassword('');
       setError('');
@@ -35,26 +32,18 @@ export function ProfileSettingsModal({ isOpen, onClose }: ProfileSettingsModalPr
     setError('');
     setSuccess(false);
 
-    if (username.trim().length < 3) {
-      setError(t('Username must be at least 3 characters'));
+    if (password.length < 3) {
+      setError(t('Password must be at least 3 characters'));
       return;
     }
 
-    if (password.length > 0) {
-      if (password.length < 3) {
-        setError(t('Password must be at least 3 characters'));
-        return;
-      }
-      if (password !== confirmPassword) {
-        setError(t('Passwords do not match'));
-        return;
-      }
+    if (password !== confirmPassword) {
+      setError(t('Passwords do not match'));
+      return;
     }
 
     const currentCreds = getAdminCredentials();
-    const finalPassword = password.length > 0 ? password : currentCreds.password;
-
-    setAdminCredentials(username.trim(), finalPassword);
+    setAdminCredentials(currentCreds.username, password);
     setSuccess(true);
     
     setTimeout(() => {
@@ -75,11 +64,11 @@ export function ProfileSettingsModal({ isOpen, onClose }: ProfileSettingsModalPr
         <div className="bg-blue-600 px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="bg-white/20 p-2 rounded-xl text-white">
-              <User size={24} />
+              <Lock size={24} />
             </div>
             <div>
-              <h2 className="text-lg font-bold text-white">{t('Profile Settings')}</h2>
-              <p className="text-blue-100 text-xs">{t('Update password and user settings')}</p>
+              <h2 className="text-lg font-bold text-white">{t('Change Password')}</h2>
+              <p className="text-blue-100 text-xs">{t('Update the password used to log into the system')}</p>
             </div>
           </div>
           <button onClick={onClose} className="text-white/80 hover:text-white p-2 rounded-lg hover:bg-white/10 transition-colors">
@@ -91,39 +80,27 @@ export function ProfileSettingsModal({ isOpen, onClose }: ProfileSettingsModalPr
         <div className="p-6 space-y-5 text-gray-800">
           <div className="space-y-4">
             <div className="space-y-1">
-              <label className="text-sm font-bold text-gray-700 block">{t('Admin Username')}</label>
-              <input
-                type="text"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                className="w-full bg-gray-50 border border-gray-300 rounded-xl px-4 py-3 font-semibold focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
-                placeholder="admin"
-              />
-            </div>
-
-            <div className="space-y-1">
               <label className="text-sm font-bold text-gray-700 block">{t('New Password')}</label>
               <input
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="w-full bg-gray-50 border border-gray-300 rounded-xl px-4 py-3 font-semibold focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
-                placeholder={t('Leave blank to keep current password')}
+                placeholder={t('Enter new password')}
+                autoFocus
               />
             </div>
 
-            {password.length > 0 && (
-              <div className="space-y-1">
-                <label className="text-sm font-bold text-gray-700 block">{t('Confirm New Password')}</label>
-                <input
-                  type="password"
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  className="w-full bg-gray-50 border border-gray-300 rounded-xl px-4 py-3 font-semibold focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
-                  placeholder="••••"
-                />
-              </div>
-            )}
+            <div className="space-y-1">
+              <label className="text-sm font-bold text-gray-700 block">{t('Confirm New Password')}</label>
+              <input
+                type="password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                className="w-full bg-gray-50 border border-gray-300 rounded-xl px-4 py-3 font-semibold focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
+                placeholder={t('Re-enter new password')}
+              />
+            </div>
           </div>
 
           {error && (
@@ -137,7 +114,7 @@ export function ProfileSettingsModal({ isOpen, onClose }: ProfileSettingsModalPr
             <div className="flex flex-col gap-1 text-blue-700 text-sm font-bold bg-blue-50 p-3 rounded-lg border border-blue-100">
               <div className="flex items-center gap-2">
                 <ShieldCheck size={16} />
-                <p>{t('Profile updated successfully!')}</p>
+                <p>{t('Password updated successfully!')}</p>
               </div>
               <p className="text-xs text-blue-600 ml-6">{t('Logging you out to apply changes...')}</p>
             </div>
