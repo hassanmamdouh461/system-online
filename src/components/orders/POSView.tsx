@@ -368,11 +368,11 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
   };
 
   return (
-    <div className="flex flex-col md:flex-row gap-2.5 md:gap-3 lg:gap-4 h-full overflow-hidden text-gray-800">
+    <div className="flex flex-col sm:flex-row gap-2 sm:gap-2.5 md:gap-3 lg:gap-4 h-full overflow-hidden text-gray-800">
       
       {/* 1. LEFT COLUMN: Payments & Calculator (Width 28%) - Only visible for Takeaway */}
       {orderMode === 'Takeaway' && (
-        <div className="w-full md:w-[32%] lg:w-[28%] md:h-full bg-white p-2 md:p-2.5 rounded-2xl border border-gray-200/80 shadow-sm flex flex-col justify-between overflow-hidden pos-calculator shrink-0">
+        <div className="w-full sm:w-[32%] lg:w-[28%] sm:h-full bg-white p-2 md:p-2.5 rounded-2xl border border-gray-200/80 shadow-sm flex flex-col justify-between overflow-hidden pos-calculator shrink-0">
           <div className="overflow-y-auto hide-scrollbar flex-1 pr-0.5 flex flex-col justify-start gap-2 h-full">
             <h2 className="font-extrabold text-xs md:text-sm text-mocha-800 border-b border-gray-100 pb-1.5 shrink-0">
               <span className="font-sans">{t('Payment & Invoice')}</span>
@@ -498,7 +498,7 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
       )}
 
       {/* 2. CENTER COLUMN: Product Grid & Category Filters (Width 2/4) */}
-      <div className="flex-1 md:h-full bg-white p-3 md:p-4 rounded-2xl border border-gray-200/80 shadow-sm flex flex-col overflow-hidden min-w-0">
+      <div className="flex-1 sm:h-full bg-white p-3 md:p-4 rounded-2xl border border-gray-200/80 shadow-sm flex flex-col overflow-hidden min-w-0">
         {/* Category Selector & Search */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-gray-100 shrink-0">
           {/* Categories */}
@@ -575,7 +575,7 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
       </div>
 
       {/* 3. RIGHT COLUMN: Current Bill & Summary (Width 23%) */}
-      <div className="w-full md:w-[30%] lg:w-[23%] md:h-full bg-white p-2.5 md:p-3 rounded-2xl border border-gray-200/80 shadow-sm flex flex-col justify-between overflow-hidden shrink-0">
+      <div className="w-full sm:w-[32%] lg:w-[23%] sm:h-full bg-white p-2.5 md:p-3 rounded-2xl border border-gray-200/80 shadow-sm flex flex-col justify-between overflow-hidden shrink-0">
         <div className="flex-1 flex flex-col overflow-hidden">
           <h2 className="font-extrabold text-base md:text-lg text-mocha-800 border-b border-gray-100 pb-2 shrink-0">{t('Invoice Details')}</h2>
           

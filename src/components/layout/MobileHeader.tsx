@@ -25,7 +25,7 @@ export function MobileHeader({ onMenuClick }: MobileHeaderProps) {
   };
 
   return (
-    <header className="md:hidden fixed top-0 left-0 right-0 z-30 pt-safe-top">
+    <header className="sm:hidden fixed top-0 left-0 right-0 z-30 pt-safe-top">
       {/* Subtle gradient background */}
       <div className="relative bg-gradient-to-r from-mocha-100 via-cream to-caramel-light border-b border-mocha-200/50">
         <div className="bg-white/95 backdrop-blur-xl">

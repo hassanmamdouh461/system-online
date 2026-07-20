@@ -21,7 +21,7 @@ export function MobileNav() {
       ];
 
   return (
-    <nav className="md:hidden fixed bottom-0 left-0 right-0 z-30 pb-safe-bottom">
+    <nav className="sm:hidden fixed bottom-0 left-0 right-0 z-30 pb-safe-bottom">
       {/* Subtle container */}
       <div className="relative mx-0 mb-0 rounded-none overflow-hidden">
         {/* Main navigation with soft background */}
