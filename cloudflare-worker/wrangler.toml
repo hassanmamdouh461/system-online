@@ -1,0 +1,8 @@
+name = "system-online-backend"
+main = "src/index.ts"
+compatibility_date = "2024-02-22"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "system-online-db"
+database_id = "system-online-d1-id"

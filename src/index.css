@@ -1,0 +1,196 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    -webkit-tap-highlight-color: transparent;
+  }
+  
+  body {
+    background-color: #FBF9F6;
+    @apply text-gray-900 antialiased;
+    overscroll-behavior-y: contain; /* Prevent pull-to-refresh */
+    touch-action: pan-x pan-y; /* Allow panning but prevent zoom and other gestures */
+    -webkit-user-select: none; /* Prevent text selection on touch */
+    user-select: none;
+    overflow-x: hidden; /* Prevent horizontal overflow on mobile */
+    max-width: 100vw;
+  }
+
+  /* Allow text selection in specific elements */
+  input, textarea, [contenteditable] {
+    -webkit-user-select: text;
+    user-select: text;
+    touch-action: manipulation; /* Disable double-tap zoom */
+  }
+
+  /* Smooth scrolling containers */
+  [class*="overflow-y-auto"],
+  [class*="overflow-x-auto"],
+  [class*="overflow-auto"] {
+    -webkit-overflow-scrolling: touch;
+    scroll-behavior: smooth;
+  }
+}
+
+@layer components {
+  /* Mobile touch target - ensures minimum size for easy tapping */
+  .mobile-touch-target {
+    @apply min-h-[44px] min-w-[44px];
+  }
+  
+  /* Mobile safe area - handles notch and bottom bar */
+  .mobile-safe-area {
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+  
+  /* Hide scrollbar but keep functionality */
+  .hide-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  
+  .hide-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  
+  /* Custom scrollbar for desktop */
+  .custom-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: #d1d5db transparent;
+  }
+  
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    background-color: #d1d5db;
+    border-radius: 3px;
+  }
+  
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background-color: #9ca3af;
+  }
+  
+  /* Mobile full screen modal */
+  .mobile-full-screen {
+    @apply fixed inset-0 w-full h-full rounded-none;
+  }
+  
+  @media (min-width: 768px) {
+    .mobile-full-screen {
+      @apply relative inset-auto w-auto h-auto rounded-xl;
+    }
+  }
+}
+
+@layer utilities {
+  /* Prevent text selection on mobile for better UX */
+  .tap-highlight-none {
+    -webkit-tap-highlight-color: transparent;
+  }
+  
+  /* Better touch scrolling on iOS */
+  .smooth-scroll {
+    -webkit-overflow-scrolling: touch;
+  }
+  
+  /* GPU acceleration for animations */
+  .gpu-accelerated {
+    transform: translate3d(0, 0, 0);
+    backface-visibility: hidden;
+    perspective: 1000px;
+  }
+  
+  /* Optimize will-change for frequently animated elements */
+  .will-change-transform {
+    will-change: transform;
+  }
+  
+  .will-change-opacity {
+    will-change: opacity;
+  }
+
+  /* Touch action utilities */
+  .touch-pan-x {
+    touch-action: pan-x;
+  }
+
+  .touch-pan-y {
+    touch-action: pan-y;
+  }
+
+  .touch-none {
+    touch-action: none;
+  }
+
+  .touch-manipulation {
+    touch-action: manipulation;
+  }
+}
+
+/* Height-based responsive scaling for POS screen */
+@media (max-height: 850px) {
+  /* Reduce padding of calculator panel */
+  .pos-calculator {
+    padding: 0.5rem !important;
+  }
+  
+  /* Reduce gaps inside calculator */
+  .pos-calculator .space-y-1 > * + * {
+    margin-top: 0.25rem !important;
+  }
+  
+  .pos-calculator .grid {
+    gap: 0.25rem !important;
+  }
+  
+  /* Reduce height of display boxes */
+  .pos-calculator [class*="h-[40px]"] {
+    height: 32px !important;
+    font-size: 1rem !important;
+    padding-top: 0.125rem !important;
+    padding-bottom: 0.125rem !important;
+  }
+  
+  /* Reduce quick cash button heights */
+  .pos-calculator [onClick*="handleQuickCash"] {
+    padding-top: 0.35rem !important;
+    padding-bottom: 0.35rem !important;
+    font-size: 0.875rem !important;
+  }
+  
+  /* Reduce keypad button heights */
+  .pos-calculator [onClick*="handleKeypadPress"] {
+    padding-top: 0.4rem !important;
+    padding-bottom: 0.4rem !important;
+    font-size: 1rem !important;
+  }
+  
+  /* Reduce payment method selection padding */
+  .pos-calculator [onClick*="setPaymentMethod"] {
+    padding-top: 0.35rem !important;
+    padding-bottom: 0.35rem !important;
+    font-size: 0.75rem !important;
+  }
+  
+  /* Reduce action buttons padding */
+  .pos-calculator [onClick*="handlePrintAndPay"],
+  .pos-calculator [onClick*="handleReset"],
+  .pos-calculator [onClick*="handleSaveOrder"] {
+    padding-top: 0.4rem !important;
+    padding-bottom: 0.4rem !important;
+    font-size: 0.75rem !important;
+  }
+}
+
