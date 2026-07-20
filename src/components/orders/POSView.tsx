@@ -78,12 +78,7 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
     localStorage.setItem('pos_tableId', tableId);
   }, [tableId]);
 
-  const [isLoyaltyModalOpen, setIsLoyaltyModalOpen] = useState(false);
-  const [loyaltyPhone, setLoyaltyPhone] = useState('');
-  const [loyaltyName, setLoyaltyName] = useState('');
-  const [existingCustomer, setExistingCustomer] = useState<any>(null);
-  const [redeemPoints, setRedeemPoints] = useState(false);
-  const [pendingCheckoutAction, setPendingCheckoutAction] = useState<'save' | 'print'>('save');
+
 
   const handleSetOrderMode = (mode: 'Dine-in' | 'Takeaway') => {
     setOrderMode(mode);
@@ -249,84 +244,10 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
       return;
     }
 
-    setPendingCheckoutAction(action);
-    setLoyaltyPhone('');
-    setLoyaltyName('');
-    setExistingCustomer(null);
-    setRedeemPoints(false);
-    setIsLoyaltyModalOpen(true);
-  };
-
-  const handlePhoneChange = async (phone: string) => {
-    // Only numbers allowed, max 11 digits
-    const cleaned = phone.replace(/\D/g, '').slice(0, 11);
-    setLoyaltyPhone(cleaned);
-    if (cleaned.length === 11) {
-      try {
-        const cust = await window.electronAPI.getCustomerByPhone(cleaned);
-        setExistingCustomer(cust);
-        if (cust) {
-          setLoyaltyName(cust.name);
-        } else {
-          setLoyaltyName('');
-        }
-      } catch (err) {
-        console.error(err);
-      }
+    if (action === 'save') {
+      executeSaveOrder();
     } else {
-      setExistingCustomer(null);
-      setLoyaltyName('');
-    }
-  };
-
-  const handleConfirmLoyalty = async () => {
-    let customerPhone: string | undefined = undefined;
-    let pointsEarned = 0;
-    let pointsRedeemed = 0;
-
-    const trimmedPhone = loyaltyPhone.trim();
-    if (trimmedPhone) {
-      if (trimmedPhone.length !== 11) {
-        alert(t('Phone number must be exactly 11 digits'));
-        return;
-      }
-      customerPhone = trimmedPhone;
-      
-      if (redeemPoints && existingCustomer) {
-        pointsRedeemed = Math.min(existingCustomer.points, grandTotal);
-      }
-      
-      const remainingAmount = Math.max(0, grandTotal - pointsRedeemed);
-      pointsEarned = Math.floor(remainingAmount / 50);
-
-      const newPoints = (existingCustomer ? existingCustomer.points : 0) - pointsRedeemed + pointsEarned;
-      try {
-        await window.electronAPI.saveCustomer({
-          phone: trimmedPhone,
-          name: loyaltyName.trim() || 'Customer',
-          points: newPoints
-        });
-      } catch (err) {
-        console.error('Failed to save customer loyalty points:', err);
-      }
-    }
-
-    setIsLoyaltyModalOpen(false);
-    
-    // Proceed with checkout
-    if (pendingCheckoutAction === 'save') {
-      await executeSaveOrder(customerPhone, pointsEarned, pointsRedeemed);
-    } else {
-      await executePrintAndPay(customerPhone, pointsEarned, pointsRedeemed);
-    }
-  };
-
-  const handleSkipLoyalty = async () => {
-    setIsLoyaltyModalOpen(false);
-    if (pendingCheckoutAction === 'save') {
-      await executeSaveOrder();
-    } else {
-      await executePrintAndPay();
+      executePrintAndPay();
     }
   };
 
@@ -732,107 +653,7 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
 
       </div>
 
-      {/* ─── Customer Loyalty Points Modal ─── */}
-      <AnimatePresence>
-        {isLoyaltyModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="bg-white rounded-3xl p-6 shadow-2xl border border-gray-100 max-w-md w-full relative overflow-hidden"
-            >
-              <div className="absolute top-0 left-0 right-0 h-2 bg-gradient-to-r from-mocha-500 to-caramel" />
-              
-              <div className="mb-6 mt-2">
-                <h3 className="text-xl font-bold text-gray-900 text-left">{t('Register New Customer')}</h3>
-                <p className="text-xs text-gray-400 mt-1 text-left">
-                  {t('Enter customer phone number to accumulate or redeem loyalty points.')}
-                </p>
-              </div>
 
-              <div className="space-y-4">
-                {/* Phone Input */}
-                <div className="space-y-1">
-                  <label className="text-xs font-semibold text-gray-500 block text-left">{t('Phone Number')}</label>
-                  <input
-                    type="tel"
-                    placeholder={t('Enter customer phone')}
-                    value={loyaltyPhone}
-                    onChange={(e) => handlePhoneChange(e.target.value)}
-                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-caramel text-left font-mono"
-                    autoFocus
-                  />
-                </div>
-
-                {/* Name Input (Visible ONLY when phone is exactly 11 digits) */}
-                {loyaltyPhone.length === 11 && (
-                  <motion.div
-                    initial={{ opacity: 0, height: 0 }}
-                    animate={{ opacity: 1, height: 'auto' }}
-                    className="space-y-1"
-                  >
-                    <label className="text-xs font-semibold text-gray-500 block text-left">{t('Customer Name')}</label>
-                    <input
-                      type="text"
-                      placeholder={t('Customer Name')}
-                      value={loyaltyName}
-                      onChange={(e) => setLoyaltyName(e.target.value)}
-                      className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-caramel text-left"
-                      disabled={!!existingCustomer}
-                    />
-                  </motion.div>
-                )}
-
-
-
-                {/* Points Redemption Info */}
-                {existingCustomer && (
-                  <motion.div
-                    initial={{ opacity: 0, scale: 0.98 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    className="p-4 bg-mocha-50/50 rounded-2xl border border-mocha-100 flex flex-col gap-2"
-                  >
-                    <div className="flex justify-between items-center text-sm">
-                      <span className="text-gray-650 font-medium">{t('Points Balance')}:</span>
-                      <span className="font-bold text-mocha-800">{existingCustomer.points} {t('Points')}</span>
-                    </div>
-                    {existingCustomer.points > 0 && (
-                      <label className="flex items-center gap-2 mt-2 cursor-pointer select-none">
-                        <input
-                          type="checkbox"
-                          checked={redeemPoints}
-                          onChange={(e) => setRedeemPoints(e.target.checked)}
-                          className="w-4 h-4 rounded text-mocha-650 focus:ring-mocha-500 border-gray-300"
-                        />
-                        <span className="text-xs font-semibold text-gray-700">
-                          {t('Redeem Points')} ({Math.min(existingCustomer.points, grandTotal).toFixed(2)} {language === 'ar' ? 'ج.م' : 'EGP'} {t('discount')})
-                        </span>
-                      </label>
-                    )}
-                  </motion.div>
-                )}
-              </div>
-
-              {/* Actions */}
-              <div className="flex gap-3 mt-8">
-                <button
-                  onClick={handleSkipLoyalty}
-                  className="flex-1 py-3 border border-gray-200 text-gray-500 rounded-2xl font-bold hover:bg-gray-50 transition-colors"
-                >
-                  {t('Skip')}
-                </button>
-                <button
-                  onClick={handleConfirmLoyalty}
-                  className="flex-1 py-3 bg-mocha-700 hover:bg-mocha-800 text-white rounded-2xl font-bold transition-all shadow-lg shadow-mocha-200 active:scale-[0.98]"
-                >
-                  {t('Confirm')}
-                </button>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
 
     </div>
   );
