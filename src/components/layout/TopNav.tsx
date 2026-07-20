@@ -89,11 +89,6 @@ export function TopNav() {
 
             {/* User Profile Mini Card */}
             <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-gray-50 border border-gray-200/40">
-              <img 
-                src="https://api.dicebear.com/7.x/avataaars/svg?seed=Felix" 
-                alt="User" 
-                className="w-7 h-7 rounded-full bg-gray-200"
-              />
               <div className={clsx("text-left", isRtl && "text-right")}>
                 <p className="text-xs font-bold text-gray-800 leading-tight">
                   {language === 'ar' && user?.id === 'branch_1' ? 'فرع المعادي' :
