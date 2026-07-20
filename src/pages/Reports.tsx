@@ -319,12 +319,12 @@ export default function Reports() {
       </div>
 
       {/* ── Stat Cards (same StatCard component as Dashboard) ──────────────── */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 md:gap-6">
+      <div className="grid grid-cols-2 tablet:grid-cols-4 lg:grid-cols-4 gap-2 md:gap-6">
         {statCards.map((s, i) => <StatCard key={i} {...s} />)}
       </div>
 
       {/* ── Cost & Profit Cards Row ────────────────────────────────────────── */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 md:gap-6">
+      <div className="grid grid-cols-2 tablet:grid-cols-4 lg:grid-cols-4 gap-2 md:gap-6">
         <StatCard
           label={t('Cost of Goods Sold (COGS)')}
           value={`${cogs.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currencyStr}`}
@@ -377,7 +377,7 @@ export default function Reports() {
       )}
 
       {/* ── Revenue Trend + Top Items ───────────────────────────────────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-8 text-gray-900">
+      <div className="grid grid-cols-1 tablet:grid-cols-3 lg:grid-cols-3 gap-4 md:gap-8 text-gray-900">
 
         {/* Chart */}
         <div className="lg:col-span-2 bg-white p-3 md:p-6 rounded-xl md:rounded-2xl shadow-sm border border-gray-100 flex flex-col">
@@ -454,7 +454,7 @@ export default function Reports() {
       </div>
 
       {/* ── Order Status Breakdown + Recent Transactions ────────────────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-8 text-gray-900">
+      <div className="grid grid-cols-1 tablet:grid-cols-3 lg:grid-cols-3 gap-4 md:gap-8 text-gray-900">
 
         {/* Sales by Order Mode */}
         <div className="bg-white p-3 md:p-6 rounded-xl md:rounded-2xl shadow-sm border border-gray-100">

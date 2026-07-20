@@ -174,9 +174,9 @@ export default function Payment() {
       </div>
 
       {/* Filters (Search, Date Calendar, & Time Range) */}
-      <div className="flex flex-col xl:flex-row gap-3 items-stretch xl:items-center">
+      <div className="flex flex-col tablet:flex-row gap-3 items-stretch tablet:items-center xl:flex-row xl:items-center">
         {/* Search */}
-        <div className="relative flex-1 max-w-full xl:max-w-md">
+        <div className="relative flex-1 max-w-full tablet:max-w-md xl:max-w-md">
           <Search className={`absolute top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4 md:w-5 md:h-5 ${isRtl ? 'right-3' : 'left-3'}`} />
           <input
             type="text"

@@ -256,7 +256,7 @@ export default function Orders({ type = 'all' }: OrdersProps) {
       ) : (
         /* Desktop: Kanban View */
         <div className="flex-1 overflow-x-auto pb-4">
-          <div className="flex gap-4 min-w-[900px] h-full">
+          <div className="flex gap-4 min-w-[760px] tablet:min-w-[900px] h-full">
             {columns.map(col => (
               <div key={col.status} className="flex-1 flex flex-col bg-gray-100/50 rounded-2xl p-3 border border-gray-200/50">
                 <div className="flex justify-between items-center mb-3">

@@ -270,7 +270,7 @@ export default function Inventory() {
       </div>
 
       {/* ── Stats Row ──────────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 tablet:grid-cols-4 lg:grid-cols-4 gap-4">
         <div className="bg-white/95 border border-gray-100 rounded-2xl p-5 shadow-sm flex items-center gap-4">
           <div className="bg-amber-50 text-amber-600 p-3 rounded-xl">
             <Package size={24} />
@@ -528,7 +528,7 @@ export default function Inventory() {
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="bg-white rounded-2xl w-full max-w-md shadow-xl relative z-10 overflow-hidden"
+              className="bg-white rounded-2xl w-full max-w-md tablet:max-w-xl shadow-xl relative z-10 overflow-hidden"
             >
               <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
                 <h2 className="text-lg font-bold text-gray-900">
@@ -651,7 +651,7 @@ export default function Inventory() {
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="bg-white rounded-2xl w-full max-w-md shadow-xl relative z-10 overflow-hidden"
+              className="bg-white rounded-2xl w-full max-w-md tablet:max-w-xl shadow-xl relative z-10 overflow-hidden"
             >
               <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
                 <div className="flex flex-col">

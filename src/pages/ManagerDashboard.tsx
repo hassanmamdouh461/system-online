@@ -1105,7 +1105,7 @@ export default function ManagerDashboard() {
     <div className="space-y-4 md:space-y-8 text-gray-900 pb-16">
       
       {/* ── Header Area with Live Status & Filters ─────────────────────────────────── */}
-      <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4 bg-white/50 backdrop-blur-md p-4 rounded-2xl border border-gray-200/40 shadow-sm relative z-30">
+      <div className="flex flex-col tablet:flex-row tablet:items-center xl:flex-row xl:items-center justify-between gap-4 bg-white/50 backdrop-blur-md p-4 rounded-2xl border border-gray-200/40 shadow-sm relative z-30">
         
         {/* Title and Appwrite Sync Connection Badge */}
         <div className="space-y-1.5 flex-1 min-w-0">
@@ -1261,12 +1261,12 @@ export default function ManagerDashboard() {
       {activeTab === 'analytics' && (<>
 
       {/* ── Metrics Stat Cards ─────────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
+      <div className="grid grid-cols-2 tablet:grid-cols-3 lg:grid-cols-3 gap-4 md:gap-6">
         {statCards.map((s, i) => <StatCard key={i} {...s} />)}
       </div>
 
       {/* ── Chart & Top Items Panels ─────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 md:gap-8">
+      <div className="grid grid-cols-1 tablet:grid-cols-3 lg:grid-cols-3 gap-6 md:gap-8">
         
         {/* Revenue Trend Chart */}
         <div className="lg:col-span-2 bg-white p-4 md:p-6 rounded-2xl shadow-sm border border-gray-150 flex flex-col justify-between">
@@ -1372,7 +1372,7 @@ export default function ManagerDashboard() {
       </div>
 
       {/* ── Breakdown Panels ───────────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 md:gap-8">
+      <div className="grid grid-cols-1 tablet:grid-cols-3 lg:grid-cols-3 gap-6 md:gap-8">
         
         {/* Order Mode Breakdown (Dine-in vs Takeaway) */}
         <div className="bg-white p-4 md:p-6 rounded-2xl shadow-sm border border-gray-150">
@@ -1618,7 +1618,7 @@ export default function ManagerDashboard() {
         <div className="space-y-6">
 
           {/* Inventory Summary Stat Cards */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
+          <div className="grid grid-cols-2 tablet:grid-cols-4 lg:grid-cols-4 gap-4 md:gap-6">
             <StatCard
               label={language === 'ar' ? 'إجمالي تكلفة المخزون' : 'Total Stock Cost'}
               value={`${inventorySummary.totalValue.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })} ${currencyStr}`}

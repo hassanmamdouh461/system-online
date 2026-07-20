@@ -161,10 +161,10 @@ export default function Menu() {
         </div>
       </div>
 
-      {/* Menu Grid — 2 cols on mobile, 3 on tablet, 4 on desktop */}
+      {/* Menu Grid — 2 cols on mobile, 3 on small tablet, 4 on large tablet/desktop */}
       <motion.div 
         layout
-        className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-6"
+        className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 tablet:grid-cols-4 xl:grid-cols-4 gap-4 tablet:gap-5 xl:gap-6"
       >
         <AnimatePresence>
           {filteredItems.map(item => (

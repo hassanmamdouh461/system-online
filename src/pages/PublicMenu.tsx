@@ -230,7 +230,7 @@ export default function PublicMenu() {
         {/* Dark overlay */}
         <div className="absolute inset-0 bg-gradient-to-b from-black/40 via-transparent to-black/60 z-0" />
 
-        <div className="max-w-md mx-auto flex flex-col items-center text-center relative z-10">
+        <div className="max-w-md tablet:max-w-2xl lg:max-w-3xl mx-auto flex flex-col items-center text-center relative z-10">
           {/* Logo */}
           <div className="w-16 h-16 bg-white/10 border border-white/20 rounded-full flex items-center justify-center mb-4 shadow-inner backdrop-blur-sm">
             <Coffee className="w-9 h-9 text-caramel" />
@@ -246,7 +246,7 @@ export default function PublicMenu() {
       </header>
 
       {/* Main Content Area */}
-      <main className="max-w-md mx-auto px-4 mt-6 relative z-10">
+      <main className="max-w-md tablet:max-w-2xl lg:max-w-3xl mx-auto px-4 tablet:px-6 mt-6 relative z-10">
         {loading ? (
           <div className="flex flex-col items-center justify-center py-20">
             <motion.div
@@ -337,7 +337,7 @@ export default function PublicMenu() {
               <div className="space-y-5 py-2">
                 <h3 className="text-center text-sm font-extrabold text-mocha-800 mb-2">تصفح القائمة الفاخرة</h3>
                 
-                <div className="grid grid-cols-1 gap-4">
+                <div className="grid grid-cols-1 tablet:grid-cols-2 gap-4">
                   {/* Food Card */}
                   <motion.button
                     whileTap={{ scale: 0.98 }}

@@ -70,7 +70,7 @@ export function ProfileSettingsModal({ isOpen, onClose }: ProfileSettingsModalPr
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-gray-900/40 backdrop-blur-sm" onClick={onClose} />
       
-      <div className="relative bg-white w-full max-w-md rounded-2xl shadow-xl overflow-hidden">
+      <div className="relative bg-white w-full max-w-md tablet:max-w-lg rounded-2xl shadow-xl overflow-hidden">
         {/* Header */}
         <div className="bg-blue-600 px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">

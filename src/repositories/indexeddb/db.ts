@@ -11,9 +11,14 @@ export interface SyncRecord {
   data: any;
   timestamp: string;
   synced: number; // 0 = pending, 1 = synced
+  // Retry/backoff fields (optional so existing records remain valid without a DB migration)
+  attempts?: number;      // number of failed upload attempts
+  lastError?: string;     // last error message captured
+  nextRetryAt?: string;   // ISO time before which we should NOT retry (exponential backoff)
+  syncedAt?: string;      // ISO time when sync succeeded (used for cleanup of old records)
 }
 
-interface BrewMasterDBSchema extends DBSchema {
+export interface BrewMasterDBSchema extends DBSchema {
   menu_items: {
     key: string;
     value: MenuItem;

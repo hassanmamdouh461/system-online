@@ -13,46 +13,58 @@ export class IndexedDbOrderRepository implements IOrderRepository {
   async create(orderData: Omit<Order, 'id'>, branchId?: string): Promise<Order> {
     const db = await getDB();
     const id = `ord_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const now = new Date().toISOString();
     const newOrder: Order = {
       ...orderData,
       id,
       branchId,
-      createdAt: orderData.createdAt || new Date().toISOString(),
+      createdAt: orderData.createdAt || now,
     };
 
-    // Save order locally
-    await db.put('orders', newOrder);
-
-    // Queue for cloud sync
-    await db.put('sync_queue', {
+    // ATOMIC write: order + sync-queue entry in ONE transaction.
+    // If the page is closed / power is lost / refresh happens mid-write, either
+    // BOTH records are committed or NEITHER is — never an order without a sync
+    // entry (which would silently stay local forever) and never an orphan sync
+    // entry for a non-existent order.
+    const tx = db.transaction(['orders', 'sync_queue'], 'readwrite');
+    await tx.objectStore('orders').put(newOrder);
+    await tx.objectStore('sync_queue').put({
       id: `sync_${id}`,
       type: 'order',
       action: 'create',
       data: newOrder,
-      timestamp: new Date().toISOString(),
+      timestamp: now,
       synced: 0,
     });
+    await tx.done;
 
     return newOrder;
   }
 
   async update(id: string, data: Partial<Omit<Order, 'id'>>): Promise<Order> {
     const db = await getDB();
-    const existing = await db.get('orders', id);
-    if (!existing) throw new Error(`Order ${id} not found`);
+    const tx = db.transaction(['orders', 'sync_queue'], 'readwrite');
+    const ordersStore = tx.objectStore('orders');
+    const existing = await ordersStore.get(id);
+    if (!existing) {
+      await tx.done;
+      throw new Error(`Order ${id} not found`);
+    }
 
-    const updated: Order = { ...existing, ...data };
-    await db.put('orders', updated);
+    const updated: Order = { ...existing, ...data, updatedAt: new Date().toISOString() };
+    const now = new Date().toISOString();
 
-    // Queue for sync
-    await db.put('sync_queue', {
+    // ATOMIC: persist the updated order AND queue it for cloud sync together.
+    await ordersStore.put(updated);
+    await tx.objectStore('sync_queue').put({
       id: `sync_${id}_${Date.now()}`,
       type: 'order',
       action: 'update',
       data: updated,
-      timestamp: new Date().toISOString(),
+      timestamp: now,
       synced: 0,
     });
+    await tx.done;
 
     return updated;
   }
@@ -72,16 +84,20 @@ export class IndexedDbOrderRepository implements IOrderRepository {
 
   async delete(id: string): Promise<void> {
     const db = await getDB();
-    await db.delete('orders', id);
+    const now = new Date().toISOString();
 
-    await db.put('sync_queue', {
+    // ATOMIC: remove the local order AND enqueue the tombstone for cloud sync.
+    const tx = db.transaction(['orders', 'sync_queue'], 'readwrite');
+    await tx.objectStore('orders').delete(id);
+    await tx.objectStore('sync_queue').put({
       id: `sync_del_${id}_${Date.now()}`,
       type: 'order',
       action: 'delete',
       data: { id },
-      timestamp: new Date().toISOString(),
+      timestamp: now,
       synced: 0,
     });
+    await tx.done;
   }
 
   async resetToDefaults(defaults: Omit<Order, 'id'>[], branchId?: string): Promise<Order[]> {

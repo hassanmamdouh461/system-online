@@ -16,7 +16,9 @@ interface OrderDetailsProps {
 }
 
 export function OrderDetails({ order, onClose, onUpdateStatus, type = 'all' }: OrderDetailsProps) {
-  const isMobile = useIsMobile();
+  // Treat tablet (768–1023px) like mobile: a full-screen bottom-sheet is a much
+  // better touch experience than a 448px-wide right-side drawer on a tablet.
+  const isMobile = useIsMobile(1024);
   const { t, language } = useLanguage();
   const items = order ? filterItemsBySection(order.items, type) : [];
   
@@ -58,10 +60,10 @@ export function OrderDetails({ order, onClose, onUpdateStatus, type = 'all' }: O
             {...swipeHandlers}
           >
             <div className="flex-1 flex flex-col h-full overflow-hidden">
-              {/* Mobile Back Button */}
+              {/* Back Button — visible on mobile AND tablet (bottom-sheet mode) */}
               <button
                 onClick={onClose}
-                className="md:hidden flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-900 tap-highlight-none active:bg-gray-100 transition-colors"
+                className="lg:hidden flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-900 tap-highlight-none active:bg-gray-100 transition-colors"
               >
                 <ArrowLeft size={16} />
                 Back to Orders

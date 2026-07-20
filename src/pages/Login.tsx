@@ -101,7 +101,7 @@ export default function Login() {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6 }}
-          className="bg-white/10 backdrop-blur-lg border border-white/20 p-8 rounded-2xl w-full max-w-md shadow-2xl relative z-10"
+          className="bg-white/10 backdrop-blur-lg border border-white/20 p-8 rounded-2xl w-full max-w-md tablet:max-w-lg shadow-2xl relative z-10"
         >
           {/* ── Icon + heading ─────────────────────────────────────────────── */}
           <div className="flex flex-col items-center mb-8 text-center">
