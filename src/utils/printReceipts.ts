@@ -3,16 +3,42 @@ import { getTaxRate } from './settingsConfig';
 import { filterItemsBySection } from './orderSection';
 
 /**
- * Open a temporary window, write receipt content, trigger print, and close.
+ * Write receipt content into a hidden iframe and trigger native browser print dialog.
+ * This completely avoids browser popup blockers and blank new tabs.
  */
 function printHtml(htmlContent: string) {
-  const printWindow = window.open('', '_blank');
-  if (!printWindow) {
-    alert('Please allow popups to print tickets');
-    return;
+  let printIframe = document.getElementById('pos-print-iframe') as HTMLIFrameElement | null;
+  
+  if (!printIframe) {
+    printIframe = document.createElement('iframe');
+    printIframe.id = 'pos-print-iframe';
+    printIframe.style.position = 'fixed';
+    printIframe.style.right = '0';
+    printIframe.style.bottom = '0';
+    printIframe.style.width = '0px';
+    printIframe.style.height = '0px';
+    printIframe.style.border = '0px';
+    printIframe.style.opacity = '0';
+    printIframe.style.pointerEvents = 'none';
+    document.body.appendChild(printIframe);
   }
-  printWindow.document.write(htmlContent);
-  printWindow.document.close();
+
+  const iframeWin = printIframe.contentWindow;
+  if (iframeWin) {
+    const doc = iframeWin.document;
+    doc.open();
+    doc.write(htmlContent);
+    doc.close();
+
+    setTimeout(() => {
+      try {
+        iframeWin.focus();
+        iframeWin.print();
+      } catch (err) {
+        console.error('Failed to trigger print:', err);
+      }
+    }, 200);
+  }
 }
 
 /**
@@ -186,13 +212,6 @@ export function printCustomerReceipt(order: Order, lang: 'en' | 'ar' = 'ar') {
         <p>${thankYou}</p>
         <p>BrewMaster POS</p>
       </div>
-
-      <script>
-        window.onload = () => {
-          window.print();
-          setTimeout(() => window.close(), 100);
-        };
-      </script>
     </body>
     </html>
   `;
@@ -322,13 +341,6 @@ export function printKitchenReceipt(order: Order, lang: 'en' | 'ar' = 'ar') {
       <div class="footer">
         <p>BrewMaster - Kitchen Printer</p>
       </div>
-
-      <script>
-        window.onload = () => {
-          window.print();
-          setTimeout(() => window.close(), 100);
-        };
-      </script>
     </body>
     </html>
   `;
@@ -458,13 +470,6 @@ export function printDrinksReceipt(order: Order, lang: 'en' | 'ar' = 'ar') {
       <div class="footer">
         <p>BrewMaster - Bar Printer</p>
       </div>
-
-      <script>
-        window.onload = () => {
-          window.print();
-          setTimeout(() => window.close(), 100);
-        };
-      </script>
     </body>
     </html>
   `;
