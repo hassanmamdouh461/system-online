@@ -215,23 +215,6 @@ export default function Reports() {
     };
   }, [analytics.completedPeriod, dateRange, taxRate]);
 
-  if (analytics.loading) return <LoadingScreen />;
-  if (analytics.error) {
-    return (
-      <div className="flex items-center justify-center h-96">
-        <div className="text-center">
-          <p className="text-red-600 font-semibold mb-2">{t('Failed to load reports')}</p>
-          <p className="text-gray-500 text-sm">{analytics.error.message}</p>
-        </div>
-      </div>
-    );
-  }
-
-  const { chartData, topItems, recentTransactions } = analytics;
-  const pLabel       = periodLabel(dateRange, t);
-  const maxSale      = Math.max(...chartData.map(d => d.value), 1);
-  const maxItemCount = Math.max(...topItems.map(i => i.count), 1);
-
   const orderModeStats = React.useMemo(() => {
     const realTakeaway = analytics.periodOrders.filter(o => o.tableId === 'Takeaway').length;
     const realDineIn = analytics.periodOrders.filter(o => o.tableId !== 'Takeaway').length;
@@ -250,6 +233,23 @@ export default function Reports() {
 
     return { takeaway, dineIn, total };
   }, [analytics.periodOrders, dateRange]);
+
+  if (analytics.loading) return <LoadingScreen />;
+  if (analytics.error) {
+    return (
+      <div className="flex items-center justify-center h-96">
+        <div className="text-center">
+          <p className="text-red-600 font-semibold mb-2">{t('Failed to load reports')}</p>
+          <p className="text-gray-500 text-sm">{analytics.error.message}</p>
+        </div>
+      </div>
+    );
+  }
+
+  const { chartData, topItems, recentTransactions } = analytics;
+  const pLabel       = periodLabel(dateRange, t);
+  const maxSale      = Math.max(...chartData.map(d => d.value), 1);
+  const maxItemCount = Math.max(...topItems.map(i => i.count), 1);
 
   const currencyStr = language === 'ar' ? 'ج.م' : 'EGP';
 
