@@ -479,3 +479,34 @@ export function printDrinksReceipt(order: Order, lang: 'en' | 'ar' = 'ar') {
 
   printHtml(html);
 }
+
+/**
+ * Print all relevant tickets for an order:
+ * 1. Customer receipt (Cashier / الكاشير)
+ * 2. Kitchen receipt (المطبخ - if food items exist)
+ * 3. Bar receipt (البار - if drink items exist)
+ */
+export function printAllOrderTickets(order: Order, lang: 'en' | 'ar' = 'ar') {
+  const kitchenItems = filterItemsBySection(order.items, 'kitchen');
+  const drinkItems = filterItemsBySection(order.items, 'drinks');
+
+  // 1. Print customer/cashier receipt first
+  printCustomerReceipt(order, lang);
+
+  let delay = 500;
+
+  // 2. Print kitchen ticket if order has kitchen items
+  if (kitchenItems.length > 0) {
+    setTimeout(() => {
+      printKitchenReceipt(order, lang);
+    }, delay);
+    delay += 500;
+  }
+
+  // 3. Print bar ticket if order has bar items
+  if (drinkItems.length > 0) {
+    setTimeout(() => {
+      printDrinksReceipt(order, lang);
+    }, delay);
+  }
+}

@@ -6,7 +6,7 @@ import { OrderItem, Order } from '../../types/order';
 import { useLanguage } from '../../context/LanguageContext';
 import { Coffee, Trash2, Plus, Minus, CreditCard, DollarSign, Check, XCircle, Printer, Search, Settings, RotateCcw, X } from 'lucide-react';
 import { clsx } from 'clsx';
-import { printCustomerReceipt } from '../../utils/printReceipts';
+import { printCustomerReceipt, printAllOrderTickets } from '../../utils/printReceipts';
 
 interface POSViewProps {
   menuItems: MenuItem[];
@@ -282,6 +282,14 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
       return;
     }
 
+    if (orderMode === 'Takeaway') {
+      const received = parseFloat(receivedAmount) || 0;
+      if (paymentMethod === 'Cash' && received < grandTotal) {
+        alert(isRtl ? 'يجب دفع الفاتورة أولاً لطلبات التيك أواي' : 'Takeaway orders must be paid in full first');
+        return;
+      }
+    }
+
     if (action === 'save') {
       executeSaveOrder();
     } else {
@@ -292,9 +300,15 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
   const executeSaveOrder = async (customerPhone?: string, pointsEarned?: number, pointsRedeemed?: number) => {
     try {
       const finalTableId = orderMode === 'Takeaway' ? 'Takeaway' : `${t('Table')} ${tableId}`;
-      const paidAmt = paymentStatus === 'Paid' ? (grandTotal - (pointsRedeemed || 0)) : undefined;
-      await onCreateOrder(finalTableId, invoiceItems, paymentStatus, paymentMethod, paidAmt, customerPhone, pointsEarned, pointsRedeemed);
+      const finalStatus = orderMode === 'Takeaway' ? 'Paid' : paymentStatus;
+      const paidAmt = finalStatus === 'Paid' ? (grandTotal - (pointsRedeemed || 0)) : undefined;
+
+      const newOrder = await onCreateOrder(finalTableId, invoiceItems, finalStatus, paymentMethod, paidAmt, customerPhone, pointsEarned, pointsRedeemed);
       
+      if (newOrder && orderMode === 'Takeaway') {
+        printAllOrderTickets(newOrder, language);
+      }
+
       handleReset();
       setSuccessMessage(t('Successfully saved order'));
       setTimeout(() => setSuccessMessage(null), 3000);
@@ -314,7 +328,7 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
       const newOrder = await onCreateOrder(finalTableId, invoiceItems, finalPaymentStatus, paymentMethod, paidAmt, customerPhone, pointsEarned, pointsRedeemed);
 
       if (newOrder) {
-        printCustomerReceipt(newOrder, language);
+        printAllOrderTickets(newOrder, language);
       }
 
       handleReset();
