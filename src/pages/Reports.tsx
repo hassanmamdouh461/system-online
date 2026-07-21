@@ -61,46 +61,86 @@ export default function Reports() {
     menuService.getAll().then(setMenuItems).catch(console.error);
   }, []);
 
-  // Precompute average selling yield for each inventory item ID
+  // Precompute realistic selling yield for each inventory item ID using proportional F&B cost-weighted allocation
   const itemYields = useMemo(() => {
     const yields: Record<string, number> = {};
-    
-    // Group recipe entries by inventoryItemId
-    const recipeGroups: Record<string, { menuItemId: string; quantity: number }[]> = {};
-    recipes.forEach(r => {
-      if (!recipeGroups[r.inventoryItemId]) {
-        recipeGroups[r.inventoryItemId] = [];
+
+    const invMapById = new Map<string, any>();
+    inventory.forEach(item => invMapById.set(item.id, item));
+
+    const resolveInvItem = (inventoryItemId: string): any => {
+      if (invMapById.has(inventoryItemId)) return invMapById.get(inventoryItemId);
+      if (inventoryItemId.startsWith('inv_b_')) {
+        const num = parseInt(inventoryItemId.replace('inv_b_', ''), 10);
+        if (!isNaN(num) && num > 0 && num <= inventory.length) {
+          return inventory[num - 1];
+        }
       }
-      recipeGroups[r.inventoryItemId].push({
-        menuItemId: r.menuItemId,
+      return undefined;
+    };
+
+    const getUnitCost = (invItemId: string): number => {
+      const found = resolveInvItem(invItemId);
+      return found?.costPerUnit && found.costPerUnit > 0 ? found.costPerUnit : 1;
+    };
+
+    const menuRecipeMap: Record<string, any[]> = {};
+    recipes.forEach(r => {
+      if (r.menuItemId) {
+        if (!menuRecipeMap[r.menuItemId]) menuRecipeMap[r.menuItemId] = [];
+        menuRecipeMap[r.menuItemId].push(r);
+      }
+    });
+
+    const menuMap = new Map(menuItems.map(m => [String(m.id), m]));
+
+    const menuTotalCostMap = new Map<string, number>();
+    Object.entries(menuRecipeMap).forEach(([mId, ingList]) => {
+      const totalCost = ingList.reduce((sum, ing) => {
+        const cost = getUnitCost(ing.inventoryItemId);
+        return sum + (ing.quantity * cost);
+      }, 0);
+      menuTotalCostMap.set(mId, totalCost > 0 ? totalCost : 1);
+    });
+
+    const invRecipesMap = new Map<string, { menuItemId: string; quantity: number }[]>();
+    recipes.forEach(r => {
+      const invItem = resolveInvItem(r.inventoryItemId);
+      const targetId = invItem ? invItem.id : r.inventoryItemId;
+
+      if (!invRecipesMap.has(targetId)) invRecipesMap.set(targetId, []);
+      invRecipesMap.get(targetId)!.push({
+        menuItemId: String(r.menuItemId),
         quantity: r.quantity
       });
     });
 
-    // Create a map of menu items by ID for fast lookup
-    const menuMap = new Map(menuItems.map(item => [item.id, item]));
-
-    // Calculate average yield for each inventory item
     inventory.forEach(item => {
-      const itemRecipes = recipeGroups[item.id] || [];
+      const itemRecipes = invRecipesMap.get(item.id) || [];
+      const itemUnitCost = item.costPerUnit && item.costPerUnit > 0 ? item.costPerUnit : 1;
+
       if (itemRecipes.length === 0) {
-        yields[item.id] = 0;
+        yields[item.id] = itemUnitCost * 2.5;
         return;
       }
 
-      let totalYield = 0;
+      let totalUnitYield = 0;
       let validCount = 0;
 
       itemRecipes.forEach(rec => {
-        const menuItem = menuMap.get(rec.menuItemId);
+        const menuItem = menuMap.get(String(rec.menuItemId));
+        const totalRecipeCost = menuTotalCostMap.get(String(rec.menuItemId)) || 1;
         if (menuItem && rec.quantity > 0) {
-          const yieldVal = menuItem.price / rec.quantity;
-          totalYield += yieldVal;
+          const itemCostInRecipe = rec.quantity * itemUnitCost;
+          const costShareFraction = itemCostInRecipe / totalRecipeCost;
+          const allocatedRevenue = costShareFraction * menuItem.price;
+          const unitYield = allocatedRevenue / rec.quantity;
+          totalUnitYield += unitYield;
           validCount++;
         }
       });
 
-      yields[item.id] = validCount > 0 ? (totalYield / validCount) : 0;
+      yields[item.id] = validCount > 0 ? (totalUnitYield / validCount) : (itemUnitCost * 2.5);
     });
 
     return yields;
@@ -112,7 +152,7 @@ export default function Reports() {
 
     inventory.forEach(item => {
       const costVal = item.stock * item.costPerUnit;
-      const avgYield = itemYields[item.id] || 0;
+      const avgYield = itemYields[item.id] || (item.costPerUnit * 2.5);
       const potSales = item.stock * avgYield;
       const potProfit = potSales > 0 ? Math.max(potSales - costVal, 0) : 0;
 
@@ -270,13 +310,6 @@ export default function Reports() {
       color: 'blue',
     },
     {
-      label: t('AVG. ORDER VALUE'),
-      value: `${analytics.avgOrderValue.toFixed(2)} ${currencyStr}`,
-      icon: TrendingUp,
-      trend: `${analytics.completedPeriod.length} ${t('completed')} ${pLabel}`,
-      color: 'orange',
-    },
-    {
       label: t('MENU ITEMS'),
       value: analytics.menuItemsCount.toString(),
       icon: Utensils,
@@ -319,7 +352,7 @@ export default function Reports() {
       </div>
 
       {/* ── Stat Cards (same StatCard component as Dashboard) ──────────────── */}
-      <div className="grid grid-cols-2 tablet:grid-cols-4 lg:grid-cols-4 gap-2 md:gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 md:gap-6">
         {statCards.map((s, i) => <StatCard key={i} {...s} />)}
       </div>
 
