@@ -527,26 +527,28 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
             </button>
           </div>
 
-          {/* Table ID Selector (Only visible for Dine-in) */}
+          {/* Table ID Selector (Only visible for Dine-in) - Compact & Space Efficient */}
           {orderMode === 'Dine-in' && (
-            <div className="mt-3 shrink-0 space-y-2 border-b border-gray-100 pb-3">
-              <label className="text-sm text-gray-600 font-extrabold">{t('Table')}</label>
-              <input
-                type="text"
-                value={tableId}
-                onChange={(e) => setTableId(e.target.value)}
-                placeholder={t('Enter Table Number')}
-                className="w-full px-4 py-2.5 bg-gray-50 border border-gray-300 rounded-xl font-extrabold text-base md:text-lg focus:outline-none focus:border-mocha-600 focus:ring-2 focus:ring-mocha-100"
-              />
-              <div className="grid grid-cols-4 sm:grid-cols-5 gap-2">
+            <div className="mt-2 shrink-0 space-y-1.5 border-b border-gray-100 pb-2">
+              <div className="flex items-center justify-between gap-2">
+                <label className="text-xs text-gray-600 font-extrabold shrink-0">{t('Table')}:</label>
+                <input
+                  type="text"
+                  value={tableId}
+                  onChange={(e) => setTableId(e.target.value)}
+                  placeholder={t('Enter Table Number')}
+                  className="w-full px-3 py-1 bg-gray-50 border border-gray-300 rounded-lg font-black text-xs md:text-sm focus:outline-none focus:border-mocha-600 text-gray-900"
+                />
+              </div>
+              <div className="grid grid-cols-4 sm:grid-cols-8 gap-1">
                 {['1', '2', '3', '4', '5', '6', '7', '8'].map(num => (
                   <button
                     key={num}
                     onClick={() => setTableId(num)}
                     className={clsx(
-                      "py-2 text-sm md:text-base font-black rounded-xl border transition-all shadow-sm flex items-center justify-center",
+                      "py-1 text-xs font-black rounded-lg border transition-all shadow-sm flex items-center justify-center",
                       tableId === num
-                        ? "bg-mocha-600 text-white border-mocha-700 shadow-md"
+                        ? "bg-mocha-600 text-white border-mocha-700 shadow-sm"
                         : "bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100"
                     )}
                   >
@@ -557,8 +559,8 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
             </div>
           )}
 
-          {/* Current Invoice List */}
-          <div className="flex-1 overflow-y-auto mt-2 pr-1 hide-scrollbar border-b border-gray-100 pb-2">
+          {/* Current Invoice List - Prominently Displayed for Both Dine-in & Takeaway */}
+          <div className="flex-1 min-h-[160px] sm:min-h-[220px] overflow-y-auto mt-2 pr-1 custom-scrollbar border-b border-gray-100 pb-2">
             {invoiceItems.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full text-gray-400 py-6">
                 <Coffee size={32} className="stroke-1 mb-1" />
