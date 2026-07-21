@@ -5,7 +5,7 @@ import {
   Coffee, Calendar, Download,
   CheckCircle2, Clock, XCircle, AlertCircle, Utensils,
   UserCheck, Award, Coins, Building2, ChevronDown, RefreshCw,
-  Signal, SignalHigh, WifiOff, Package, AlertTriangle, BarChart3, Languages, Users, Search, Settings, Send, Scale
+  Signal, SignalHigh, WifiOff, Package, AlertTriangle, BarChart3, Languages, Users, Search, Settings, Send, Scale, TrendingDown
 } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
 import { getTaxRate } from '../utils/settingsConfig';
@@ -13,6 +13,7 @@ import { useMenu } from '../hooks/useMenu';
 import { useAnalytics, AnalyticsPeriod } from '../hooks/useAnalytics';
 import { inventoryService } from '../services/inventoryService';
 import { menuService } from '../services/menuService';
+import { StatCard } from '../components/ui/StatCard';
 import { RecipeIngredient } from '../global';
 import SettingsPage from './Settings';
 
@@ -806,8 +807,36 @@ export default function ManagerDashboard() {
 
   const currencyStr = language === 'ar' ? 'ج.م' : 'EGP';
 
-  // Stat Cards (Matching Reports page 100%)
-  const statCards = [
+  // COGS & Net Profit Calculations (100% Identical to Reports)
+  const recipeCosts = useMemo(() => {
+    const costMap: Record<string, number> = {};
+    for (const r of recipes) {
+      const invItem = activeInventory.find((i: any) => i.id === r.inventoryItemId);
+      const itemCost = invItem ? invItem.costPerUnit : 0;
+      costMap[r.menuItemId] = (costMap[r.menuItemId] || 0) + (r.quantity * itemCost);
+    }
+    return costMap;
+  }, [recipes, activeInventory]);
+
+  const cogs = useMemo(() => {
+    let totalCogs = 0;
+    for (const order of analytics.completedPeriod) {
+      for (const item of order.items) {
+        const itemCost = recipeCosts[item.menuItemId || item.id] || 0;
+        totalCogs += itemCost * item.quantity;
+      }
+    }
+    return totalCogs;
+  }, [analytics.completedPeriod, recipeCosts]);
+
+  const netProfit = useMemo(() => {
+    const revenue = analytics.totalRevenue;
+    const tax = revenue * taxRate;
+    return Math.max(0, revenue - tax - cogs);
+  }, [analytics.totalRevenue, taxRate, cogs]);
+
+  // All 7 Stat Cards (Matching Reports page 100%)
+  const statCardsRow1 = [
     {
       label: t('TOTAL REVENUE (INCL. TAX)'),
       value: `${analytics.totalRevenue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currencyStr}`,
@@ -829,6 +858,23 @@ export default function ManagerDashboard() {
       trend: `${analytics.availableMenuItemsCount} ${t('available now')}`,
       color: 'purple' as const,
     },
+  ];
+
+  const statCardsRow2 = [
+    {
+      label: t('Cost of Goods Sold (COGS)'),
+      value: `${cogs.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currencyStr}`,
+      icon: TrendingDown,
+      trend: language === 'ar' ? 'تكلفة الخامات الملازمة للوجبات المباعة' : 'Recipe materials cost',
+      color: 'orange' as const,
+    },
+    {
+      label: t('Net Profit'),
+      value: `${netProfit.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currencyStr}`,
+      icon: Coins,
+      trend: language === 'ar' ? 'صافي الربح الفعلي بعد الخامات والضريبة' : 'Earnings after COGS & tax',
+      color: 'green' as const,
+    },
     {
       label: t('Total Stock Cost'),
       value: `${inventorySummary.totalValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currencyStr}`,
@@ -841,7 +887,7 @@ export default function ManagerDashboard() {
       value: `${inventorySummary.totalProfitValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currencyStr}`,
       icon: TrendingUp,
       trend: language === 'ar' ? 'الأرباح المتوقعة من الخامات بالمخزن' : 'Potential profit of remaining stock',
-      color: 'green' as const,
+      color: 'purple' as const,
     },
   ];
 
@@ -1033,9 +1079,16 @@ export default function ManagerDashboard() {
       {/* ══════════════════════════════════════════════════════════════════════ */}
       {activeTab === 'analytics' && (<>
 
-      {/* ── Metrics Stat Cards ─────────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-2 tablet:grid-cols-3 lg:grid-cols-3 gap-4 md:gap-6">
-        {statCards.map((s, i) => <StatCard key={i} {...s} />)}
+      {/* ── All 7 Stat Cards in 2 Rows (100% Identical to Reports Page) ───────────── */}
+      <div className="space-y-4 md:space-y-6">
+        {/* Row 1: 3 cards (Revenue, Orders, Menu Items) */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 md:gap-6">
+          {statCardsRow1.map((s, i) => <StatCard key={i} {...s} />)}
+        </div>
+        {/* Row 2: 4 cards (COGS, Net Profit, Stock Cost, Potential Profit) */}
+        <div className="grid grid-cols-2 tablet:grid-cols-4 lg:grid-cols-4 gap-4 md:gap-6">
+          {statCardsRow2.map((s, i) => <StatCard key={i} {...s} />)}
+        </div>
       </div>
 
       {/* ── Chart & Top Items Panels ─────────────────────────────────────────────────── */}
