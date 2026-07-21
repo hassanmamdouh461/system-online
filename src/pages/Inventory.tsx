@@ -65,57 +65,111 @@ export default function Inventory() {
     fetchData();
   }, []);
 
-  // Precompute average selling yield for each inventory item ID
+  // Precompute realistic selling yield for each inventory item ID using proportional F&B cost-weighted allocation
   const itemYields = useMemo(() => {
     const yields: Record<string, number> = {};
-    
-    // Group recipe entries by inventoryItemId
-    const recipeGroups: Record<string, { menuItemId: string; quantity: number }[]> = {};
+
+    // Helper to resolve canonical inventory ID by name or exact ID
+    const findCanonicalId = (invItem: InventoryItem): string => {
+      if (invItem.id && invItem.id.startsWith('inv_b_')) return invItem.id;
+      const n = (invItem.name || '').toLowerCase();
+      if (n.includes('بن') || n.includes('قهوة') || n.includes('إسبيريسو')) return 'inv_b_1';
+      if (n.includes('حليب') || n.includes('لبن')) return 'inv_b_2';
+      if (n.includes('كوب') || n.includes('أكواب')) return 'inv_b_3';
+      if (n.includes('عيش') || n.includes('خبز') || n.includes('توست') || n.includes('كايزر')) return 'inv_b_4';
+      if (n.includes('شيكولاتة') || n.includes('شوكولاتة')) return 'inv_b_5';
+      if (n.includes('كراميل')) return 'inv_b_6';
+      if (n.includes('فانيليا')) return 'inv_b_7';
+      if (n.includes('بستاشيو') || n.includes('فستق')) return 'inv_b_8';
+      if (n.includes('أوريو')) return 'inv_b_9';
+      if (n.includes('آيس كريم')) return 'inv_b_10';
+      if (n.includes('شاي')) return 'inv_b_11';
+      if (n.includes('خوخ') || n.includes('باشون')) return 'inv_b_12';
+      if (n.includes('ليمون') || n.includes('نعناع')) return 'inv_b_13';
+      if (n.includes('صودا') || n.includes('مياه غازية')) return 'inv_b_14';
+      if (n.includes('دجاج') || n.includes('فراخ')) return 'inv_b_15';
+      if (n.includes('لحم') || n.includes('برجر')) return 'inv_b_16';
+      if (n.includes('جبن')) return 'inv_b_17';
+      if (n.includes('تركي') || n.includes('ديك')) return 'inv_b_18';
+      if (n.includes('بطاطس')) return 'inv_b_19';
+      if (n.includes('كرواسون')) return 'inv_b_20';
+      if (n.includes('براونيز') || n.includes('كيك')) return 'inv_b_21';
+      if (n.includes('خضار') || n.includes('طماطم') || n.includes('خس')) return 'inv_b_22';
+      if (n.includes('مايونيز') || n.includes('صوص')) return 'inv_b_23';
+      if (n.includes('فراولة') || n.includes('مانجو')) return 'inv_b_24';
+      return invItem.id;
+    };
+
+    // Create a map of inventory unit costs
+    const invCostMap = new Map<string, number>();
+    inventory.forEach(item => {
+      const canonicalId = findCanonicalId(item);
+      const cost = item.costPerUnit || 1;
+      invCostMap.set(canonicalId, cost);
+      invCostMap.set(item.id, cost);
+    });
+
+    // Group recipes by menuItemId
+    const menuRecipeMap: Record<string, RecipeIngredient[]> = {};
     recipes.forEach(r => {
-      if (r.inventoryItemId) {
-        if (!recipeGroups[r.inventoryItemId]) {
-          recipeGroups[r.inventoryItemId] = [];
-        }
-        recipeGroups[r.inventoryItemId].push({
-          menuItemId: String(r.menuItemId),
-          quantity: r.quantity
-        });
+      if (r.menuItemId) {
+        if (!menuRecipeMap[r.menuItemId]) menuRecipeMap[r.menuItemId] = [];
+        menuRecipeMap[r.menuItemId].push(r);
       }
     });
 
-    // Create a map of menu items by ID for fast lookup
-    const menuMap = new Map(menuItems.map(item => [String(item.id), item]));
+    // Map menu items by ID
+    const menuMap = new Map(menuItems.map(m => [String(m.id), m]));
 
-    // Calculate average yield for each inventory item
+    // Calculate total raw material recipe cost per menu item
+    const menuTotalCostMap = new Map<string, number>();
+    Object.entries(menuRecipeMap).forEach(([mId, ingList]) => {
+      const recipeCost = ingList.reduce((sum, ing) => {
+        const unitCost = invCostMap.get(ing.inventoryItemId) || 1;
+        return sum + (ing.quantity * unitCost);
+      }, 0);
+      menuTotalCostMap.set(mId, recipeCost > 0 ? recipeCost : 1);
+    });
+
+    // Group recipe ingredients by canonical inventoryItemId
+    const recipeGroups: Record<string, { menuItemId: string; quantity: number }[]> = {};
+    recipes.forEach(r => {
+      if (r.inventoryItemId) {
+        if (!recipeGroups[r.inventoryItemId]) recipeGroups[r.inventoryItemId] = [];
+        recipeGroups[r.inventoryItemId].push({ menuItemId: String(r.menuItemId), quantity: r.quantity });
+      }
+    });
+
+    // Calculate proportional yield per unit for each inventory item
     inventory.forEach(item => {
-      let itemRecipes = recipeGroups[item.id] || [];
+      const canonicalId = findCanonicalId(item);
+      const itemRecipes = recipeGroups[canonicalId] || recipeGroups[item.id] || [];
 
-      // Fallback matching by inventory item index if exact ID differs
       if (itemRecipes.length === 0) {
-        const itemIdx = inventory.findIndex(i => i.id === item.id);
-        if (itemIdx >= 0) {
-          const fallbackId = `inv_b_${itemIdx + 1}`;
-          itemRecipes = recipeGroups[fallbackId] || [];
-        }
+        yields[item.id] = (item.costPerUnit || 1) * 2.5;
+        return;
       }
 
-      let totalYield = 0;
+      let totalUnitYield = 0;
       let validCount = 0;
 
       itemRecipes.forEach(rec => {
         const menuItem = menuMap.get(String(rec.menuItemId));
+        const totalRecipeCost = menuTotalCostMap.get(String(rec.menuItemId)) || 1;
         if (menuItem && rec.quantity > 0) {
-          const yieldVal = menuItem.price / rec.quantity;
-          totalYield += yieldVal;
+          const itemCostInRecipe = rec.quantity * (item.costPerUnit || 1);
+          const costShareFraction = itemCostInRecipe / totalRecipeCost;
+          const allocatedRevenue = costShareFraction * menuItem.price;
+          const unitYield = allocatedRevenue / rec.quantity;
+          totalUnitYield += unitYield;
           validCount++;
         }
       });
 
       if (validCount > 0) {
-        yields[item.id] = totalYield / validCount;
+        yields[item.id] = totalUnitYield / validCount;
       } else {
-        // Standard F&B margin multiplier (2.5x unit cost) for items without direct recipe links
-        yields[item.id] = item.costPerUnit * 2.5;
+        yields[item.id] = (item.costPerUnit || 1) * 2.5;
       }
     });
 
