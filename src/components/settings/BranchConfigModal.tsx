@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { X, Building2, Mail, Lock, Tag, ShieldCheck, Hash } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { getBranchConfig, setBranchConfig } from '../../utils/settingsConfig';
@@ -60,8 +61,8 @@ export function BranchConfigModal({ isOpen, onClose }: BranchConfigModalProps) {
 
   if (!isOpen) return null;
 
-  return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+  return createPortal(
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-gray-900/40 backdrop-blur-sm" onClick={onClose} />
       
       <div className="relative bg-white w-full max-w-md tablet:max-w-lg rounded-2xl shadow-xl overflow-hidden">
@@ -177,6 +178,7 @@ export function BranchConfigModal({ isOpen, onClose }: BranchConfigModalProps) {
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Order, OrderStatus } from '../../types/order';
 import { X, Clock, CheckCircle2, XCircle, ArrowRight, ArrowLeft, Printer } from 'lucide-react';
@@ -33,7 +34,7 @@ export function OrderDetails({ order, onClose, onUpdateStatus, type = 'all' }: O
     },
   });
 
-  return (
+  return createPortal(
     <AnimatePresence>
       {order && (
         <>
@@ -43,7 +44,7 @@ export function OrderDetails({ order, onClose, onUpdateStatus, type = 'all' }: O
             exit={{ opacity: 0 }}
             transition={{ duration: 0.15 }}
             onClick={onClose}
-            className="fixed inset-0 bg-black/20 backdrop-blur-sm z-40"
+            className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[9998]"
             style={{ willChange: 'opacity' }}
           />
           <motion.div
@@ -55,7 +56,7 @@ export function OrderDetails({ order, onClose, onUpdateStatus, type = 'all' }: O
               isMobile 
                 ? 'inset-0 rounded-t-3xl' 
                 : 'right-0 top-0 bottom-0 w-full max-w-md rounded-none'
-            } bg-white shadow-2xl z-50 flex flex-col touch-pan-y`}
+            } bg-white shadow-2xl z-[9999] flex flex-col touch-pan-y`}
             style={{ willChange: 'transform' }}
             {...swipeHandlers}
           >
@@ -207,6 +208,7 @@ export function OrderDetails({ order, onClose, onUpdateStatus, type = 'all' }: O
           </motion.div>
         </>
       )}
-    </AnimatePresence>
+    </AnimatePresence>,
+    document.body
   );
 }

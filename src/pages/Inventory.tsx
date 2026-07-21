@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Package, History, Plus, Search, Trash2, Edit2, 
@@ -576,9 +577,9 @@ export default function Inventory() {
       )}
 
       {/* ── MODAL: Create/Edit Stock Item ─────────────────────────────────── */}
-      <AnimatePresence>
-        {isItemModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      {isItemModalOpen && createPortal(
+        <AnimatePresence>
+          <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -695,13 +696,14 @@ export default function Inventory() {
               </form>
             </motion.div>
           </div>
-        )}
-      </AnimatePresence>
+        </AnimatePresence>,
+        document.body
+      )}
 
       {/* ── MODAL: Adjust Stock Level ────────────────────────────────────── */}
-      <AnimatePresence>
-        {isAdjustModalOpen && selectedItem && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      {isAdjustModalOpen && selectedItem && createPortal(
+        <AnimatePresence>
+          <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -713,7 +715,7 @@ export default function Inventory() {
             <motion.div
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              exit={{ opacity: 0, scale: 0.95, y: 0 }}
               className="bg-white rounded-2xl w-full max-w-md tablet:max-w-xl shadow-xl relative z-10 overflow-hidden"
             >
               <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
@@ -834,8 +836,9 @@ export default function Inventory() {
               </form>
             </motion.div>
           </div>
-        )}
-      </AnimatePresence>
+        </AnimatePresence>,
+        document.body
+      )}
       
     </div>
   );
