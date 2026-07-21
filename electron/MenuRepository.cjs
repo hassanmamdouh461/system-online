@@ -102,14 +102,14 @@ class MenuRepository {
     const sqlite = this.getDb();
     sqlite.prepare('DELETE FROM menu WHERE id = ?').run(id);
     
-    // Try to delete from Appwrite database immediately
+    // Try to delete from Cloudflare D1 database immediately
     try {
       const mockApi = require('./mockApiService.cjs');
       mockApi.deleteMenuItem(id).catch(err => {
-        console.warn('[MenuRepository] Async delete from Appwrite failed:', err.message);
+        console.warn('[MenuRepository] Async delete from D1 failed:', err.message);
       });
     } catch (e) {
-      console.warn('[MenuRepository] Failed to initiate Appwrite delete:', e.message);
+      console.warn('[MenuRepository] Failed to initiate D1 delete:', e.message);
     }
   }
 

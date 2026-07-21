@@ -9,7 +9,7 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Vite](https://img.shields.io/badge/Vite-5-646CFF?style=for-the-badge&logo=vite&logoColor=white)](https://vitejs.dev/)
 [![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-3-06B6D4?style=for-the-badge&logo=tailwindcss&logoColor=white)](https://tailwindcss.com/)
-[![Appwrite](https://img.shields.io/badge/Appwrite-BaaS-FD366E?style=for-the-badge&logo=appwrite&logoColor=white)](https://appwrite.io/)
+[![Cloudflare D1](https://img.shields.io/badge/Cloudflare-D1-F38020?style=for-the-badge&logo=cloudflare&logoColor=white)](https://developers.cloudflare.com/d1/)
 [![Framer Motion](https://img.shields.io/badge/Framer_Motion-Animations-0055FF?style=for-the-badge&logo=framer&logoColor=white)](https://www.framer.com/motion/)
 
 </div>
@@ -41,7 +41,7 @@
 - **Responsive Design** — Full desktop sidebar + mobile bottom-nav with swipe gestures, works on any tablet or phone
 
 ### ⚙️ Technical Features
-- **Real-time multi-device sync** via Appwrite Realtime WebSocket subscriptions
+- **Real-time multi-device sync** via Cloudflare D1 Worker Worker proxy & IndexedDB
 - **Smart Auth** with `Remember Me` — persists session to `localStorage` or `sessionStorage` based on user preference
 - **Framer Motion** powered animations for order card entrance/exit, modal transitions, and page changes
 - **Performance-optimized Kanban** using `useMemo` single-pass grouping (see [Challenges Conquered](#-challenges-conquered))
@@ -137,7 +137,7 @@ const groupedOrders = useMemo(() => {
 | **Build Tool** | Vite 5 | Lightning-fast HMR and optimized production builds |
 | **Styling** | Tailwind CSS v3 | Utility-first dark-theme UI |
 | **Animations** | Framer Motion | Page transitions, card animations, modal UX |
-| **Backend / BaaS** | Appwrite | Database, Auth, Realtime subscriptions, File Storage |
+| **Backend / Database** | Cloudflare D1 + Worker Proxy | SQLite edge database with Worker proxy API |
 | **State** | React Context + Custom Hooks | Lightweight global state without Redux overhead |
 | **Deployment** | Netlify | CI/CD from GitHub, custom headers, SPA redirects |
 
@@ -165,12 +165,7 @@ npm install
 Create a `.env` file in the project root:
 
 ```env
-VITE_APPWRITE_ENDPOINT=https://cloud.appwrite.io/v1
-VITE_APPWRITE_PROJECT_ID=your_project_id
-VITE_APPWRITE_DATABASE_ID=your_database_id
-VITE_APPWRITE_ORDERS_COLLECTION_ID=your_orders_collection_id
-VITE_APPWRITE_MENU_COLLECTION_ID=your_menu_collection_id
-VITE_APPWRITE_API_KEY=your_server_api_key
+VITE_CLOUDFLARE_WORKER_URL=https://your-worker.workers.dev
 ```
 
 ### Seed Demo Data *(Optional)*

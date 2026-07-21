@@ -131,9 +131,9 @@ class SyncEngine {
         return;
       }
 
-      // 2. Pull updates from Appwrite database
+      // 2. Pull updates from Cloudflare D1 database
       try {
-        console.log('[syncEngine] Pulling updates from Appwrite...');
+        console.log('[syncEngine] Pulling updates from Cloudflare D1...');
         const pulledOrders = await mockApi.pullOrders();
         if (pulledOrders && pulledOrders.length > 0) {
           const tempOrderRepository = require('./OrderRepository.cjs');
@@ -205,7 +205,7 @@ class SyncEngine {
           console.log(`[syncEngine] Marked ${inventoryIds.length} inventory items as synced in local DB.`);
         }
       } catch (invError) {
-        console.warn('[syncEngine] Inventory sync bypassed (please create "inventory" collection in Appwrite console):', invError.message);
+        console.warn('[syncEngine] Inventory sync bypassed:', invError.message);
       }
 
       // 6. Update success status

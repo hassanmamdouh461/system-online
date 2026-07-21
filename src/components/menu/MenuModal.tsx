@@ -21,38 +21,16 @@ export function MenuModal({ isOpen, onClose, onSave, initialData, existingItems 
   const [mappedIngredients, setMappedIngredients] = useState<Array<{ inventoryItemId: string; quantity: number }>>([]);
   const [loading, setLoading] = useState(false);
 
-  const [showNewCategoryInput, setShowNewCategoryInput] = useState(false);
-  const [newCategoryName, setNewCategoryName] = useState('');
   const [preparation, setPreparation] = useState('Bar');
 
   const [formData, setFormData] = useState({
     name: '',
     description: '',
     price: '',
-    category: 'Hot Coffee', // Default category
+    category: 'General', // Default category
     image: '',
     available: true,
   });
-
-  const existingCategories = useMemo(() => {
-    const unique = new Set<string>();
-    unique.add('Hot Coffee');
-    unique.add('Iced Coffee');
-    unique.add('Frappe');
-    unique.add('Milkshakes');
-    
-    if (existingItems) {
-      existingItems.forEach(item => {
-        if (item.category) {
-          const menuCat = item.category.split('|')[0];
-          if (menuCat && menuCat !== 'All' && menuCat !== 'Kitchen' && menuCat !== 'Bar') {
-            unique.add(menuCat);
-          }
-        }
-      });
-    }
-    return Array.from(unique);
-  }, [existingItems]);
 
   useEffect(() => {
     const loadRecipeAndInventory = async () => {
@@ -86,8 +64,8 @@ export function MenuModal({ isOpen, onClose, onSave, initialData, existingItems 
   useEffect(() => {
     if (initialData) {
       const parts = initialData.category.split('|');
-      const menuCat = parts[0];
-      const prepArea = parts[1] || 'Bar';
+      const menuCat = parts[0] || 'General';
+      const prepArea = parts[1] || parts[0] || 'Bar';
 
       setFormData({
         name: initialData.name,
@@ -98,20 +76,16 @@ export function MenuModal({ isOpen, onClose, onSave, initialData, existingItems 
         available: initialData.available,
       });
       setPreparation(prepArea);
-      setShowNewCategoryInput(false);
-      setNewCategoryName('');
     } else {
       setFormData({
         name: '',
         description: '',
         price: '',
-        category: 'Hot Coffee',
+        category: 'General',
         image: '',
         available: true,
       });
       setPreparation('Bar');
-      setShowNewCategoryInput(false);
-      setNewCategoryName('');
     }
   }, [initialData, isOpen]);
 
@@ -156,11 +130,7 @@ export function MenuModal({ isOpen, onClose, onSave, initialData, existingItems 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const menuCategory = showNewCategoryInput ? newCategoryName.trim() : formData.category;
-      if (!menuCategory) {
-        alert(t('Category is required') || 'يرجى تحديد أو كتابة اسم القسم');
-        return;
-      }
+      const menuCategory = formData.category || 'General';
       const finalCategory = `${menuCategory}|${preparation}`;
 
       const defaultImage = ['Hot Coffee', 'Iced Coffee', 'Frappe', 'Milkshakes', 'Bar'].includes(menuCategory)
@@ -268,7 +238,7 @@ export function MenuModal({ isOpen, onClose, onSave, initialData, existingItems 
                     />
                   </div>
 
-                  <div className="grid grid-cols-3 gap-3">
+                  <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">{t('Price') || 'السعر'}</label>
                       <input
@@ -283,20 +253,6 @@ export function MenuModal({ isOpen, onClose, onSave, initialData, existingItems 
                     </div>
 
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">{t('Category') || 'قسم المنيو'}</label>
-                      <select
-                        value={showNewCategoryInput ? 'CREATE_NEW' : formData.category}
-                        onChange={handleCategoryChange}
-                        className="w-full px-3 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-caramel focus:border-transparent transition-all bg-white text-sm"
-                      >
-                        {existingCategories.map(category => (
-                          <option key={category} value={category}>{t(category) || category}</option>
-                        ))}
-                        <option value="CREATE_NEW">{t('Add new category...') || '+ إضافة قسم جديد...'}</option>
-                      </select>
-                    </div>
-
-                    <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">{t('Preparation Destination') || 'مكان التحضير (الكاشير)'}</label>
                       <select
                         value={preparation}
@@ -308,25 +264,6 @@ export function MenuModal({ isOpen, onClose, onSave, initialData, existingItems 
                       </select>
                     </div>
                   </div>
-
-                  {showNewCategoryInput && (
-                    <div className="animate-fadeIn">
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        {t('New Category Name') || 'اسم القسم الجديد'}
-                      </label>
-                      <input
-                        type="text"
-                        required
-                        placeholder={t('e.g. Tea, Desserts') || 'مثال: شاي، حلويات'}
-                        value={newCategoryName}
-                        onChange={(e) => {
-                          setNewCategoryName(e.target.value);
-                          setFormData(prev => ({ ...prev, category: e.target.value }));
-                        }}
-                        className="w-full px-4 py-2 rounded-xl border border-mocha-300 focus:outline-none focus:ring-2 focus:ring-caramel focus:border-transparent transition-all bg-white text-sm font-bold"
-                      />
-                    </div>
-                  )}
                 </>
               ) : (
                 <div className="space-y-4">

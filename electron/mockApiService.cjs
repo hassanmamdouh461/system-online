@@ -1,6 +1,6 @@
 /**
  * Cloudflare D1 Sync API Service
- * Replaces the Appwrite REST API with standard HTTP requests to our Cloudflare Worker Proxy.
+ * Standard HTTP requests to our Cloudflare Worker D1 Proxy.
  */
 
 const fs = require('fs');
@@ -210,7 +210,7 @@ async function pullOrders() {
   // D1 query response: results is under res.result[0].results
   const rows = res.result[0]?.results || [];
   
-  // Map back to Appwrite document structure format expected by upsertPulledOrders
+  // Map back to document structure format expected by upsertPulledOrders
   return rows.map(row => ({
     $id: row.id,
     $createdAt: row.createdAt,

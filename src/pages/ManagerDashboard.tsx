@@ -19,7 +19,7 @@ interface OrderItem {
   price: number;
 }
 
-interface AppwriteOrderDoc {
+interface D1OrderDoc {
   $id: string;
   $createdAt: string;
   branch_id: string;
@@ -98,7 +98,7 @@ function inPeriod(dateStr: string, period: AnalyticsPeriod): boolean {
 }
 
 // ─── Dynamic Mock Data Generator (Fallback) ───────────────────────────────────
-const generateMockOrders = (): AppwriteOrderDoc[] => {
+const generateMockOrders = (): D1OrderDoc[] => {
   const now = new Date();
   
   // Custom items list to randomly pick from
@@ -319,7 +319,7 @@ export default function ManagerDashboard() {
   const [customerSearchTerm, setCustomerSearchTerm] = useState('');
 
   // Data Fetching State
-  const [orders, setOrders] = useState<AppwriteOrderDoc[]>([]);
+  const [orders, setOrders] = useState<D1OrderDoc[]>([]);
   const [customers, setCustomers] = useState<any[]>([]);
   const [dbInventory, setDbInventory] = useState<any[]>([]);
   const [dbRecipes, setDbRecipes] = useState<any[]>([]);
@@ -329,11 +329,8 @@ export default function ManagerDashboard() {
 
   const taxRate = getTaxRate();
 
-  // ── Fetch orders and customers from Appwrite ──
+  // ── Fetch orders and customers from Database ──
   // Uses Electron IPC when running as desktop app, direct REST fetch when in browser
-  const APPWRITE_ENDPOINT = 'https://fra.cloud.appwrite.io/v1';
-  const APPWRITE_PROJECT = '69879ae70002444f3f38';
-  const APPWRITE_DB = '6a545eb00016d126bc82';
 
   const fetchOrders = async () => {
     setLoading(true);
@@ -749,7 +746,7 @@ export default function ManagerDashboard() {
       .sort((a, b) => new Date(b.$createdAt).getTime() - new Date(a.$createdAt).getTime())
       .slice(0, 5);
 
-    // 11. Real Loyalty values from Appwrite database
+    // 11. Real Loyalty values from Cloud D1 database
     const branchCustomers = customers.filter(c => {
       if (selectedBranch === 'all') return true;
       return c.branchId === selectedBranch;
@@ -1107,7 +1104,7 @@ export default function ManagerDashboard() {
       {/* ── Header Area with Live Status & Filters ─────────────────────────────────── */}
       <div className="flex flex-col tablet:flex-row tablet:items-center xl:flex-row xl:items-center justify-between gap-4 bg-white/50 backdrop-blur-md p-4 rounded-2xl border border-gray-200/40 shadow-sm relative z-30">
         
-        {/* Title and Appwrite Sync Connection Badge */}
+        {/* Title and Cloud Sync Connection Badge */}
         <div className="space-y-1.5 flex-1 min-w-0">
           <div className="flex flex-wrap items-center gap-3">
             <h1 className="text-xl md:text-2xl font-black text-gray-900 tracking-tight">

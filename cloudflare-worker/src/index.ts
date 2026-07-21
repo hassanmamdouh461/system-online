@@ -40,9 +40,8 @@ export default {
       const collectionId = pathParts[collectionIndex + 1];
       const docId = pathParts[collectionIndex + 3]; // Option: /documents/:docId
 
-      // Map Appwrite collection names to D1 database table names
-      // Appwrite: 'menu_items', 'orders', 'customers', 'inventory'
-      // SQLite: 'menu_items', 'orders', 'customers', 'inventory'
+      // Map collection / resource names to D1 database table names
+      // Tables: 'menu_items', 'orders', 'customers', 'inventory'
       const table = collectionId;
 
       // Check method
@@ -190,7 +189,7 @@ function getCorsHeaders() {
   return {
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Appwrite-Project, X-Appwrite-Key",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization",
     "Access-Control-Max-Age": "86400"
   };
 }
@@ -229,7 +228,7 @@ function denormalizeData(table: string, row: any) {
   const doc: any = { ...row };
   doc.$id = row.id;
   
-  // Map created_at / updated_at / createdAt to Appwrite's metadata fields
+  // Map created_at / updated_at / createdAt to metadata fields
   const created = row.createdAt || row.created_at || new Date().toISOString();
   const updated = row.updatedAt || row.updated_at || created;
   doc.$createdAt = created;
