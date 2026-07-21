@@ -495,8 +495,13 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
         </div>
       </div>
 
-      {/* 3. RIGHT COLUMN: Current Bill & Summary (Width 240-280px) */}
-      <div className="w-full sm:w-[240px] md:w-[250px] lg:w-[260px] xl:w-[280px] sm:h-full bg-white p-2 md:p-2.5 rounded-2xl border border-gray-200/80 shadow-sm flex flex-col justify-between overflow-hidden shrink-0">
+      {/* 3. RIGHT COLUMN: Current Bill & Summary (Expands in Dine-in mode) */}
+      <div className={clsx(
+        "sm:h-full bg-white p-3 md:p-4 rounded-2xl border border-gray-200/80 shadow-sm flex flex-col justify-between overflow-hidden shrink-0 transition-all duration-300",
+        orderMode === 'Dine-in'
+          ? "w-full sm:w-[360px] md:w-[400px] lg:w-[420px] xl:w-[460px]"
+          : "w-full sm:w-[240px] md:w-[250px] lg:w-[260px] xl:w-[280px]"
+      )}>
         <div className="flex-1 flex flex-col overflow-hidden">
           <h2 className="font-extrabold text-base md:text-lg text-mocha-800 border-b border-gray-100 pb-2 shrink-0">{t('Invoice Details')}</h2>
           
@@ -533,15 +538,15 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
                 placeholder={t('Enter Table Number')}
                 className="w-full px-4 py-2.5 bg-gray-50 border border-gray-300 rounded-xl font-extrabold text-base md:text-lg focus:outline-none focus:border-mocha-600 focus:ring-2 focus:ring-mocha-100"
               />
-              <div className="flex flex-wrap gap-1.5">
-                {['1', '2', '3', '4', '5', '6', '7', '8', '9', '10'].map(num => (
+              <div className="grid grid-cols-4 sm:grid-cols-5 gap-2">
+                {['1', '2', '3', '4', '5', '6', '7', '8'].map(num => (
                   <button
                     key={num}
                     onClick={() => setTableId(num)}
                     className={clsx(
-                      "px-3.5 py-2 text-sm md:text-base font-extrabold rounded-xl border transition-all shadow-sm",
+                      "py-2 text-sm md:text-base font-black rounded-xl border transition-all shadow-sm flex items-center justify-center",
                       tableId === num
-                        ? "bg-mocha-600 text-white border-mocha-700"
+                        ? "bg-mocha-600 text-white border-mocha-700 shadow-md"
                         : "bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100"
                     )}
                   >
