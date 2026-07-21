@@ -18,9 +18,9 @@ export default function Menu() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<MenuItem | null>(null);
 
-  // Admin menu page: filter by preparation destination only (Bar / Kitchen)
+  // Admin menu page: filter by preparation destination only (Bar)
   const dynamicCategories = React.useMemo(() => {
-    return ['All', 'Bar', 'Kitchen'];
+    return ['All', 'Bar'];
   }, []);
 
   const filteredItems = items.filter(item => {

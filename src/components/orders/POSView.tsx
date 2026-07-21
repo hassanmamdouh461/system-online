@@ -128,9 +128,9 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
     }
   };
 
-  // Available categories for cashier: only All, Bar (بار), Kitchen (مطبخ)
+  // Available categories for cashier: only All, Bar (بار)
   const categories = useMemo(() => {
-    return ['All', 'Bar', 'Kitchen'];
+    return ['All', 'Bar'];
   }, []);
 
   // Filtered menu items

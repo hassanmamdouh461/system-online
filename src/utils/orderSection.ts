@@ -1,53 +1,16 @@
 import { Order, OrderItem, OrderStatus } from '../types/order';
 
 export function getItemSection(category: string, name: string): 'kitchen' | 'drinks' {
-  const parts = category.split('|');
-  const cat = parts[1] ? parts[1].toLowerCase() : parts[0].toLowerCase();
-  
-  if (cat === 'bar' || cat === 'drinks') return 'drinks';
-  if (cat === 'kitchen') return 'kitchen';
-
-  const n = name.toLowerCase();
-  // Drinks categories and keywords
-  const drinksKeywords = [
-    'coffee', 'iced', 'hot', 'frappe', 'milkshake', 'latte', 'espresso', 
-    'drink', 'juice', 'tea', 'beverage', 'smoothie', 'soda', 'water',
-    'mojito', 'shake', 'brew', 'macchiato', 'cappuccino', 'flat white',
-    'americano', 'cortado', 'mocha'
-  ];
-  
-  const matchesDrink = drinksKeywords.some(keyword => cat.includes(keyword) || n.includes(keyword));
-  return matchesDrink ? 'drinks' : 'kitchen';
+  return 'drinks';
 }
 
 /**
  * Filter items of an order by destination section.
  */
 export function filterItemsBySection(items: OrderItem[], section: 'all' | 'kitchen' | 'drinks'): OrderItem[] {
-  if (section === 'all') return items;
-  
-  return items.filter(item => {
-    const catFull = item.category || '';
-    const parts = catFull.split('|');
-    const cat = parts[1] ? parts[1].toLowerCase() : parts[0].toLowerCase();
-    if (cat === 'bar' || cat === 'drinks') {
-      return section === 'drinks';
-    }
-    if (cat === 'kitchen') {
-      return section === 'kitchen';
-    }
-    
-    // Fallback to item name keyword matching for mock/legacy orders
-    const nameLower = item.name.toLowerCase();
-    const drinksKeywords = [
-      'coffee', 'iced', 'hot', 'frappe', 'milkshake', 'latte', 'espresso', 
-      'drink', 'juice', 'tea', 'beverage', 'smoothie', 'soda', 'water',
-      'mojito', 'shake', 'brew', 'macchiato', 'cappuccino', 'flat white',
-      'americano', 'cortado', 'mocha'
-    ];
-    const isDrink = drinksKeywords.some(keyword => nameLower.includes(keyword));
-    return section === 'drinks' ? isDrink : !isDrink;
-  });
+  if (section === 'all' || section === 'drinks') return items;
+  if (section === 'kitchen') return [];
+  return items;
 }
 
 /**

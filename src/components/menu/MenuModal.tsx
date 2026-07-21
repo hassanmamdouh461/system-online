@@ -261,7 +261,6 @@ export function MenuModal({ isOpen, onClose, onSave, initialData, existingItems 
                         className="w-full px-3 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-caramel focus:border-transparent transition-all bg-white text-sm font-bold text-gray-900"
                       >
                         <option value="Bar">بار (Bar)</option>
-                        <option value="Kitchen">مطبخ (Kitchen)</option>
                       </select>
                     </div>
                   </div>

@@ -16,7 +16,7 @@ import { filterItemsBySection, getOrderStatusForSection } from '../utils/orderSe
 import { printAllOrderTickets } from '../utils/printReceipts';
 
 interface OrdersProps {
-  type?: 'all' | 'kitchen' | 'drinks';
+  type?: 'all' | 'drinks';
 }
 
 export default function Orders({ type = 'all' }: OrdersProps) {
@@ -86,8 +86,7 @@ export default function Orders({ type = 'all' }: OrdersProps) {
       // Update the status of items belonging to this section!
       const updatedItems = order.items.map(item => {
         const isMatch = type === 'all' || 
-                        (type === 'drinks' && filterItemsBySection([item], 'drinks').length > 0) || 
-                        (type === 'kitchen' && filterItemsBySection([item], 'kitchen').length > 0);
+                        (type === 'drinks' && filterItemsBySection([item], 'drinks').length > 0);
                         
         if (isMatch) {
           return { ...item, status: newStatus };

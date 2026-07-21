@@ -12,9 +12,9 @@ export interface MenuItem {
   isSynced?: boolean;
 }
 
-export const CATEGORIES = ['All', 'Kitchen', 'Bar'];
+export const CATEGORIES = ['All', 'Bar'];
 
-// Coffee Shop Menu Data - 40 Items (Translated & Formatted)
+// Coffee Shop Menu Data - 32 Items (Drinks & Beverages Only)
 export const INITIAL_MENU_ITEMS: MenuItem[] = [
   // ☕ مشروبات ساخنة (البار)
   {
@@ -311,82 +311,6 @@ export const INITIAL_MENU_ITEMS: MenuItem[] = [
     price: 65.00,
     category: 'Iced Coffee|Bar',
     image: 'https://images.unsplash.com/photo-1513558161293-cdaf765ed2fd?w=400&auto=format&fit=crop&q=60',
-    available: true,
-  },
-
-  // 🍔 ساندوتشات ووجبات (المطبخ)
-  {
-    id: '33',
-    name: 'كلوب ساندوتش كلاسيك',
-    description: 'خبز توست محمص، صدور دجاج، خس، طماطم ومايونيز.',
-    price: 120.00,
-    category: 'ساندوتشات|Kitchen',
-    image: 'https://images.unsplash.com/photo-1567234669003-dce7a7a88821?w=400&auto=format&fit=crop&q=60',
-    available: true,
-  },
-  {
-    id: '34',
-    name: 'تشيز برجر لحم بقري',
-    description: 'قطعة لحم بقري مشوية، جبنة شيدر، مخلل وصوص البرجر الخاص.',
-    price: 150.00,
-    category: 'ساندوتشات|Kitchen',
-    image: 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=400&auto=format&fit=crop&q=60',
-    available: true,
-  },
-  {
-    id: '35',
-    name: 'ساندوتش دجاج بانيه',
-    description: 'صدور دجاج مقرمشة، خس، جبنة وصوص بانيه خاص.',
-    price: 99.00,
-    category: 'ساندوتشات|Kitchen',
-    image: 'https://images.unsplash.com/photo-1626082927389-6cd097cdc6ec?w=400&auto=format&fit=crop&q=60',
-    available: true,
-  },
-  {
-    id: '36',
-    name: 'كرواسون تركي وجبنة',
-    description: 'كرواسون هش محشو بشرائح الديك الرومي والجبنة السويسرية.',
-    price: 65.00,
-    category: 'ساندوتشات|Kitchen',
-    image: 'https://images.unsplash.com/photo-1555507036-ab1f4038808a?w=400&auto=format&fit=crop&q=60',
-    available: true,
-  },
-  {
-    id: '37',
-    name: 'ساندوتش جبنة مشوية',
-    description: 'جبنة شيدر وموزاريلا ذائبة في خبز توست محمص بالزبدة.',
-    price: 55.00,
-    category: 'ساندوتشات|Kitchen',
-    image: 'https://images.unsplash.com/photo-1525351484163-7529414344d8?w=400&auto=format&fit=crop&q=60',
-    available: true,
-  },
-
-  // 🍟 حلويات ومقبلات (المطبخ)
-  {
-    id: '38',
-    name: 'بطاطس بالجبنة',
-    description: 'بطاطس مقلية ذهبية مقرمشة مغطاة بصوص الجبنة الشيدر.',
-    price: 65.00,
-    category: 'مقبلات|Kitchen',
-    image: 'https://images.unsplash.com/photo-1573080496219-bb080dd4f877?w=400&auto=format&fit=crop&q=60',
-    available: true,
-  },
-  {
-    id: '39',
-    name: 'كيكة شوكولاتة فادج',
-    description: 'شريحة كيك شوكولاتة غنية بالفادج والكريمة السويسرية.',
-    price: 70.00,
-    category: 'حلويات|Kitchen',
-    image: 'https://images.unsplash.com/photo-1578985545062-69928b1d9587?w=400&auto=format&fit=crop&q=60',
-    available: true,
-  },
-  {
-    id: '40',
-    name: 'براوني شوكولاتة دافئة',
-    description: 'براوني شوكولاتة دافئة تقدم مع بول آيس كريم فانيليا.',
-    price: 60.00,
-    category: 'حلويات|Kitchen',
-    image: 'https://images.unsplash.com/photo-1606313564200-e75d5e30476c?w=400&auto=format&fit=crop&q=60',
     available: true,
   },
 ];

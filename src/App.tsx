@@ -52,7 +52,6 @@ function AppRoutes() {
           <Route path="/pos" element={<Orders type="all" />} />
           <Route path="/menu" element={<Menu />} />
           <Route path="/orders" element={<Orders type="all" />} />
-          <Route path="/kitchen" element={<Orders type="kitchen" />} />
           <Route path="/drinks" element={<Orders type="drinks" />} />
           <Route path="/payment" element={<Payment />} />
           <Route path="/inventory" element={<Inventory />} />
