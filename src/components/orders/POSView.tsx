@@ -541,14 +541,14 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
           : "w-full sm:w-[240px] md:w-[250px] lg:w-[260px] xl:w-[280px]"
       )}>
         <div className="flex-1 flex flex-col overflow-hidden">
-          <h2 className="font-extrabold text-base md:text-lg text-mocha-800 border-b border-gray-100 pb-2 shrink-0">{t('Invoice Details')}</h2>
+          <h2 className="font-extrabold text-xs md:text-sm text-mocha-800 border-b border-gray-100 pb-1 shrink-0">{t('Invoice Details')}</h2>
           
-          {/* Table Mode Selector */}
-          <div className="flex bg-gray-100 rounded-xl p-1 border border-gray-200 mt-3 shrink-0">
+          {/* Table Mode Selector - Compact & Sleek */}
+          <div className="flex bg-gray-100 rounded-xl p-0.5 border border-gray-200 mt-1.5 shrink-0">
             <button
               onClick={() => handleSetOrderMode('Dine-in')}
               className={clsx(
-                "flex-1 py-2.5 rounded-lg text-sm md:text-base font-black transition-all",
+                "flex-1 py-1.5 rounded-lg text-xs md:text-sm font-extrabold transition-all",
                 orderMode === 'Dine-in' ? "bg-white text-mocha-700 shadow-sm" : "text-gray-500 hover:bg-white/50"
               )}
             >
@@ -557,7 +557,7 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
             <button
               onClick={() => handleSetOrderMode('Takeaway')}
               className={clsx(
-                "flex-1 py-2.5 rounded-lg text-sm md:text-base font-black transition-all",
+                "flex-1 py-1.5 rounded-lg text-xs md:text-sm font-extrabold transition-all",
                 orderMode === 'Takeaway' ? "bg-white text-mocha-700 shadow-sm" : "text-gray-500 hover:bg-white/50"
               )}
             >
