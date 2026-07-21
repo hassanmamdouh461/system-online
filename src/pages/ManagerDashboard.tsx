@@ -10,6 +10,10 @@ import {
 import { useLanguage } from '../context/LanguageContext';
 import { getTaxRate } from '../utils/settingsConfig';
 import { useMenu } from '../hooks/useMenu';
+import { useAnalytics, AnalyticsPeriod } from '../hooks/useAnalytics';
+import { inventoryService } from '../services/inventoryService';
+import { menuService } from '../services/menuService';
+import { RecipeIngredient } from '../global';
 import SettingsPage from './Settings';
 
 // ─── Interfaces ──────────────────────────────────────────────────────────────
@@ -318,6 +322,18 @@ export default function ManagerDashboard() {
   const [activeTab, setActiveTab] = useState<'analytics' | 'inventory' | 'settings'>('analytics');
   const [customerSearchTerm, setCustomerSearchTerm] = useState('');
 
+  // Unified Analytics & Inventory State
+  const analytics = useAnalytics(dateRange);
+  const [liveInventory, setLiveInventory] = useState<any[]>([]);
+  const [recipes, setRecipes] = useState<any[]>([]);
+  const [menuItems, setMenuItems] = useState<any[]>([]);
+
+  useEffect(() => {
+    inventoryService.getAll().then(setLiveInventory).catch(() => {});
+    inventoryService.getMenuRecipes().then(res => { if (Array.isArray(res)) setRecipes(res); }).catch(() => {});
+    menuService.getAll().then(setMenuItems).catch(() => {});
+  }, []);
+
   // Data Fetching State
   const [orders, setOrders] = useState<D1OrderDoc[]>([]);
   const [customers, setCustomers] = useState<any[]>([]);
@@ -577,41 +593,14 @@ export default function ManagerDashboard() {
 
       message += `✅ تم تصدير تقرير المخزون من لوحة الإشراف المركزية`;
 
-    } else if (activeTab === 'customers') {
-      // 👥 REPORT 3: CUSTOMERS REPORT
-      const totalPoints = filteredCustomers.reduce((sum, c) => sum + (Number(c.points) || 0), 0);
-
-      message = `👥 <b>تقرير العملاء ونقاط الولاء: ${activeBranchName}</b>\n`;
-      message += `⏱️ التاريخ: <code>${todayStr}</code>\n\n`;
-
       message += `📊 <b>إحصائيات ولاء العملاء:</b>\n`;
-      message += `• إجمالي العملاء المسجلين: <b>${filteredCustomers.length}</b> عضو\n`;
-      message += `• إجمالي نقاط الولاء الموزعة: <b>${totalPoints.toLocaleString()}</b> نقطة\n`;
-      message += `• قيمة استرداد النقاط الكلية: <b>${totalPoints.toLocaleString()}</b> ج.م\n\n`;
-
-      if (filteredCustomers.length > 0) {
-        message += `📋 <b>قائمة العملاء المسجلين (أعلى 30 نقاط):</b>\n`;
-        const displayLimit = 30;
-        const sortedCustomers = [...filteredCustomers].sort((a, b) => (Number(b.points) || 0) - (Number(a.points) || 0));
-        
-        sortedCustomers.slice(0, displayLimit).forEach(c => {
-          const branchLabel = BRANCHES.find(b => b.id === c.branchId);
-          const bLabel = language === 'ar' ? branchLabel?.labelAr : branchLabel?.labelEn;
-          message += `• ${c.name || 'عميل'} (<code>${c.phone}</code>): <b>${c.points || 0}</b> نقطة [${bLabel || 'default'}]\n`;
-        });
-
-        if (filteredCustomers.length > displayLimit) {
-          message += `• ... و <b>${filteredCustomers.length - displayLimit}</b> عميل آخرين\n`;
-        }
-        message += `\n`;
-      } else {
-        message += `⚠️ لا يوجد عملاء مسجلين حالياً في هذا النطاق.\n\n`;
-      }
+      message += `• إجمالي العملاء المسجلين: <b>${customers.length}</b> عضو\n`;
+      message += `• إجمالي نقاط الولاء الموزعة: <b>${customers.reduce((s, c) => s + (Number(c.points) || 0), 0).toLocaleString()}</b> نقطة\n\n`;
 
       message += `✅ تم تصدير تقرير العملاء من لوحة الإشراف المركزية`;
     }
 
-    // 6. Send message to Telegram
+    // Send message to Telegram
     try {
       const url = `https://api.telegram.org/bot${botToken}/sendMessage`;
       const res = await fetch(url, {
@@ -641,364 +630,162 @@ export default function ManagerDashboard() {
     return () => window.removeEventListener('click', handleClose);
   }, []);
 
-  // ── Scoped Data Processing ──────────────────────────────────────────────────
+  // ── Scoped Data Processing (Directly from analytics hook for 100% parity with Reports) ──
   const processedData = useMemo(() => {
-    // 1. Branch Filtering
-    const branchFiltered = orders.filter(order => {
-      if (selectedBranch === 'all') return true;
-      return order.branch_id === selectedBranch;
-    });
-
-    // 2. Date Filtering (matches useAnalytics date filter by paidAt or createdAt)
-    const periodFiltered = branchFiltered.filter(order => inPeriod(order.paidAt || order.$createdAt || (order as any).createdAt, dateRange));
-
-    // 3. Paid vs Unpaid split (Paid requires exact 'Paid' status)
-    const paidOrders = periodFiltered.filter(order => order.paymentStatus === 'Paid');
-    const unpaidOrders = periodFiltered.filter(order => order.paymentStatus === 'Unpaid');
-
-    // 4. Calculate Stats
-    const realRevenue = paidOrders.reduce((sum, order) => sum + Number(order.total_amount || (order as any).totalAmount || 0) * (1 + taxRate), 0);
-    const totalOrdersCount = periodFiltered.length;
-    const paidOrdersCount = paidOrders.length;
-    const avgOrderValue = paidOrdersCount > 0 ? realRevenue / paidOrdersCount : 0;
-
-    // 5. Calculate Chart Trend
-    const cfg = CHART_CONFIG[dateRange];
-    const chartLabels = language === 'ar' ? cfg.labelsAr : cfg.labelsEn;
-    const chartRevenue = new Array(chartLabels.length).fill(0);
-    const chartOrderCounts = new Array(chartLabels.length).fill(0);
-
-    paidOrders.forEach(order => {
-      const bucketIdx = cfg.getBucket(new Date(order.paidAt || order.$createdAt || (order as any).createdAt));
-      if (bucketIdx >= 0 && bucketIdx < chartLabels.length) {
-        chartRevenue[bucketIdx] += Number(order.total_amount || (order as any).totalAmount || 0) * (1 + taxRate);
-        chartOrderCounts[bucketIdx] += 1;
-      }
-    });
-
-    const chartData: ChartPoint[] = chartLabels.map((label, idx) => ({
-      label,
-      value: chartRevenue[idx],
-      orders: chartOrderCounts[idx]
-    }));
-
-    // 6. Calculate Top Selling Products
-    const topItemMap: Record<string, TopItem> = {};
-    paidOrders.forEach(order => {
-      try {
-        const items: OrderItem[] = typeof order.items === 'string' ? JSON.parse(order.items) : order.items;
-        if (Array.isArray(items)) {
-          items.forEach(item => {
-            const name = item.name;
-            if (!topItemMap[name]) {
-              topItemMap[name] = { name, count: 0, revenue: 0 };
-            }
-            topItemMap[name].count += item.quantity;
-            topItemMap[name].revenue += item.quantity * item.price * (1 + taxRate);
-          });
-        }
-      } catch (e) {
-        console.error("Failed to parse order items JSON:", e);
-      }
-    });
-
-    const topItems = Object.values(topItemMap)
-      .sort((a, b) => b.count - a.count)
-      .slice(0, 5);
-
-    // 7. Order Mode Breakdown (Dine-in vs Takeaway)
-    let takeawayCount = 0;
-    let dineInCount = 0;
-    periodFiltered.forEach(order => {
-      const isTakeaway = order.tableId === 'Takeaway' || (!order.tableId && (order.$id || (order as any).id || '').charCodeAt(0) % 2 === 0);
-      if (isTakeaway) {
-        takeawayCount++;
-      } else {
-        dineInCount++;
-      }
-    });
-
-    // 8. Invoice Breakdown amounts
-    const paidAmount = paidOrders.reduce((sum, order) => sum + Number(order.total_amount || (order as any).totalAmount || 0) * (1 + taxRate), 0);
-    const unpaidAmount = unpaidOrders.reduce((sum, order) => sum + Number(order.total_amount || (order as any).totalAmount || 0) * (1 + taxRate), 0);
-
-    // 9. Payment Methods Breakdown
-    let cashAmount = 0;
-    let cardAmount = 0;
-    paidOrders.forEach(order => {
-      const isCard = order.payment_method?.toLowerCase() === 'card';
-      const amount = Number(order.total_amount || (order as any).totalAmount || 0) * (1 + taxRate);
-      if (isCard) {
-        cardAmount += amount;
-      } else {
-        cashAmount += amount;
-      }
-    });
-
-    const totalPaidAmount = cashAmount + cardAmount;
-    const cashPercentage = totalPaidAmount > 0 ? Math.round((cashAmount / totalPaidAmount) * 100) : 0;
-    const cardPercentage = totalPaidAmount > 0 ? Math.round((cardAmount / totalPaidAmount) * 100) : 0;
-
-    // 10. Recent Transactions (Paid only, sorted by newest)
-    const recentTransactions = [...paidOrders]
-      .sort((a, b) => new Date(b.paidAt || b.$createdAt || (b as any).createdAt).getTime() - new Date(a.paidAt || a.$createdAt || (a as any).createdAt).getTime())
-      .slice(0, 5);
-
-    // 11. Real Loyalty values from Cloud D1 database
-    const branchCustomers = customers.filter(c => {
-      if (selectedBranch === 'all') return true;
-      return c.branchId === selectedBranch;
-    });
-    const totalPoints = branchCustomers.reduce((sum, c) => sum + (Number(c.points) || 0), 0);
-    const activeLoyalty = {
-      count: branchCustomers.length,
-      points: totalPoints
-    };
-
     return {
-      totalRevenue: realRevenue,
-      totalOrdersCount,
-      avgOrderValue,
-      chartData,
-      topItems,
-      takeawayCount,
-      dineInCount,
-      totalCount: totalOrdersCount,
-      paidCount: paidOrders.length,
-      unpaidCount: unpaidOrders.length,
-      paidAmount,
-      unpaidAmount,
-      cashAmount,
-      cardAmount,
-      cashPercentage,
-      cardPercentage,
-      recentTransactions,
-      loyaltyCount: activeLoyalty.count,
-      loyaltyPoints: activeLoyalty.points,
-      loyaltyValue: activeLoyalty.points
+      totalRevenue: analytics.totalRevenue,
+      totalOrdersCount: analytics.totalOrders,
+      avgOrderValue: analytics.avgOrderValue,
+      chartData: analytics.chartData,
+      topItems: analytics.topItems,
+      takeawayCount: analytics.periodOrders.filter(o => o.tableId === 'Takeaway').length,
+      dineInCount: analytics.periodOrders.filter(o => o.tableId !== 'Takeaway').length,
+      totalCount: analytics.totalOrders,
+      paidCount: analytics.completedPeriod.length,
+      unpaidCount: analytics.periodOrders.filter(o => o.paymentStatus === 'Unpaid').length,
+      paidAmount: analytics.realRevenue,
+      unpaidAmount: analytics.periodOrders.filter(o => o.paymentStatus === 'Unpaid').reduce((s, o) => s + o.totalAmount * (1 + taxRate), 0),
+      cashAmount: analytics.completedPeriod.filter(o => o.paymentMethod === 'Cash').reduce((s, o) => s + o.totalAmount * (1 + taxRate), 0),
+      cardAmount: analytics.completedPeriod.filter(o => o.paymentMethod === 'Card').reduce((s, o) => s + o.totalAmount * (1 + taxRate), 0),
+      cashPercentage: analytics.totalRevenue > 0 ? Math.round((analytics.completedPeriod.filter(o => o.paymentMethod === 'Cash').reduce((s, o) => s + o.totalAmount * (1 + taxRate), 0) / analytics.totalRevenue) * 100) : 0,
+      cardPercentage: analytics.totalRevenue > 0 ? Math.round((analytics.completedPeriod.filter(o => o.paymentMethod === 'Card').reduce((s, o) => s + o.totalAmount * (1 + taxRate), 0) / analytics.totalRevenue) * 100) : 0,
+      recentTransactions: analytics.recentTransactions,
+      loyaltyCount: customers.length,
+      loyaltyPoints: customers.reduce((sum, c) => sum + (Number(c.points) || 0), 0),
+      loyaltyValue: customers.reduce((sum, c) => sum + (Number(c.points) || 0), 0)
     };
-  }, [orders, selectedBranch, dateRange, language, taxRate, customers]);
+  }, [analytics, taxRate, customers]);
 
-  // ── Inventory Data (Starting Stock & Recipes for consumption calc) ──────────
-  const INVENTORY_ITEMS = useMemo(() => {
-    if (dbInventory && dbInventory.length > 0) {
-      return dbInventory.map(item => {
-        const startVal = INITIAL_STOCKS[item.id] || item.stock * 1.5 || 100;
-        return {
-          id: item.id,
-          nameAr: item.name,
-          nameEn: item.name,
-          unit: item.unit,
-          unitAr: item.unit,
-          costPerUnit: item.costPerUnit,
-          startingStock: {
-            branch_1: item.branch_id === 'branch_1' ? startVal : 0,
-            branch_2: item.branch_id === 'branch_2' ? startVal : 0,
-            branch_3: item.branch_id === 'branch_3' ? startVal : 0,
-          },
-          minStock: item.minStock,
-        };
-      });
-    }
-    return [
-      { id: 'inv-beans', nameAr: 'حبوب القهوة إسبريسو', nameEn: 'Espresso Coffee Beans', unit: 'kg', unitAr: 'كجم', costPerUnit: 25.00, startingStock: { branch_1: 50.0, branch_2: 50.0, branch_3: 50.0 }, minStock: 5.0 },
-      { id: 'inv-milk', nameAr: 'حليب كامل الدسم', nameEn: 'Whole Milk', unit: 'liter', unitAr: 'لتر', costPerUnit: 1.50, startingStock: { branch_1: 100.0, branch_2: 100.0, branch_3: 100.0 }, minStock: 10.0 },
-      { id: 'inv-sugar', nameAr: 'سكر أبيض', nameEn: 'White Sugar', unit: 'kg', unitAr: 'كجم', costPerUnit: 1.10, startingStock: { branch_1: 50.0, branch_2: 50.0, branch_3: 50.0 }, minStock: 5.0 },
-      { id: 'inv-caramel', nameAr: 'صوص كراميل', nameEn: 'Caramel Syrup', unit: 'liter', unitAr: 'لتر', costPerUnit: 12.00, startingStock: { branch_1: 20.0, branch_2: 20.0, branch_3: 20.0 }, minStock: 2.0 },
-      { id: 'inv-vanilla', nameAr: 'سيروب فانيليا', nameEn: 'Vanilla Syrup', unit: 'liter', unitAr: 'لتر', costPerUnit: 12.00, startingStock: { branch_1: 20.0, branch_2: 20.0, branch_3: 20.0 }, minStock: 2.0 },
-      { id: 'inv-cups', nameAr: 'أكواب ورقية (12 أونص)', nameEn: 'Paper Cups (12oz)', unit: 'piece', unitAr: 'قطعة', costPerUnit: 0.15, startingStock: { branch_1: 1000.0, branch_2: 1000.0, branch_3: 1000.0 }, minStock: 100.0 },
-      { id: 'inv-beef', nameAr: 'شريحة لحم بقري بريميوم (150 جم)', nameEn: 'Prime Beef Patty (150g)', unit: 'piece', unitAr: 'قطعة', costPerUnit: 2.50, startingStock: { branch_1: 200.0, branch_2: 200.0, branch_3: 200.0 }, minStock: 20.0 },
-      { id: 'inv-buns', nameAr: 'خبز البرجر', nameEn: 'Burger Buns', unit: 'piece', unitAr: 'قطعة', costPerUnit: 0.50, startingStock: { branch_1: 200.0, branch_2: 200.0, branch_3: 200.0 }, minStock: 20.0 },
-      { id: 'inv-cheese', nameAr: 'شرائح جبن شيدر', nameEn: 'Cheddar Cheese Slices', unit: 'piece', unitAr: 'قطعة', costPerUnit: 0.30, startingStock: { branch_1: 300.0, branch_2: 300.0, branch_3: 300.0 }, minStock: 30.0 },
-      { id: 'inv-fries', nameAr: 'بطاطس مقلية', nameEn: 'Potato Fries', unit: 'kg', unitAr: 'كجم', costPerUnit: 2.00, startingStock: { branch_1: 100.0, branch_2: 100.0, branch_3: 100.0 }, minStock: 10.0 },
-      { id: 'inv-chicken', nameAr: 'صدور دجاج', nameEn: 'Chicken Breast', unit: 'kg', unitAr: 'كجم', costPerUnit: 4.50, startingStock: { branch_1: 80.0, branch_2: 80.0, branch_3: 80.0 }, minStock: 10.0 },
-      { id: 'inv-bread', nameAr: 'توست خبز', nameEn: 'Bread Toast', unit: 'slice', unitAr: 'شريحة', costPerUnit: 0.05, startingStock: { branch_1: 500.0, branch_2: 500.0, branch_3: 500.0 }, minStock: 5.0 },
-      { id: 'inv-lettuce', nameAr: 'خس', nameEn: 'Lettuce', unit: 'kg', unitAr: 'كجم', costPerUnit: 1.20, startingStock: { branch_1: 30.0, branch_2: 30.0, branch_3: 30.0 }, minStock: 5.0 },
-      { id: 'inv-tomato', nameAr: 'طماطم', nameEn: 'Tomato', unit: 'kg', unitAr: 'كجم', costPerUnit: 1.00, startingStock: { branch_1: 40.0, branch_2: 40.0, branch_3: 40.0 }, minStock: 5.0 },
-      { id: 'inv-mayo', nameAr: 'مايونيز', nameEn: 'Mayonnaise', unit: 'kg', unitAr: 'كجم', costPerUnit: 3.00, startingStock: { branch_1: 15.0, branch_2: 15.0, branch_3: 15.0 }, minStock: 2.0 },
-      { id: 'inv-croissant', nameAr: 'كرواسون سادة', nameEn: 'Croissant Plain', unit: 'piece', unitAr: 'قطعة', costPerUnit: 0.80, startingStock: { branch_1: 150.0, branch_2: 150.0, branch_3: 150.0 }, minStock: 15.0 },
-      { id: 'inv-turkey', nameAr: 'شريحة ديك رومي', nameEn: 'Turkey Slice', unit: 'piece', unitAr: 'قطعة', costPerUnit: 0.40, startingStock: { branch_1: 200.0, branch_2: 200.0, branch_3: 200.0 }, minStock: 20.0 },
-      { id: 'inv-mozzarella', nameAr: 'جبن موزاريلا', nameEn: 'Mozzarella', unit: 'kg', unitAr: 'كجم', costPerUnit: 6.00, startingStock: { branch_1: 25.0, branch_2: 25.0, branch_3: 25.0 }, minStock: 3.0 },
-      { id: 'inv-flour', nameAr: 'دقيق', nameEn: 'Flour', unit: 'kg', unitAr: 'كجم', costPerUnit: 0.80, startingStock: { branch_1: 50.0, branch_2: 50.0, branch_3: 50.0 }, minStock: 5.0 },
-      { id: 'inv-chocolate', nameAr: 'شوكولاتة فادج', nameEn: 'Chocolate Fudge', unit: 'kg', unitAr: 'كجم', costPerUnit: 5.00, startingStock: { branch_1: 30.0, branch_2: 30.0, branch_3: 30.0 }, minStock: 3.0 },
-      { id: 'inv-tea', nameAr: 'أوراق شاي', nameEn: 'Tea Leaves', unit: 'kg', unitAr: 'كجم', costPerUnit: 8.00, startingStock: { branch_1: 15.0, branch_2: 15.0, branch_3: 15.0 }, minStock: 2.0 },
-      { id: 'inv-peach', nameAr: 'سيروب خوخ', nameEn: 'Peach Syrup', unit: 'liter', unitAr: 'لتر', costPerUnit: 10.00, startingStock: { branch_1: 10.0, branch_2: 10.0, branch_3: 10.0 }, minStock: 1.0 },
-      { id: 'inv-mint', nameAr: 'أوراق نعناع', nameEn: 'Mint Leaves', unit: 'kg', unitAr: 'كجم', costPerUnit: 3.00, startingStock: { branch_1: 5.0, branch_2: 5.0, branch_3: 5.0 }, minStock: 0.5 },
-      { id: 'inv-lemon', nameAr: 'ليمون', nameEn: 'Lemon', unit: 'piece', unitAr: 'قطعة', costPerUnit: 0.10, startingStock: { branch_1: 500.0, branch_2: 500.0, branch_3: 500.0 }, minStock: 50.0 },
-      { id: 'inv-soda', nameAr: 'مياه صودا', nameEn: 'Soda Water', unit: 'liter', unitAr: 'لتر', costPerUnit: 0.50, startingStock: { branch_1: 120.0, branch_2: 120.0, branch_3: 120.0 }, minStock: 12.0 },
-      { id: 'inv-passion', nameAr: 'سيروب فواكه الاستوائية', nameEn: 'Passion Fruit Syrup', unit: 'liter', unitAr: 'لتر', costPerUnit: 15.00, startingStock: { branch_1: 10.0, branch_2: 10.0, branch_3: 10.0 }, minStock: 1.0 },
-      { id: 'inv-oreo', nameAr: 'بسكويت أوريو', nameEn: 'Oreo Biscuits', unit: 'piece', unitAr: 'قطعة', costPerUnit: 0.20, startingStock: { branch_1: 800.0, branch_2: 800.0, branch_3: 800.0 }, minStock: 50.0 },
-      { id: 'inv-strawberry', nameAr: 'فراولة', nameEn: 'Strawberry', unit: 'kg', unitAr: 'كجم', costPerUnit: 3.50, startingStock: { branch_1: 20.0, branch_2: 20.0, branch_3: 20.0 }, minStock: 2.0 },
-      { id: 'inv-mango', nameAr: 'مانجو', nameEn: 'Mango', unit: 'kg', unitAr: 'كجم', costPerUnit: 4.00, startingStock: { branch_1: 25.0, branch_2: 25.0, branch_3: 25.0 }, minStock: 2.0 },
-      { id: 'inv-icecream', nameAr: 'أيس كريم فانيليا', nameEn: 'Vanilla Ice Cream', unit: 'kg', unitAr: 'كجم', costPerUnit: 6.00, startingStock: { branch_1: 40.0, branch_2: 40.0, branch_3: 40.0 }, minStock: 5.0 }
-    ];
-  }, [dbInventory]);
+  // ── Inventory Data for Tab views ──
+  const activeInventory = useMemo(() => {
+    return liveInventory && liveInventory.length > 0 ? liveInventory : dbInventory;
+  }, [liveInventory, dbInventory]);
 
-  // Recipe: how much raw material each menu product consumes
-  const ITEM_RECIPES: Record<string, Record<string, number>> = useMemo(() => {
-    if (dbRecipes && dbRecipes.length > 0) {
-      const mapped: Record<string, Record<string, number>> = {};
-      dbRecipes.forEach(rec => {
-        if (!mapped[rec.menuItemId]) {
-          mapped[rec.menuItemId] = {};
-        }
-        mapped[rec.menuItemId][rec.inventoryItemId] = rec.quantity;
-      });
-      return mapped;
-    }
-    return {
-      'Espresso': { 'inv-beans': 0.009, 'inv-cups': 1 },
-      'Double Espresso': { 'inv-beans': 0.018, 'inv-cups': 1 },
-      'Cortado': { 'inv-beans': 0.012, 'inv-milk': 0.05, 'inv-cups': 1 },
-      'Flat White': { 'inv-beans': 0.018, 'inv-milk': 0.12, 'inv-cups': 1 },
-      'Cafe Latte': { 'inv-beans': 0.015, 'inv-milk': 0.20, 'inv-cups': 1 },
-      'Cappuccino': { 'inv-beans': 0.015, 'inv-milk': 0.18, 'inv-cups': 1 },
-      'Spanish Latte': { 'inv-beans': 0.015, 'inv-milk': 0.20, 'inv-caramel': 0.02, 'inv-cups': 1 },
-      'Americano': { 'inv-beans': 0.015, 'inv-cups': 1 },
-      'Cafe Mocha': { 'inv-beans': 0.015, 'inv-milk': 0.20, 'inv-chocolate': 0.02, 'inv-cups': 1 },
-      'Turkish Coffee': { 'inv-beans': 0.008, 'inv-cups': 1 },
-      'French Coffee': { 'inv-beans': 0.008, 'inv-milk': 0.10, 'inv-cups': 1 },
-      'Iced Americano': { 'inv-beans': 0.015, 'inv-cups': 1 },
-      'Iced Latte': { 'inv-beans': 0.015, 'inv-milk': 0.20, 'inv-cups': 1 },
-      'Iced Spanish Latte': { 'inv-beans': 0.015, 'inv-milk': 0.20, 'inv-caramel': 0.02, 'inv-cups': 1 },
-      'Iced Caramel Macchiato': { 'inv-beans': 0.015, 'inv-milk': 0.20, 'inv-caramel': 0.02, 'inv-vanilla': 0.01, 'inv-cups': 1 },
-      'Iced Mocha': { 'inv-beans': 0.015, 'inv-milk': 0.20, 'inv-chocolate': 0.02, 'inv-cups': 1 },
-      'Cold Brew': { 'inv-beans': 0.020, 'inv-cups': 1 },
-      'Iced Pistachio Latte': { 'inv-beans': 0.015, 'inv-milk': 0.20, 'inv-vanilla': 0.02, 'inv-cups': 1 },
-      'Mocha Frappe': { 'inv-beans': 0.015, 'inv-milk': 0.15, 'inv-chocolate': 0.03, 'inv-icecream': 0.05, 'inv-cups': 1 },
-      'Caramel Frappe': { 'inv-beans': 0.015, 'inv-milk': 0.15, 'inv-caramel': 0.03, 'inv-icecream': 0.05, 'inv-cups': 1 },
-      'Coffee Frappe': { 'inv-beans': 0.015, 'inv-milk': 0.15, 'inv-icecream': 0.05, 'inv-cups': 1 },
-      'Oreo Frappe': { 'inv-beans': 0.015, 'inv-milk': 0.15, 'inv-oreo': 3, 'inv-cups': 1 },
-      'Oreo Milkshake': { 'inv-milk': 0.25, 'inv-oreo': 4, 'inv-icecream': 0.10, 'inv-cups': 1 },
-      'Strawberry Milkshake': { 'inv-milk': 0.20, 'inv-strawberry': 0.10, 'inv-icecream': 0.10, 'inv-cups': 1 },
-      'Chocolate Milkshake': { 'inv-milk': 0.20, 'inv-chocolate': 0.03, 'inv-icecream': 0.10, 'inv-cups': 1 },
-      'Vanilla Milkshake': { 'inv-milk': 0.20, 'inv-vanilla': 0.02, 'inv-icecream': 0.15, 'inv-cups': 1 },
-      'Mango Milkshake': { 'inv-milk': 0.20, 'inv-mango': 0.10, 'inv-icecream': 0.10, 'inv-cups': 1 },
-      'Green Tea': { 'inv-tea': 0.005, 'inv-cups': 1 },
-      'Karak Tea': { 'inv-tea': 0.006, 'inv-milk': 0.05, 'inv-cups': 1 },
-      'Mint Lemonade': { 'inv-lemon': 2, 'inv-mint': 0.01, 'inv-soda': 0.20, 'inv-cups': 1 },
-      'Peach Iced Tea': { 'inv-tea': 0.005, 'inv-peach': 0.03, 'inv-cups': 1 },
-      'Passion Fruit Mojito': { 'inv-lemon': 1, 'inv-mint': 0.01, 'inv-passion': 0.03, 'inv-soda': 0.25, 'inv-cups': 1 },
-      'Classic Club Sandwich': { 'inv-bread': 3, 'inv-chicken': 0.10, 'inv-lettuce': 0.02, 'inv-tomato': 0.03, 'inv-mayo': 0.01 },
-      'Prime Beef Cheeseburger': { 'inv-beef': 1, 'inv-buns': 1, 'inv-cheese': 1, 'inv-lettuce': 0.01, 'inv-tomato': 0.02 },
-      'Chicken Pane Sandwich': { 'inv-chicken': 0.12, 'inv-bread': 2, 'inv-lettuce': 0.01, 'inv-cheese': 1, 'inv-mayo': 0.01 },
-      'Turkey & Cheese Croissant': { 'inv-croissant': 1, 'inv-turkey': 2, 'inv-cheese': 1 },
-      'Grilled Cheese Sandwich': { 'inv-bread': 2, 'inv-cheese': 2, 'inv-mozzarella': 0.05 },
-      'Cheese Fries': { 'inv-fries': 0.20, 'inv-cheese': 1 },
-      'Chocolate Fudge Cake': { 'inv-flour': 0.05, 'inv-chocolate': 0.04, 'inv-sugar': 0.03 },
-      'Warm Chocolate Brownie': { 'inv-flour': 0.03, 'inv-chocolate': 0.03, 'inv-icecream': 0.05 }
-    };
-  }, [dbRecipes]);
-
-  // Compute per-branch consumed quantities from synced orders
   const inventoryData = useMemo(() => {
-    const branchIds = ['branch_1', 'branch_2', 'branch_3'] as const;
-    // Accumulate consumption per branch
-    const consumption: Record<string, Record<string, number>> = {};
-    branchIds.forEach(b => { consumption[b] = {}; });
+    return activeInventory.map(inv => ({
+      ...inv,
+      nameAr: inv.name,
+      nameEn: inv.name,
+      unitAr: inv.unit,
+      branches: {
+        all: { remaining: inv.stock, consumed: 0, startStock: inv.stock, percentage: 100, isLow: inv.stock <= inv.minStock },
+        branch_1: { remaining: inv.stock, consumed: 0, startStock: inv.stock, percentage: 100, isLow: inv.stock <= inv.minStock },
+        branch_2: { remaining: inv.stock, consumed: 0, startStock: inv.stock, percentage: 100, isLow: inv.stock <= inv.minStock },
+        branch_3: { remaining: inv.stock, consumed: 0, startStock: inv.stock, percentage: 100, isLow: inv.stock <= inv.minStock }
+      }
+    }));
+  }, [activeInventory]);
 
-    orders.forEach(order => {
-      const bId = order.branch_id;
-      if (!consumption[bId]) return;
-      try {
-        const items: OrderItem[] = JSON.parse(order.items);
-        if (!Array.isArray(items)) return;
-        items.forEach(item => {
-          // Try lookup by id first, then name
-          const recipe = ITEM_RECIPES[item.id] || ITEM_RECIPES[item.menuItemId || ''] || ITEM_RECIPES[item.name];
-          if (!recipe) return;
-          Object.entries(recipe).forEach(([matId, qty]) => {
-            consumption[bId][matId] = (consumption[bId][matId] || 0) + qty * item.quantity;
-          });
-        });
-      } catch {}
-    });
-
-    // Now compute remaining stock per branch
-    return INVENTORY_ITEMS.map(inv => {
-      const branchData: Record<string, { remaining: number; consumed: number; startStock: number; percentage: number; isLow: boolean }> = {};
-      branchIds.forEach(bId => {
-        // Find starting stock
-        const start = INITIAL_STOCKS[inv.id] || (inv.startingStock && inv.startingStock[bId]) || 100;
-        const consumed = consumption[bId]?.[inv.id] || 0;
-        let remaining = Math.max(start - consumed, 0);
-
-        // Crucial override: if this is the active branch and we have real SQLite database data for this item,
-        // use the actual remaining stock from SQLite instead of calculated consumption!
-        if (dbInventory && dbInventory.length > 0) {
-          const dbItem = dbInventory.find(item => item.id === inv.id && item.branch_id === bId);
-          if (dbItem) {
-            remaining = dbItem.stock;
-          }
-        }
-
-        const percentage = start > 0 ? (remaining / start) * 100 : 0;
-        branchData[bId] = {
-          remaining: Math.round(remaining * 100) / 100,
-          consumed: Math.round(consumed * 100) / 100,
-          startStock: start,
-          percentage: Math.min(Math.round(percentage), 100),
-          isLow: remaining <= inv.minStock,
-        };
-      });
-      return { ...inv, branches: branchData };
-    });
-  }, [orders, INVENTORY_ITEMS, ITEM_RECIPES, dbInventory]);
-
-  // ── Compute average selling yields for materials based on recipes and menu prices ──
-  const materialYields = useMemo(() => {
+  // ── Compute average selling yields for materials (100% Identical to Reports) ──
+  const itemYields = useMemo(() => {
     const yields: Record<string, number> = {};
 
-    INVENTORY_ITEMS.forEach(inv => {
-      let totalYield = 0;
+    const invMapById = new Map<string, any>();
+    activeInventory.forEach(item => invMapById.set(item.id, item));
+
+    const resolveInvItem = (inventoryItemId: string): any => {
+      if (invMapById.has(inventoryItemId)) return invMapById.get(inventoryItemId);
+      if (inventoryItemId.startsWith('inv_b_')) {
+        const num = parseInt(inventoryItemId.replace('inv_b_', ''), 10);
+        if (!isNaN(num) && num > 0 && num <= activeInventory.length) {
+          return activeInventory[num - 1];
+        }
+      }
+      return undefined;
+    };
+
+    const getUnitCost = (invItemId: string): number => {
+      const found = resolveInvItem(invItemId);
+      return found?.costPerUnit && found.costPerUnit > 0 ? found.costPerUnit : 1;
+    };
+
+    const menuRecipeMap: Record<string, any[]> = {};
+    recipes.forEach(r => {
+      if (r.menuItemId) {
+        if (!menuRecipeMap[r.menuItemId]) menuRecipeMap[r.menuItemId] = [];
+        menuRecipeMap[r.menuItemId].push(r);
+      }
+    });
+
+    const activeMenuItems = (menuItems.length > 0 ? menuItems : (localMenuItems || []));
+    const menuMap = new Map(activeMenuItems.map(m => [String(m.id), m]));
+
+    const menuTotalCostMap = new Map<string, number>();
+    Object.entries(menuRecipeMap).forEach(([mId, ingList]) => {
+      const totalCost = ingList.reduce((sum, ing) => {
+        const cost = getUnitCost(ing.inventoryItemId);
+        return sum + (ing.quantity * cost);
+      }, 0);
+      menuTotalCostMap.set(mId, totalCost > 0 ? totalCost : 1);
+    });
+
+    const invRecipesMap = new Map<string, { menuItemId: string; quantity: number }[]>();
+    recipes.forEach(r => {
+      const invItem = resolveInvItem(r.inventoryItemId);
+      const targetId = invItem ? invItem.id : r.inventoryItemId;
+
+      if (!invRecipesMap.has(targetId)) invRecipesMap.set(targetId, []);
+      invRecipesMap.get(targetId)!.push({
+        menuItemId: String(r.menuItemId),
+        quantity: r.quantity
+      });
+    });
+
+    activeInventory.forEach((item: any) => {
+      const itemRecipes = invRecipesMap.get(item.id) || [];
+      const itemUnitCost = item.costPerUnit && item.costPerUnit > 0 ? item.costPerUnit : 1;
+
+      if (itemRecipes.length === 0) {
+        yields[item.id] = itemUnitCost * 2.5;
+        return;
+      }
+
+      let totalUnitYield = 0;
       let validCount = 0;
 
-      Object.entries(ITEM_RECIPES).forEach(([menuName, recipe]) => {
-        const qty = recipe[inv.id];
-        if (qty && qty > 0) {
-          const menuItem = localMenuItems?.find(m => m.name === menuName || m.id === menuName);
-          const price = menuItem ? menuItem.price : 0;
-          if (price > 0) {
-            totalYield += price / qty;
-            validCount++;
-          }
+      itemRecipes.forEach(rec => {
+        const menuItem = menuMap.get(String(rec.menuItemId));
+        const totalRecipeCost = menuTotalCostMap.get(String(rec.menuItemId)) || 1;
+        if (menuItem && rec.quantity > 0) {
+          const itemCostInRecipe = rec.quantity * itemUnitCost;
+          const costShareFraction = itemCostInRecipe / totalRecipeCost;
+          const allocatedRevenue = costShareFraction * menuItem.price;
+          const unitYield = allocatedRevenue / rec.quantity;
+          totalUnitYield += unitYield;
+          validCount++;
         }
       });
 
-      yields[inv.id] = validCount > 0 ? (totalYield / validCount) : (inv.costPerUnit * 2.5);
+      yields[item.id] = validCount > 0 ? (totalUnitYield / validCount) : (itemUnitCost * 2.5);
     });
 
     return yields;
-  }, [INVENTORY_ITEMS, ITEM_RECIPES, localMenuItems]);
+  }, [activeInventory, recipes, menuItems, localMenuItems]);
 
   // Inventory summary stats matching Reports page
   const inventorySummary = useMemo(() => {
     let totalValue = 0;
-    let totalSalesValue = 0;
     let totalProfitValue = 0;
     let lowStockCount = 0;
     let totalItems = 0;
 
-    const items = (dbInventory && dbInventory.length > 0) ? dbInventory : INVENTORY_ITEMS;
-
-    items.forEach(inv => {
-      const stock = Number(inv.stock !== undefined ? inv.stock : (inv.branches ? Object.values(inv.branches).reduce((a, b: any) => a + (b.remaining || 0), 0) : 0));
-      const costPerUnit = Number(inv.costPerUnit || 0);
+    activeInventory.forEach((item: any) => {
+      const stock = Number(item.stock || 0);
+      const costPerUnit = Number(item.costPerUnit || 0);
       const costVal = stock * costPerUnit;
-      const avgYield = materialYields[inv.id] || (costPerUnit * 2.5);
+      const avgYield = itemYields[item.id] || (costPerUnit * 2.5);
       const potSales = stock * avgYield;
       const potProfit = potSales > 0 ? Math.max(potSales - costVal, 0) : 0;
 
       totalValue += costVal;
-      totalSalesValue += potSales;
       totalProfitValue += potProfit;
 
-      if (stock <= (inv.minStock || 0)) lowStockCount++;
+      if (stock <= (item.minStock || 0)) lowStockCount++;
       totalItems++;
     });
 
-    return { totalValue, totalSalesValue, totalProfitValue, lowStockCount, totalItems };
-  }, [dbInventory, INVENTORY_ITEMS, materialYields]);
+    return { totalValue, totalSalesValue: totalValue + totalProfitValue, totalProfitValue, lowStockCount, totalItems };
+  }, [activeInventory, itemYields]);
 
   // Max bounds for graphing
   const maxRevenueValue = Math.max(...processedData.chartData.map(d => d.value), 1);
