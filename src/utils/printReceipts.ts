@@ -490,23 +490,35 @@ export function printAllOrderTickets(order: Order, lang: 'en' | 'ar' = 'ar') {
   const kitchenItems = filterItemsBySection(order.items, 'kitchen');
   const drinkItems = filterItemsBySection(order.items, 'drinks');
 
-  // 1. Print customer/cashier receipt first
-  printCustomerReceipt(order, lang);
+  let delay = 0;
 
-  let delay = 500;
-
-  // 2. Print kitchen ticket if order has kitchen items
-  if (kitchenItems.length > 0) {
-    setTimeout(() => {
-      printKitchenReceipt(order, lang);
-    }, delay);
+  // 1. Only print customer payment receipt if the order is PAID!
+  if (order.paymentStatus === 'Paid') {
+    printCustomerReceipt(order, lang);
     delay += 500;
   }
 
-  // 3. Print bar ticket if order has bar items
+  // 2. Print kitchen ticket if food items exist
+  if (kitchenItems.length > 0) {
+    if (delay > 0) {
+      setTimeout(() => {
+        printKitchenReceipt(order, lang);
+      }, delay);
+      delay += 500;
+    } else {
+      printKitchenReceipt(order, lang);
+      delay += 500;
+    }
+  }
+
+  // 3. Print bar ticket if drink items exist
   if (drinkItems.length > 0) {
-    setTimeout(() => {
+    if (delay > 0) {
+      setTimeout(() => {
+        printDrinksReceipt(order, lang);
+      }, delay);
+    } else {
       printDrinksReceipt(order, lang);
-    }, delay);
+    }
   }
 }
