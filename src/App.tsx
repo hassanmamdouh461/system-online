@@ -54,11 +54,11 @@ function AppRoutes() {
           <Route path="/orders" element={<Orders type="all" />} />
           <Route path="/drinks" element={<Orders type="drinks" />} />
           <Route path="/payment" element={<Payment />} />
-          <Route path="/inventory" element={<Inventory />} />
           <Route path="/settings" element={<Settings />} />
 
           {/* Manager Only Routes */}
           <Route element={<ManagerRoute />}>
+            <Route path="/inventory" element={<Inventory />} />
             <Route path="/reports" element={<Reports />} />
             <Route path="/manager" element={<ManagerDashboard />} />
             <Route path="/manager-dashboard" element={<ManagerDashboard />} />

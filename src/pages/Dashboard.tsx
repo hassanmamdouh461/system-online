@@ -83,7 +83,9 @@ export default function Dashboard() {
     }
   ];
 
-  const navItems = allNavItems.filter(item => item.key !== 'reports' || user?.role === 'manager');
+  const navItems = allNavItems.filter(item => 
+    (item.key !== 'reports' && item.key !== 'inventory') || user?.role === 'manager'
+  );
 
   return (
     <div className="min-h-full flex flex-col justify-between py-4 md:py-8 text-gray-800">

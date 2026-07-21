@@ -10,6 +10,7 @@ export function MobileNav() {
   const navItems = user?.role === 'manager'
     ? [
         { icon: Building2, label: 'Manager', path: '/manager-dashboard' },
+        { icon: Package, label: 'Inventory', path: '/inventory' },
         { icon: BarChart3, label: 'Reports', path: '/reports' },
         { icon: Settings, label: 'Settings', path: '/settings' },
       ]

@@ -16,6 +16,7 @@ import { menuService } from '../services/menuService';
 import { StatCard } from '../components/ui/StatCard';
 import { RecipeIngredient } from '../global';
 import SettingsPage from './Settings';
+import InventoryPage from './Inventory';
 
 // ─── Interfaces ──────────────────────────────────────────────────────────────
 interface OrderItem {
@@ -1033,7 +1034,7 @@ export default function ManagerDashboard() {
           }`}
         >
           <Package size={16} />
-          {language === 'ar' ? 'حالة المخزون بالفروع' : 'Branch Inventory Status'}
+          {language === 'ar' ? 'إدارة المخزون' : 'Inventory Management'}
           {inventorySummary.lowStockCount > 0 && (
             <span className={`absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full text-[10px] font-black flex items-center justify-center ${
               activeTab === 'inventory' ? 'bg-red-500 text-white' : 'bg-red-500 text-white animate-pulse'
@@ -1439,211 +1440,8 @@ export default function ManagerDashboard() {
       {/* ══ INVENTORY TAB ══════════════════════════════════════════════════ */}
       {/* ══════════════════════════════════════════════════════════════════════ */}
       {activeTab === 'inventory' && (
-        <div className="space-y-6">
-
-          {/* Inventory Summary Stat Cards */}
-          <div className="grid grid-cols-2 tablet:grid-cols-4 lg:grid-cols-4 gap-4 md:gap-6">
-            <StatCard
-              label={language === 'ar' ? 'إجمالي تكلفة المخزون' : 'Total Stock Cost'}
-              value={`${inventorySummary.totalValue.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })} ${currencyStr}`}
-              icon={DollarSign}
-              trend={language === 'ar' ? `${activeBranchLabel} - سعر الشراء` : `${activeBranchLabel} - Cost Price`}
-              color="blue"
-            />
-            <StatCard
-              label={language === 'ar' ? 'إجمالي القيمة البيعية' : 'Potential Sales Value'}
-              value={`${inventorySummary.totalSalesValue.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })} ${currencyStr}`}
-              icon={Coins}
-              trend={language === 'ar' ? `قيمة البيع المتوقعة` : `Est. selling yield`}
-              color="green"
-            />
-            <StatCard
-              label={language === 'ar' ? 'إجمالي الأرباح المتوقعة' : 'Expected Potential Profit'}
-              value={`${inventorySummary.totalProfitValue.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })} ${currencyStr}`}
-              icon={TrendingUp}
-              trend={language === 'ar' ? `الأرباح الكامنة بالمخزن` : `Expected margin`}
-              color="purple"
-            />
-            <StatCard
-              label={language === 'ar' ? 'تنبيهات نقص المخزون' : 'Low Stock Alerts'}
-              value={inventorySummary.lowStockCount.toString()}
-              icon={AlertTriangle}
-              trend={inventorySummary.lowStockCount > 0
-                ? (language === 'ar' ? '⚠️ يحتاج إعادة طلب فوري' : '⚠️ Needs immediate reorder')
-                : (language === 'ar' ? '✅ جميع الأصناف متوفرة' : '✅ All items sufficient')}
-              color={inventorySummary.lowStockCount > 0 ? 'orange' : 'green'}
-            />
-          </div>
-
-          {/* Inventory Table / Cards */}
-          {selectedBranch === 'all' ? (
-            /* ── Multi-Branch Comparative Table ────────────────────────────── */
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-150 overflow-hidden">
-              <div className="p-4 md:p-6 border-b border-gray-100">
-                <h2 className="text-base md:text-lg font-extrabold text-gray-900">
-                  {language === 'ar' ? 'مقارنة المخزون بين الفروع' : 'Cross-Branch Inventory Comparison'}
-                </h2>
-                <p className="text-xs text-gray-400 mt-1">
-                  {language === 'ar' 
-                    ? 'عرض الكميات المتبقية والمستهلكة لكل مادة خام في كل فرع محسوبة من الطلبات الفعلية'
-                    : 'Remaining and consumed quantities per material across branches, calculated from actual sales'}
-                </p>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-xs md:text-sm">
-                  <thead>
-                    <tr className="bg-gray-50/80">
-                      <th className="text-left px-4 py-3 font-bold text-gray-700 sticky left-0 bg-gray-50/80 z-10">
-                        {language === 'ar' ? 'المادة الخام' : 'Material'}
-                      </th>
-                      <th className="text-center px-3 py-3 font-bold text-gray-500">
-                        {language === 'ar' ? 'الوحدة' : 'Unit'}
-                      </th>
-                      {BRANCHES.filter(b => b.id !== 'all').map(branch => (
-                        <th key={branch.id} className="text-center px-3 py-3 font-bold text-gray-700 min-w-[140px]">
-                          {language === 'ar' ? branch.labelAr : branch.labelEn}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100">
-                    {inventoryData.map((inv, idx) => (
-                      <motion.tr
-                        key={inv.id}
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ delay: idx * 0.03 }}
-                        className="hover:bg-gray-50/50 transition-colors"
-                      >
-                        <td className="px-4 py-3 font-bold text-gray-800 sticky left-0 bg-white z-10">
-                          {language === 'ar' ? inv.nameAr : inv.nameEn}
-                        </td>
-                        <td className="text-center px-3 py-3 text-gray-400 font-semibold">
-                          {language === 'ar' ? inv.unitAr : inv.unit}
-                        </td>
-                        {['branch_1', 'branch_2', 'branch_3'].map(bId => {
-                          const bd = inv.branches[bId];
-                          if (!bd) return <td key={bId} className="text-center px-3 py-3">-</td>;
-                          return (
-                            <td key={bId} className="px-3 py-3">
-                              <div className="flex flex-col items-center gap-1">
-                                <span className={`font-bold text-sm ${
-                                  bd.isLow ? 'text-red-600' : 'text-gray-800'
-                                }`}>
-                                  {bd.remaining}
-                                  {bd.isLow && <AlertTriangle size={12} className="inline ml-1 text-red-500" />}
-                                </span>
-                                <div className="w-full max-w-[100px] h-2 bg-gray-100 rounded-full overflow-hidden">
-                                  <motion.div
-                                    initial={{ width: 0 }}
-                                    animate={{ width: `${bd.percentage}%` }}
-                                    transition={{ duration: 0.8, delay: idx * 0.03 }}
-                                    className={`h-full rounded-full ${
-                                      bd.percentage > 50 ? 'bg-emerald-500' :
-                                      bd.percentage > 25 ? 'bg-amber-500' : 'bg-red-500'
-                                    }`}
-                                  />
-                                </div>
-                                <span className="text-[10px] text-gray-400">{bd.percentage}%</span>
-                              </div>
-                            </td>
-                          );
-                        })}
-                      </motion.tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          ) : (
-            /* ── Single Branch Detailed Inventory Grid ─────────────────────── */
-            <div className="space-y-4">
-              <div className="flex items-center gap-3">
-                <h2 className="text-base md:text-lg font-extrabold text-gray-900">
-                  {language === 'ar' ? `تفاصيل مخزون ${activeBranchLabel}` : `${activeBranchLabel} Inventory Details`}
-                </h2>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {inventoryData.map((inv, idx) => {
-                  const bd = inv.branches[selectedBranch];
-                  if (!bd) return null;
-                  return (
-                    <motion.div
-                      key={inv.id}
-                      initial={{ opacity: 0, y: 15 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: idx * 0.04 }}
-                      className={`bg-white p-4 rounded-2xl border shadow-sm transition-all hover:shadow-md ${
-                        bd.isLow ? 'border-red-200 bg-red-50/30' : 'border-gray-150'
-                      }`}
-                    >
-                      <div className="flex items-start justify-between mb-3">
-                        <div>
-                          <h3 className="font-bold text-gray-900 text-sm">
-                            {language === 'ar' ? inv.nameAr : inv.nameEn}
-                          </h3>
-                          <p className="text-[11px] text-gray-400 mt-0.5">
-                            {language === 'ar' ? inv.unitAr : inv.unit} · {inv.costPerUnit} {currencyStr}/{language === 'ar' ? inv.unitAr : inv.unit}
-                          </p>
-                        </div>
-                        {bd.isLow && (
-                          <span className="flex items-center gap-1 text-[10px] font-bold text-red-600 bg-red-100 px-2 py-1 rounded-lg">
-                            <AlertTriangle size={11} />
-                            {language === 'ar' ? 'نقص' : 'Low'}
-                          </span>
-                        )}
-                      </div>
-
-                      {/* Progress Bar */}
-                      <div className="w-full h-3 bg-gray-100 rounded-full overflow-hidden mb-2">
-                        <motion.div
-                          initial={{ width: 0 }}
-                          animate={{ width: `${bd.percentage}%` }}
-                          transition={{ duration: 0.8, delay: idx * 0.04 }}
-                          className={`h-full rounded-full ${
-                            bd.percentage > 50 ? 'bg-emerald-500' :
-                            bd.percentage > 25 ? 'bg-amber-500' : 'bg-red-500'
-                          }`}
-                        />
-                      </div>
-
-                      <div className="flex justify-between text-[11px] text-gray-500 font-semibold">
-                        <span>
-                          {language === 'ar' ? 'متبقي' : 'Remaining'}: <span className="text-gray-800 font-bold">{bd.remaining}</span>
-                        </span>
-                        <span>{bd.percentage}%</span>
-                      </div>
-                      <div className="flex justify-between text-[10px] text-gray-400 mt-1">
-                        <span>{language === 'ar' ? 'مستهلك' : 'Consumed'}: {bd.consumed}</span>
-                        <span>{language === 'ar' ? 'بداية' : 'Start'}: {bd.startStock}</span>
-                      </div>
-                      <div className="mt-2 pt-2 border-t border-gray-100 space-y-1">
-                        <p className="text-[10px] text-gray-400 font-bold flex justify-between">
-                          <span>{language === 'ar' ? 'القيمة التقديرية (تكلفة):' : 'Cost Value:'}</span>
-                          <span className="text-gray-700 ml-1">
-                            {(bd.remaining * inv.costPerUnit).toLocaleString(undefined, { maximumFractionDigits: 0 })} {currencyStr}
-                          </span>
-                        </p>
-                        <p className="text-[10px] text-gray-400 font-bold flex justify-between">
-                          <span>{language === 'ar' ? 'القيمة البيعية المتوقعة:' : 'Potential Selling Value:'}</span>
-                          <span className="text-emerald-600 ml-1">
-                            {(bd.remaining * (materialYields[inv.id] || 0)).toLocaleString(undefined, { maximumFractionDigits: 0 })} {currencyStr}
-                          </span>
-                        </p>
-                        <p className="text-[10px] text-gray-400 font-bold flex justify-between">
-                          <span>{language === 'ar' ? 'الأرباح المتوقعة:' : 'Potential Profit:'}</span>
-                          <span className="text-sky-600 ml-1">
-                            {Math.max((bd.remaining * (materialYields[inv.id] || 0)) - (bd.remaining * inv.costPerUnit), 0).toLocaleString(undefined, { maximumFractionDigits: 0 })} {currencyStr}
-                          </span>
-                        </p>
-                      </div>
-                    </motion.div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
+        <div className="bg-white p-4 md:p-6 rounded-2xl border border-gray-150 shadow-sm">
+          <InventoryPage />
         </div>
       )}
 

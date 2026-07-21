@@ -31,6 +31,7 @@ export function TopNav() {
   const navItems = user?.role === 'manager' 
     ? [
         { icon: Building2, label: language === 'ar' ? 'لوحة المدير' : 'Manager Dashboard', to: '/manager-dashboard' },
+        { icon: Package, label: t('Inventory'), to: '/inventory' },
         { icon: BarChart3, label: t('Reports'), to: '/reports' },
         { icon: Settings, label: t('Settings'), to: '/settings' },
       ]
@@ -38,7 +39,6 @@ export function TopNav() {
         { icon: ClipboardList, label: t('Cashier Board'), to: '/orders' },
         { icon: CreditCard, label: t('Payment & Invoice'), to: '/payment' },
         { icon: UtensilsCrossed, label: t('Menu'), to: '/menu' },
-        { icon: Package, label: t('Inventory'), to: '/inventory' },
         { icon: Settings, label: t('Settings'), to: '/settings' },
       ];
 
