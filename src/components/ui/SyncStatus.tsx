@@ -66,8 +66,8 @@ export function SyncStatus() {
         borderColor: 'border-emerald-200',
         label: language === 'ar' ? 'قناة المزامنة نشطة' : 'Live Channel Active',
         description: language === 'ar' 
-          ? 'الموقع متصل بقناة الاستقبال المباشرة للمبيعات من كافة الفروع' 
-          : 'Portal is connected to central cloud channel for real-time sales updates',
+          ? 'الموقع متصل بقناة الاستقبال المباشرة للمبيعات للفرع الرئيسي' 
+          : 'Portal is connected to central cloud channel for main branch sales updates',
         spin: false
       };
     }
@@ -184,7 +184,7 @@ export function SyncStatus() {
                     </span>
                   </div>
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-semibold text-gray-700">{language === 'ar' ? 'الفروع المربوطة:' : 'Connected Branches:'}</span>
+                    <span className="font-semibold text-gray-700">{language === 'ar' ? 'الفرع المربوط:' : 'Connected Branch:'}</span>
                     <span>{language === 'ar' ? 'الفرع الرئيسي (نشط)' : 'Main Branch (Active)'}</span>
                   </div>
                 </>
