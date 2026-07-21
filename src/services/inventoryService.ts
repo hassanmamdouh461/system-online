@@ -1,6 +1,113 @@
 import { InventoryItem, InventoryTransaction, RecipeIngredient } from '../global';
 import { getDB } from '../repositories/indexeddb/db';
 
+const WEB_RECIPES_STORAGE_KEY = 'web_menu_recipes_store';
+
+// ☕ Default realistic recipes seeded for all menu items using stock items:
+// inv_b_1: بن إسبيريسو فاخر (kg, EGP 450)
+// inv_b_2: حليب كامل الدسم (L, EGP 35)
+// inv_b_3: أكواب ورقية سفري (cup, EGP 2)
+// inv_b_4: عيش (piece, EGP 3)
+const DEFAULT_WEB_RECIPES: Record<string, RecipeIngredient[]> = {
+  // 1: إسبيريسو
+  '1': [
+    { inventoryItemId: 'inv_b_1', quantity: 0.009 },
+    { inventoryItemId: 'inv_b_3', quantity: 1 }
+  ],
+  // 2: إسبيريسو دبل
+  '2': [
+    { inventoryItemId: 'inv_b_1', quantity: 0.018 },
+    { inventoryItemId: 'inv_b_3', quantity: 1 }
+  ],
+  // 3: كورنادو / كورتادو
+  '3': [
+    { inventoryItemId: 'inv_b_1', quantity: 0.018 },
+    { inventoryItemId: 'inv_b_2', quantity: 0.06 },
+    { inventoryItemId: 'inv_b_3', quantity: 1 }
+  ],
+  // 4: فلات وايت
+  '4': [
+    { inventoryItemId: 'inv_b_1', quantity: 0.018 },
+    { inventoryItemId: 'inv_b_2', quantity: 0.15 },
+    { inventoryItemId: 'inv_b_3', quantity: 1 }
+  ],
+  // 5: لاتيه
+  '5': [
+    { inventoryItemId: 'inv_b_1', quantity: 0.018 },
+    { inventoryItemId: 'inv_b_2', quantity: 0.20 },
+    { inventoryItemId: 'inv_b_3', quantity: 1 }
+  ],
+  // 6: كابوتشينو
+  '6': [
+    { inventoryItemId: 'inv_b_1', quantity: 0.018 },
+    { inventoryItemId: 'inv_b_2', quantity: 0.18 },
+    { inventoryItemId: 'inv_b_3', quantity: 1 }
+  ],
+  // 7: سبانش لاتيه
+  '7': [
+    { inventoryItemId: 'inv_b_1', quantity: 0.018 },
+    { inventoryItemId: 'inv_b_2', quantity: 0.20 },
+    { inventoryItemId: 'inv_b_3', quantity: 1 }
+  ],
+  // 8: أمريكاو
+  '8': [
+    { inventoryItemId: 'inv_b_1', quantity: 0.018 },
+    { inventoryItemId: 'inv_b_3', quantity: 1 }
+  ],
+  // 9: كافيه موكا
+  '9': [
+    { inventoryItemId: 'inv_b_1', quantity: 0.018 },
+    { inventoryItemId: 'inv_b_2', quantity: 0.20 },
+    { inventoryItemId: 'inv_b_3', quantity: 1 }
+  ],
+  // 10: هوت شوكليت
+  '10': [
+    { inventoryItemId: 'inv_b_2', quantity: 0.25 },
+    { inventoryItemId: 'inv_b_3', quantity: 1 }
+  ],
+  // 11: آيس لاتيه
+  '11': [
+    { inventoryItemId: 'inv_b_1', quantity: 0.018 },
+    { inventoryItemId: 'inv_b_2', quantity: 0.22 },
+    { inventoryItemId: 'inv_b_3', quantity: 1 }
+  ],
+  // 12: آيس سبانش لاتيه
+  '12': [
+    { inventoryItemId: 'inv_b_1', quantity: 0.018 },
+    { inventoryItemId: 'inv_b_2', quantity: 0.22 },
+    { inventoryItemId: 'inv_b_3', quantity: 1 }
+  ],
+  // 13: آيس أمريكانو
+  '13': [
+    { inventoryItemId: 'inv_b_1', quantity: 0.018 },
+    { inventoryItemId: 'inv_b_3', quantity: 1 }
+  ],
+  // 14: آيس موكا
+  '14': [
+    { inventoryItemId: 'inv_b_1', quantity: 0.018 },
+    { inventoryItemId: 'inv_b_2', quantity: 0.20 },
+    { inventoryItemId: 'inv_b_3', quantity: 1 }
+  ]
+};
+
+function getWebRecipeStore(): Record<string, RecipeIngredient[]> {
+  try {
+    const raw = localStorage.getItem(WEB_RECIPES_STORAGE_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch (e) {
+    console.warn('[inventoryService] Failed to parse web recipes store:', e);
+  }
+  return {};
+}
+
+function setWebRecipeStore(store: Record<string, RecipeIngredient[]>): void {
+  try {
+    localStorage.setItem(WEB_RECIPES_STORAGE_KEY, JSON.stringify(store));
+  } catch (e) {
+    console.warn('[inventoryService] Failed to save web recipes store:', e);
+  }
+}
+
 /**
  * Inventory Service - Dual Web/Electron Interface for Inventory and Recipes (IndexedDB persisted for Web)
  */
@@ -11,7 +118,6 @@ export const inventoryService = {
         return await window.electronAPI.getInventory(branchId);
       }
       const db = await getDB();
-      const tx = db.transaction('sync_queue', 'readonly'); // lightweight db check
       const items = (await (db as any).getAll('inventory')) || [];
       if (!branchId) return items;
       return items.filter((i: any) => !i.branchId || i.branchId === branchId);
@@ -112,7 +218,10 @@ export const inventoryService = {
       if (typeof window !== 'undefined' && window.electronAPI?.getMenuRecipes) {
         return await window.electronAPI.getMenuRecipes();
       }
-      return [];
+      const store = getWebRecipeStore();
+      const allIngredients: RecipeIngredient[] = [];
+      Object.values(store).forEach(list => allIngredients.push(...list));
+      return allIngredients;
     } catch (error) {
       return [];
     }
@@ -123,7 +232,39 @@ export const inventoryService = {
       if (typeof window !== 'undefined' && window.electronAPI?.getMenuItemRecipe) {
         return await window.electronAPI.getMenuItemRecipe(menuItemId);
       }
-      return [];
+      const store = getWebRecipeStore();
+      let ingredients: RecipeIngredient[] = store[menuItemId];
+      
+      if (!ingredients || ingredients.length === 0) {
+        ingredients = DEFAULT_WEB_RECIPES[menuItemId] || [
+          { inventoryItemId: 'inv_b_1', quantity: 0.018 },
+          { inventoryItemId: 'inv_b_3', quantity: 1 }
+        ];
+      }
+
+      // Map ingredient IDs to active inventory item IDs if needed
+      const currentInv = await this.getAll();
+      if (currentInv.length > 0) {
+        const beansItem = currentInv.find(i => i.id === 'inv_b_1' || i.name.includes('بن') || i.name.toLowerCase().includes('espresso') || i.name.toLowerCase().includes('beans'));
+        const milkItem = currentInv.find(i => i.id === 'inv_b_2' || i.name.includes('حليب') || i.name.toLowerCase().includes('milk'));
+        const cupsItem = currentInv.find(i => i.id === 'inv_b_3' || i.name.includes('أكواب') || i.name.includes('كوب') || i.name.toLowerCase().includes('cup'));
+        const breadItem = currentInv.find(i => i.id === 'inv_b_4' || i.name.includes('عيش') || i.name.includes('خبز') || i.name.toLowerCase().includes('bread'));
+
+        return ingredients.map(ing => {
+          let resolvedId = ing.inventoryItemId;
+          const exists = currentInv.some(i => i.id === resolvedId);
+          if (!exists) {
+            if (ing.inventoryItemId === 'inv_b_1' && beansItem) resolvedId = beansItem.id;
+            else if (ing.inventoryItemId === 'inv_b_2' && milkItem) resolvedId = milkItem.id;
+            else if (ing.inventoryItemId === 'inv_b_3' && cupsItem) resolvedId = cupsItem.id;
+            else if (ing.inventoryItemId === 'inv_b_4' && breadItem) resolvedId = breadItem.id;
+            else if (currentInv.length > 0) resolvedId = currentInv[0].id;
+          }
+          return { ...ing, inventoryItemId: resolvedId };
+        });
+      }
+
+      return ingredients;
     } catch (error) {
       return [];
     }
@@ -134,6 +275,9 @@ export const inventoryService = {
       if (typeof window !== 'undefined' && window.electronAPI?.saveMenuRecipe) {
         return await window.electronAPI.saveMenuRecipe(menuItemId, ingredients);
       }
+      const store = getWebRecipeStore();
+      store[menuItemId] = ingredients;
+      setWebRecipeStore(store);
       return ingredients;
     } catch (error) {
       return [];
@@ -145,7 +289,12 @@ export const inventoryService = {
       if (typeof window !== 'undefined' && window.electronAPI?.getRecipeCost) {
         return await window.electronAPI.getRecipeCost(menuItemId);
       }
-      return 0;
+      const recipe = await this.getMenuItemRecipe(menuItemId);
+      const inventory = await this.getAll();
+      return recipe.reduce((sum, ing) => {
+        const item = inventory.find(i => i.id === ing.inventoryItemId);
+        return sum + (item ? item.costPerUnit * ing.quantity : 0);
+      }, 0);
     } catch (error) {
       return 0;
     }
