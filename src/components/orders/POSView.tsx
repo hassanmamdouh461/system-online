@@ -4,7 +4,7 @@ import { getTaxRate } from '../../utils/settingsConfig';
 import { MenuItem, CATEGORIES } from '../../types/menu';
 import { OrderItem, Order } from '../../types/order';
 import { useLanguage } from '../../context/LanguageContext';
-import { Coffee, Trash2, Plus, Minus, CreditCard, DollarSign, Check, XCircle, Printer, Search } from 'lucide-react';
+import { Coffee, Trash2, Plus, Minus, CreditCard, DollarSign, Check, XCircle, Printer, Search, Settings, RotateCcw, X } from 'lucide-react';
 import { clsx } from 'clsx';
 import { printCustomerReceipt } from '../../utils/printReceipts';
 
@@ -54,6 +54,18 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
+  // Dynamic Table Management State
+  const [tables, setTables] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('pos_tables_list');
+      return saved ? JSON.parse(saved) : ['1', '2', '3', '4', '5', '6', '7', '8'];
+    } catch {
+      return ['1', '2', '3', '4', '5', '6', '7', '8'];
+    }
+  });
+  const [isManageTablesOpen, setIsManageTablesOpen] = useState(false);
+  const [newTableName, setNewTableName] = useState('');
+
   useEffect(() => {
     localStorage.setItem('pos_invoiceItems', JSON.stringify(invoiceItems));
   }, [invoiceItems]);
@@ -77,6 +89,32 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
   useEffect(() => {
     localStorage.setItem('pos_tableId', tableId);
   }, [tableId]);
+
+  useEffect(() => {
+    localStorage.setItem('pos_tables_list', JSON.stringify(tables));
+  }, [tables]);
+
+  const handleAddTable = (tableNameToAdd?: string) => {
+    const target = (tableNameToAdd || newTableName).trim();
+    if (!target) return;
+    const cleanName = target.replace(/^T/i, '');
+    if (!tables.includes(cleanName)) {
+      setTables(prev => [...prev, cleanName]);
+      setTableId(cleanName);
+    }
+    setNewTableName('');
+  };
+
+  const handleDeleteTable = (num: string) => {
+    setTables(prev => prev.filter(t => t !== num));
+    if (tableId === num) {
+      setTableId('');
+    }
+  };
+
+  const handleResetTables = () => {
+    setTables(['1', '2', '3', '4', '5', '6', '7', '8']);
+  };
 
 
 
@@ -527,11 +565,23 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
             </button>
           </div>
 
-          {/* Table ID Selector (Only visible for Dine-in) - Compact & Space Efficient */}
+          {/* Table ID Selector (Only visible for Dine-in) - Compact & Dynamic */}
           {orderMode === 'Dine-in' && (
             <div className="mt-2 shrink-0 space-y-1.5 border-b border-gray-100 pb-2">
               <div className="flex items-center justify-between gap-2">
-                <label className="text-xs text-gray-600 font-extrabold shrink-0">{t('Table')}:</label>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <label className="text-xs text-gray-600 font-extrabold">{t('Table')}:</label>
+                  <button
+                    type="button"
+                    onClick={() => setIsManageTablesOpen(true)}
+                    className="p-1 text-mocha-700 bg-mocha-50 hover:bg-mocha-100 border border-mocha-200 rounded-lg text-xs font-bold flex items-center gap-1 transition-colors"
+                    title={isRtl ? 'إدارة / تعديل الطاولات' : 'Manage Tables'}
+                  >
+                    <Settings size={12} />
+                    <span className="text-[10px]">{isRtl ? 'إدارة' : 'Manage'}</span>
+                  </button>
+                </div>
+
                 <input
                   type="text"
                   value={tableId}
@@ -540,13 +590,14 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
                   className="w-full px-3 py-1 bg-gray-50 border border-gray-300 rounded-lg font-black text-xs md:text-sm focus:outline-none focus:border-mocha-600 text-gray-900"
                 />
               </div>
-              <div className="grid grid-cols-4 sm:grid-cols-8 gap-1">
-                {['1', '2', '3', '4', '5', '6', '7', '8'].map(num => (
+
+              <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto pr-0.5 custom-scrollbar">
+                {tables.map(num => (
                   <button
                     key={num}
                     onClick={() => setTableId(num)}
                     className={clsx(
-                      "py-1 text-xs font-black rounded-lg border transition-all shadow-sm flex items-center justify-center",
+                      "px-2.5 py-1 text-xs font-black rounded-lg border transition-all shadow-sm flex items-center justify-center min-w-[36px]",
                       tableId === num
                         ? "bg-mocha-600 text-white border-mocha-700 shadow-sm"
                         : "bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100"
@@ -555,6 +606,15 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
                     T{num}
                   </button>
                 ))}
+                <button
+                  type="button"
+                  onClick={() => setIsManageTablesOpen(true)}
+                  className="px-2.5 py-1 text-xs font-black rounded-lg border border-dashed border-mocha-300 text-mocha-700 bg-mocha-50/50 hover:bg-mocha-100 transition-colors flex items-center gap-0.5"
+                  title={isRtl ? 'إضافة طاولة جديد' : 'Add Table'}
+                >
+                  <Plus size={12} />
+                  <span>{isRtl ? 'إضافة' : 'Add'}</span>
+                </button>
               </div>
             </div>
           )}
@@ -657,10 +717,104 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
             </div>
           )}
         </div>
-
       </div>
 
+      {/* Manage Tables Modal */}
+      {isManageTablesOpen && (
+        <AnimatePresence>
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-2xl p-5 max-w-md w-full shadow-2xl border border-gray-100 space-y-4 text-gray-900"
+            >
+              <div className="flex justify-between items-center border-b border-gray-100 pb-3">
+                <h3 className="font-extrabold text-lg text-mocha-800 flex items-center gap-2">
+                  <Settings className="w-5 h-5 text-mocha-700" />
+                  {isRtl ? 'إدارة طاولات المطعم' : 'Manage Restaurant Tables'}
+                </h3>
+                <button
+                  onClick={() => setIsManageTablesOpen(false)}
+                  className="p-1 text-gray-400 hover:text-gray-600 rounded-lg"
+                >
+                  <X size={18} />
+                </button>
+              </div>
 
+              {/* Add New Table Form */}
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  handleAddTable();
+                }}
+                className="flex gap-2"
+              >
+                <input
+                  type="text"
+                  value={newTableName}
+                  onChange={(e) => setNewTableName(e.target.value)}
+                  placeholder={isRtl ? 'رقم أو اسم الطاولة (مثال: 9 أو VIP)' : 'Table Name / No (e.g. 9 or VIP)'}
+                  className="flex-1 px-4 py-2 bg-gray-50 border border-gray-300 rounded-xl text-sm font-extrabold text-gray-900 focus:outline-none focus:border-mocha-600"
+                />
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-mocha-600 hover:bg-mocha-700 text-white rounded-xl text-xs font-black transition-all flex items-center gap-1 shrink-0 shadow-sm"
+                >
+                  <Plus size={16} />
+                  {isRtl ? 'إضافة' : 'Add'}
+                </button>
+              </form>
+
+              {/* Table Badges List */}
+              <div className="space-y-1.5">
+                <label className="text-xs text-gray-500 font-extrabold uppercase block">
+                  {isRtl ? 'الطاولات الحالية (اضغط على × للحذف):' : 'Current Tables (click × to delete):'}
+                </label>
+                <div className="flex flex-wrap gap-2 max-h-48 overflow-y-auto p-2 bg-gray-50 rounded-xl border border-gray-200 custom-scrollbar">
+                  {tables.map(num => (
+                    <div
+                      key={num}
+                      className={clsx(
+                        "flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-black transition-all shadow-sm",
+                        tableId === num ? "bg-mocha-600 text-white border-mocha-700" : "bg-white text-gray-800 border-gray-200"
+                      )}
+                    >
+                      <span>T{num}</span>
+                      <button
+                        onClick={() => handleDeleteTable(num)}
+                        className="text-red-500 hover:text-red-700 hover:bg-red-50 p-0.5 rounded transition-colors"
+                        title={isRtl ? 'حذف' : 'Delete'}
+                      >
+                        <X size={12} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Reset to Default & Close */}
+              <div className="flex justify-between items-center pt-3 border-t border-gray-100">
+                <button
+                  type="button"
+                  onClick={handleResetTables}
+                  className="text-xs font-extrabold text-red-600 hover:text-red-700 flex items-center gap-1"
+                >
+                  <RotateCcw size={14} />
+                  {isRtl ? 'إعادة تعيين للأصل (T1-T8)' : 'Reset to Default'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsManageTablesOpen(false)}
+                  className="px-4 py-1.5 bg-gray-200 hover:bg-gray-300 text-gray-800 rounded-xl text-xs font-extrabold transition-all"
+                >
+                  {isRtl ? 'تم / إغلاق' : 'Done'}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        </AnimatePresence>
+      )}
 
     </div>
   );
