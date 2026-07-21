@@ -26,14 +26,6 @@ export function MenuItemCard({ item, onEdit, onDelete, onToggleStatus }: MenuIte
         <div className="flex justify-between items-start mb-2">
           <div className="flex-1 min-w-0 mr-2">
             <h3 className="font-bold text-base text-gray-900 truncate">{t(item.name)}</h3>
-            <span className="text-[10px] text-gray-500 font-medium px-2 py-0.5 bg-gray-100 rounded-full">
-              {(() => {
-                const parts = item.category.split('|');
-                const menuCat = parts[0];
-                const prepArea = parts[1] === 'Kitchen' ? 'مطبخ' : parts[1] === 'Bar' ? 'بار' : '';
-                return prepArea ? `${t(menuCat) || menuCat} (${prepArea})` : (t(menuCat) || menuCat);
-              })()}
-            </span>
           </div>
           <div className="flex flex-col items-end shrink-0 gap-1">
             <span className="font-bold text-base text-mocha-700">{item.price.toFixed(2)} {isRtl ? 'ج.م' : 'EGP'}</span>
