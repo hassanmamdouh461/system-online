@@ -222,7 +222,7 @@ export function MenuModal({ isOpen, onClose, onSave, initialData, existingItems 
                       required
                       value={formData.name}
                       onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                      className="w-full px-4 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-caramel focus:border-transparent transition-all"
+                      className="w-full px-4 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-caramel focus:border-transparent transition-all bg-white text-gray-900 placeholder-gray-400 font-medium"
                       placeholder={t('e.g. Spanish Latte')}
                     />
                   </div>
@@ -233,7 +233,7 @@ export function MenuModal({ isOpen, onClose, onSave, initialData, existingItems 
                       rows={3}
                       value={formData.description}
                       onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                      className="w-full px-4 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-caramel focus:border-transparent transition-all resize-none"
+                      className="w-full px-4 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-caramel focus:border-transparent transition-all resize-none bg-white text-gray-900 placeholder-gray-400 font-medium"
                       placeholder={t('Brief description of the item...')}
                     />
                   </div>
@@ -247,7 +247,7 @@ export function MenuModal({ isOpen, onClose, onSave, initialData, existingItems 
                         required
                         value={formData.price}
                         onChange={(e) => setFormData({ ...formData, price: e.target.value })}
-                        className="w-full px-3 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-caramel focus:border-transparent transition-all text-sm"
+                        className="w-full px-3 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-caramel focus:border-transparent transition-all text-sm bg-white text-gray-900 placeholder-gray-400 font-bold"
                         placeholder="0.00"
                       />
                     </div>
@@ -257,7 +257,7 @@ export function MenuModal({ isOpen, onClose, onSave, initialData, existingItems 
                       <select
                         value={preparation}
                         onChange={(e) => setPreparation(e.target.value)}
-                        className="w-full px-3 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-caramel focus:border-transparent transition-all bg-white text-sm font-bold text-mocha-800"
+                        className="w-full px-3 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-caramel focus:border-transparent transition-all bg-white text-sm font-bold text-gray-900"
                       >
                         <option value="Bar">بار (Bar)</option>
                         <option value="Kitchen">مطبخ (Kitchen)</option>

@@ -18,11 +18,19 @@
     max-width: 100vw;
   }
 
-  /* Allow text selection in specific elements */
-  input, textarea, [contenteditable] {
+  /* Allow text selection and ensure text visibility in inputs */
+  input, select, textarea, [contenteditable] {
+    color: #111827 !important; /* Force text color to dark gray */
+    -webkit-text-fill-color: #111827 !important; /* Fix WebKit/Blink autofill text color */
     -webkit-user-select: text;
     user-select: text;
     touch-action: manipulation; /* Disable double-tap zoom */
+  }
+
+  ::placeholder, input::placeholder, textarea::placeholder {
+    color: #9CA3AF !important; /* gray-400 */
+    -webkit-text-fill-color: #9CA3AF !important;
+    opacity: 1;
   }
 
   /* Smooth scrolling containers */
