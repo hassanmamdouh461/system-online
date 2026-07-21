@@ -305,7 +305,7 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
 
       const newOrder = await onCreateOrder(finalTableId, invoiceItems, finalStatus, paymentMethod, paidAmt, customerPhone, pointsEarned, pointsRedeemed);
       
-      if (newOrder && orderMode === 'Takeaway') {
+      if (newOrder) {
         printAllOrderTickets(newOrder, language);
       }
 
