@@ -72,31 +72,38 @@ export default function Inventory() {
     // Group recipe entries by inventoryItemId
     const recipeGroups: Record<string, { menuItemId: string; quantity: number }[]> = {};
     recipes.forEach(r => {
-      if (!recipeGroups[r.inventoryItemId]) {
-        recipeGroups[r.inventoryItemId] = [];
+      if (r.inventoryItemId) {
+        if (!recipeGroups[r.inventoryItemId]) {
+          recipeGroups[r.inventoryItemId] = [];
+        }
+        recipeGroups[r.inventoryItemId].push({
+          menuItemId: String(r.menuItemId),
+          quantity: r.quantity
+        });
       }
-      recipeGroups[r.inventoryItemId].push({
-        menuItemId: r.menuItemId,
-        quantity: r.quantity
-      });
     });
 
     // Create a map of menu items by ID for fast lookup
-    const menuMap = new Map(menuItems.map(item => [item.id, item]));
+    const menuMap = new Map(menuItems.map(item => [String(item.id), item]));
 
     // Calculate average yield for each inventory item
     inventory.forEach(item => {
-      const itemRecipes = recipeGroups[item.id] || [];
+      let itemRecipes = recipeGroups[item.id] || [];
+
+      // Fallback matching by inventory item index if exact ID differs
       if (itemRecipes.length === 0) {
-        yields[item.id] = 0;
-        return;
+        const itemIdx = inventory.findIndex(i => i.id === item.id);
+        if (itemIdx >= 0) {
+          const fallbackId = `inv_b_${itemIdx + 1}`;
+          itemRecipes = recipeGroups[fallbackId] || [];
+        }
       }
 
       let totalYield = 0;
       let validCount = 0;
 
       itemRecipes.forEach(rec => {
-        const menuItem = menuMap.get(rec.menuItemId);
+        const menuItem = menuMap.get(String(rec.menuItemId));
         if (menuItem && rec.quantity > 0) {
           const yieldVal = menuItem.price / rec.quantity;
           totalYield += yieldVal;
@@ -104,7 +111,12 @@ export default function Inventory() {
         }
       });
 
-      yields[item.id] = validCount > 0 ? (totalYield / validCount) : 0;
+      if (validCount > 0) {
+        yields[item.id] = totalYield / validCount;
+      } else {
+        // Standard F&B margin multiplier (2.5x unit cost) for items without direct recipe links
+        yields[item.id] = item.costPerUnit * 2.5;
+      }
     });
 
     return yields;

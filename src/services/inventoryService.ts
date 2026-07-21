@@ -231,7 +231,20 @@ export const inventoryService = {
       }
       const store = getWebRecipeStore();
       const allIngredients: RecipeIngredient[] = [];
-      Object.values(store).forEach(list => allIngredients.push(...list));
+
+      // Combine DEFAULT_WEB_RECIPES with custom web store overrides
+      const allMenuItemIds = Array.from(new Set([...Object.keys(DEFAULT_WEB_RECIPES), ...Object.keys(store)]));
+
+      for (const menuItemId of allMenuItemIds) {
+        const ingredients = store[menuItemId] || DEFAULT_WEB_RECIPES[menuItemId] || [];
+        ingredients.forEach(ing => {
+          allIngredients.push({
+            ...ing,
+            menuItemId
+          });
+        });
+      }
+
       return allIngredients;
     } catch (error) {
       return [];
