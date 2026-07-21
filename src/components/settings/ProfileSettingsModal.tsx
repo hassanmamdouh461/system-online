@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { X, User, ShieldCheck, AlertCircle, Lock } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { X, ShieldCheck, AlertCircle, Lock } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { getAdminCredentials, setAdminCredentials } from '../../utils/settingsConfig';
 import { useAuth } from '../../context/AuthContext';
@@ -55,11 +56,11 @@ export function ProfileSettingsModal({ isOpen, onClose }: ProfileSettingsModalPr
 
   if (!isOpen) return null;
 
-  return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-gray-900/40 backdrop-blur-sm" onClick={onClose} />
+  return createPortal(
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-gray-900/50 backdrop-blur-sm" onClick={onClose} />
       
-      <div className="relative bg-white w-full max-w-md tablet:max-w-lg rounded-2xl shadow-xl overflow-hidden">
+      <div className="relative bg-white w-full max-w-md tablet:max-w-lg rounded-2xl shadow-2xl overflow-hidden z-10">
         {/* Header */}
         <div className="bg-blue-600 px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -130,6 +131,7 @@ export function ProfileSettingsModal({ isOpen, onClose }: ProfileSettingsModalPr
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

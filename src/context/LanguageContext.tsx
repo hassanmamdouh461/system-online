@@ -248,6 +248,18 @@ const translations: Record<string, Record<Language, string>> = {
   'Add New Item': { en: 'Add New Item', ar: 'إضافة صنف جديد' },
   'Name': { en: 'Name', ar: 'الاسم' },
   'Price': { en: 'Price', ar: 'السعر' },
+
+  // Profile Settings Modal
+  'Change Password': { en: 'Change Password', ar: 'تغيير كلمة المرور' },
+  'Update the password used to log into the system': { en: 'Update the password used to log into the system', ar: 'تحديث كلمة المرور المستخدمة للدخول إلى النظام' },
+  'New Password': { en: 'New Password', ar: 'كلمة المرور الجديدة' },
+  'Confirm New Password': { en: 'Confirm New Password', ar: 'تأكيد كلمة المرور الجديدة' },
+  'Enter new password': { en: 'Enter new password', ar: 'أدخل كلمة المرور الجديدة' },
+  'Re-enter new password': { en: 'Re-enter new password', ar: 'أعد إدخال كلمة المرور الجديدة' },
+  'Password updated successfully!': { en: 'Password updated successfully!', ar: 'تم تحديث كلمة المرور بنجاح!' },
+  'Logging you out to apply changes...': { en: 'Logging you out to apply changes...', ar: 'جاري تسجيل الخروج لتطبيق التغييرات...' },
+  'Password must be at least 3 characters': { en: 'Password must be at least 3 characters', ar: 'يجب أن لا تقل كلمة المرور عن 3 أحرف' },
+  'Passwords do not match': { en: 'Passwords do not match', ar: 'كلمتا المرور غير متطابقتين' },
   'Category': { en: 'Category', ar: 'التصنيف' },
   'Description': { en: 'Description', ar: 'الوصف' },
   'Available': { en: 'Available', ar: 'متوفر' },
