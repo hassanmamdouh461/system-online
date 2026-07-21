@@ -13,7 +13,7 @@ import { clsx } from 'clsx';
 import { POSView } from '../components/orders/POSView';
 
 import { filterItemsBySection, getOrderStatusForSection } from '../utils/orderSection';
-import { printKitchenReceipt, printDrinksReceipt } from '../utils/printReceipts';
+import { printAllOrderTickets } from '../utils/printReceipts';
 
 interface OrdersProps {
   type?: 'all' | 'kitchen' | 'drinks';
@@ -52,10 +52,6 @@ export default function Orders({ type = 'all' }: OrdersProps) {
       pointsEarned,
       pointsRedeemed
     });
-    if (newOrder) {
-      printKitchenReceipt(newOrder, language);
-      printDrinksReceipt(newOrder, language);
-    }
     return newOrder;
   };
   const [filterStatus, setFilterStatus] = useState<OrderStatus | 'All'>('All');
@@ -78,8 +74,7 @@ export default function Orders({ type = 'all' }: OrdersProps) {
       createdAt: new Date().toISOString(),
     });
     if (newOrder) {
-      printKitchenReceipt(newOrder, language);
-      printDrinksReceipt(newOrder, language);
+      printAllOrderTickets(newOrder, language);
     }
   };
 
