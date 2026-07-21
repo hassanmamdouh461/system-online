@@ -10,6 +10,7 @@ export function MobileNav() {
   const navItems = user?.role === 'manager'
     ? [
         { icon: Building2, label: 'Manager', path: '/manager-dashboard' },
+        { icon: BarChart3, label: 'Reports', path: '/reports' },
         { icon: Settings, label: 'Settings', path: '/settings' },
       ]
     : [
@@ -17,7 +18,6 @@ export function MobileNav() {
         { icon: ShoppingBag, label: 'Orders', path: '/orders' },
         { icon: UtensilsCrossed, label: 'Menu', path: '/menu' },
         { icon: CreditCard, label: 'Payment', path: '/payment' },
-        { icon: BarChart3, label: 'Reports', path: '/reports' },
       ];
 
   return (

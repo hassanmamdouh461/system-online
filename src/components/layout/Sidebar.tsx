@@ -92,6 +92,7 @@ export function Sidebar({ mobileOpen = false, onMobileClose }: SidebarProps) {
         {user?.role === 'manager' ? (
           <>
             <SidebarItem icon={Building2} label={language === 'ar' ? 'لوحة المدير' : 'Manager Dashboard'} to="/manager-dashboard" collapsed={!isMobile && collapsed} onClick={handleItemClick} />
+            <SidebarItem icon={BarChart3} label={t('Reports')} to="/reports" collapsed={!isMobile && collapsed} onClick={handleItemClick} />
           </>
         ) : (
           <>
@@ -99,7 +100,6 @@ export function Sidebar({ mobileOpen = false, onMobileClose }: SidebarProps) {
             <SidebarItem icon={CreditCard} label={t('Payment & Invoice')} to="/payment" collapsed={!isMobile && collapsed} onClick={handleItemClick} />
             <SidebarItem icon={UtensilsCrossed} label={t('Menu')} to="/menu" collapsed={!isMobile && collapsed} onClick={handleItemClick} />
             <SidebarItem icon={Package} label={t('Inventory')} to="/inventory" collapsed={!isMobile && collapsed} onClick={handleItemClick} />
-            <SidebarItem icon={BarChart3} label={t('Reports')} to="/reports" collapsed={!isMobile && collapsed} onClick={handleItemClick} />
           </>
         )}
         

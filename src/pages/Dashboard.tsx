@@ -30,9 +30,9 @@ const descMap: Record<string, { en: string, ar: string }> = {
 export default function Dashboard() {
   const navigate = useNavigate();
   const { t, language, toggleLanguage } = useLanguage();
-  const { branch } = useAuth();
+  const { user, branch } = useAuth();
 
-  const navItems = [
+  const allNavItems = [
     { 
       key: 'cashier',
       label: t('Cashier Board'), 
@@ -82,6 +82,8 @@ export default function Dashboard() {
       glow: 'hover:shadow-gray-600/20'
     }
   ];
+
+  const navItems = allNavItems.filter(item => item.key !== 'reports' || user?.role === 'manager');
 
   return (
     <div className="min-h-full flex flex-col justify-between py-4 md:py-8 text-gray-800">

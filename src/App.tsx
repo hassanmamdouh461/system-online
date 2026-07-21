@@ -29,6 +29,12 @@ function ProtectedRoute() {
   );
 }
 
+function ManagerRoute() {
+  const { user } = useAuth();
+  if (user?.role !== 'manager') return <Navigate to="/orders" replace />;
+  return <Outlet />;
+}
+
 function CashierDefaultRoute() {
   const { isAuthenticated } = useAuth();
   if (!isAuthenticated) return <Navigate to="/login" replace />;
@@ -50,10 +56,14 @@ function AppRoutes() {
           <Route path="/drinks" element={<Orders type="drinks" />} />
           <Route path="/payment" element={<Payment />} />
           <Route path="/inventory" element={<Inventory />} />
-          <Route path="/reports" element={<Reports />} />
-          <Route path="/manager" element={<ManagerDashboard />} />
-          <Route path="/manager-dashboard" element={<ManagerDashboard />} />
           <Route path="/settings" element={<Settings />} />
+
+          {/* Manager Only Routes */}
+          <Route element={<ManagerRoute />}>
+            <Route path="/reports" element={<Reports />} />
+            <Route path="/manager" element={<ManagerDashboard />} />
+            <Route path="/manager-dashboard" element={<ManagerDashboard />} />
+          </Route>
         </Route>
       </Route>
       <Route path="/" element={<CashierDefaultRoute />} />
