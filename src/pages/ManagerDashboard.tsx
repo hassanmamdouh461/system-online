@@ -649,16 +649,15 @@ export default function ManagerDashboard() {
       return order.branch_id === selectedBranch;
     });
 
-    // 2. Date Filtering
-    const periodFiltered = branchFiltered.filter(order => inPeriod(order.$createdAt, dateRange));
+    // 2. Date Filtering (matches useAnalytics date filter by paidAt or createdAt)
+    const periodFiltered = branchFiltered.filter(order => inPeriod(order.paidAt || order.$createdAt || (order as any).createdAt, dateRange));
 
-    // 3. Paid vs Unpaid split
-    const paidOrders = periodFiltered.filter(order => order.paymentStatus !== 'Unpaid');
+    // 3. Paid vs Unpaid split (Paid requires exact 'Paid' status)
+    const paidOrders = periodFiltered.filter(order => order.paymentStatus === 'Paid');
     const unpaidOrders = periodFiltered.filter(order => order.paymentStatus === 'Unpaid');
 
     // 4. Calculate Stats
-    // Sum subtotal * (1 + taxRate)
-    const realRevenue = paidOrders.reduce((sum, order) => sum + Number(order.total_amount) * (1 + taxRate), 0);
+    const realRevenue = paidOrders.reduce((sum, order) => sum + Number(order.total_amount || (order as any).totalAmount || 0) * (1 + taxRate), 0);
     const totalOrdersCount = periodFiltered.length;
     const paidOrdersCount = paidOrders.length;
     const avgOrderValue = paidOrdersCount > 0 ? realRevenue / paidOrdersCount : 0;
@@ -670,9 +669,9 @@ export default function ManagerDashboard() {
     const chartOrderCounts = new Array(chartLabels.length).fill(0);
 
     paidOrders.forEach(order => {
-      const bucketIdx = cfg.getBucket(new Date(order.$createdAt));
+      const bucketIdx = cfg.getBucket(new Date(order.paidAt || order.$createdAt || (order as any).createdAt));
       if (bucketIdx >= 0 && bucketIdx < chartLabels.length) {
-        chartRevenue[bucketIdx] += Number(order.total_amount) * (1 + taxRate);
+        chartRevenue[bucketIdx] += Number(order.total_amount || (order as any).totalAmount || 0) * (1 + taxRate);
         chartOrderCounts[bucketIdx] += 1;
       }
     });
@@ -687,7 +686,7 @@ export default function ManagerDashboard() {
     const topItemMap: Record<string, TopItem> = {};
     paidOrders.forEach(order => {
       try {
-        const items: OrderItem[] = JSON.parse(order.items);
+        const items: OrderItem[] = typeof order.items === 'string' ? JSON.parse(order.items) : order.items;
         if (Array.isArray(items)) {
           items.forEach(item => {
             const name = item.name;
@@ -711,8 +710,7 @@ export default function ManagerDashboard() {
     let takeawayCount = 0;
     let dineInCount = 0;
     periodFiltered.forEach(order => {
-      // Check tableId inside schema (if defined), otherwise infer from payments or id hashes
-      const isTakeaway = order.tableId === 'Takeaway' || (!order.tableId && order.$id.charCodeAt(order.$id.length - 1) % 2 === 0);
+      const isTakeaway = order.tableId === 'Takeaway' || (!order.tableId && (order.$id || (order as any).id || '').charCodeAt(0) % 2 === 0);
       if (isTakeaway) {
         takeawayCount++;
       } else {
@@ -721,15 +719,15 @@ export default function ManagerDashboard() {
     });
 
     // 8. Invoice Breakdown amounts
-    const paidAmount = paidOrders.reduce((sum, order) => sum + Number(order.total_amount) * (1 + taxRate), 0);
-    const unpaidAmount = unpaidOrders.reduce((sum, order) => sum + Number(order.total_amount) * (1 + taxRate), 0);
+    const paidAmount = paidOrders.reduce((sum, order) => sum + Number(order.total_amount || (order as any).totalAmount || 0) * (1 + taxRate), 0);
+    const unpaidAmount = unpaidOrders.reduce((sum, order) => sum + Number(order.total_amount || (order as any).totalAmount || 0) * (1 + taxRate), 0);
 
     // 9. Payment Methods Breakdown
     let cashAmount = 0;
     let cardAmount = 0;
     paidOrders.forEach(order => {
       const isCard = order.payment_method?.toLowerCase() === 'card';
-      const amount = Number(order.total_amount) * (1 + taxRate);
+      const amount = Number(order.total_amount || (order as any).totalAmount || 0) * (1 + taxRate);
       if (isCard) {
         cardAmount += amount;
       } else {
@@ -743,7 +741,7 @@ export default function ManagerDashboard() {
 
     // 10. Recent Transactions (Paid only, sorted by newest)
     const recentTransactions = [...paidOrders]
-      .sort((a, b) => new Date(b.$createdAt).getTime() - new Date(a.$createdAt).getTime())
+      .sort((a, b) => new Date(b.paidAt || b.$createdAt || (b as any).createdAt).getTime() - new Date(a.paidAt || a.$createdAt || (a as any).createdAt).getTime())
       .slice(0, 5);
 
     // 11. Real Loyalty values from Cloud D1 database
@@ -777,9 +775,9 @@ export default function ManagerDashboard() {
       recentTransactions,
       loyaltyCount: activeLoyalty.count,
       loyaltyPoints: activeLoyalty.points,
-      loyaltyValue: activeLoyalty.points // 1 point = 1 EGP
+      loyaltyValue: activeLoyalty.points
     };
-  }, [orders, selectedBranch, dateRange, language, taxRate]);
+  }, [orders, selectedBranch, dateRange, language, taxRate, customers]);
 
   // ── Inventory Data (Starting Stock & Recipes for consumption calc) ──────────
   const INVENTORY_ITEMS = useMemo(() => {
@@ -958,7 +956,6 @@ export default function ManagerDashboard() {
       Object.entries(ITEM_RECIPES).forEach(([menuName, recipe]) => {
         const qty = recipe[inv.id];
         if (qty && qty > 0) {
-          // Find menu item price (localMenuItems has them)
           const menuItem = localMenuItems?.find(m => m.name === menuName || m.id === menuName);
           const price = menuItem ? menuItem.price : 0;
           if (price > 0) {
@@ -968,41 +965,40 @@ export default function ManagerDashboard() {
         }
       });
 
-      yields[inv.id] = validCount > 0 ? (totalYield / validCount) : 0;
+      yields[inv.id] = validCount > 0 ? (totalYield / validCount) : (inv.costPerUnit * 2.5);
     });
 
     return yields;
   }, [INVENTORY_ITEMS, ITEM_RECIPES, localMenuItems]);
 
-  // Inventory summary stats
+  // Inventory summary stats matching Reports page
   const inventorySummary = useMemo(() => {
-    const branchIds = selectedBranch === 'all' ? ['branch_1', 'branch_2', 'branch_3'] : [selectedBranch];
     let totalValue = 0;
     let totalSalesValue = 0;
     let totalProfitValue = 0;
     let lowStockCount = 0;
     let totalItems = 0;
 
-    inventoryData.forEach(inv => {
-      branchIds.forEach(bId => {
-        const bd = inv.branches[bId];
-        if (bd) {
-          const costVal = bd.remaining * inv.costPerUnit;
-          const salesVal = bd.remaining * (materialYields[inv.id] || 0);
-          const profitVal = salesVal > 0 ? Math.max(salesVal - costVal, 0) : 0;
+    const items = (dbInventory && dbInventory.length > 0) ? dbInventory : INVENTORY_ITEMS;
 
-          totalValue += costVal;
-          totalSalesValue += salesVal;
-          totalProfitValue += profitVal;
-          
-          if (bd.isLow) lowStockCount++;
-          totalItems++;
-        }
-      });
+    items.forEach(inv => {
+      const stock = Number(inv.stock !== undefined ? inv.stock : (inv.branches ? Object.values(inv.branches).reduce((a, b: any) => a + (b.remaining || 0), 0) : 0));
+      const costPerUnit = Number(inv.costPerUnit || 0);
+      const costVal = stock * costPerUnit;
+      const avgYield = materialYields[inv.id] || (costPerUnit * 2.5);
+      const potSales = stock * avgYield;
+      const potProfit = potSales > 0 ? Math.max(potSales - costVal, 0) : 0;
+
+      totalValue += costVal;
+      totalSalesValue += potSales;
+      totalProfitValue += potProfit;
+
+      if (stock <= (inv.minStock || 0)) lowStockCount++;
+      totalItems++;
     });
 
     return { totalValue, totalSalesValue, totalProfitValue, lowStockCount, totalItems };
-  }, [inventoryData, selectedBranch, materialYields]);
+  }, [dbInventory, INVENTORY_ITEMS, materialYields]);
 
   // Max bounds for graphing
   const maxRevenueValue = Math.max(...processedData.chartData.map(d => d.value), 1);
@@ -1023,28 +1019,21 @@ export default function ManagerDashboard() {
 
   const currencyStr = language === 'ar' ? 'ج.م' : 'EGP';
 
-  // Stat Cards
+  // Stat Cards (Matching Reports page, Average Order Value removed per request)
   const statCards = [
     {
       label: t('TOTAL REVENUE (INCL. TAX)'),
       value: `${processedData.totalRevenue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currencyStr}`,
       icon: DollarSign,
-      trend: `${t('Paid revenue')} (${pLabel})`,
+      trend: language === 'ar' ? `المبيعات المحصلة (${pLabel})` : `Paid revenue (${pLabel})`,
       color: 'green' as const,
     },
     {
       label: t('TOTAL ORDERS'),
       value: processedData.totalOrdersCount.toLocaleString(),
       icon: ShoppingBag,
-      trend: `${processedData.paidCount} ${t('completed')} · ${processedData.unpaidCount} ${t('Open')}`,
+      trend: language === 'ar' ? `${processedData.paidCount} مكتمل · ${processedData.unpaidCount} جاري` : `${processedData.paidCount} completed · ${processedData.unpaidCount} Open`,
       color: 'blue' as const,
-    },
-    {
-      label: t('AVG. ORDER VALUE'),
-      value: `${processedData.avgOrderValue.toFixed(2)} ${currencyStr}`,
-      icon: TrendingUp,
-      trend: `${t('Average ticket')} (${pLabel})`,
-      color: 'orange' as const,
     },
     {
       label: t('Menu Items'),
@@ -1055,14 +1044,14 @@ export default function ManagerDashboard() {
     },
     {
       label: t('Total Stock Cost'),
-      value: `${inventorySummary.totalValue.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })} ${currencyStr}`,
+      value: `${inventorySummary.totalValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currencyStr}`,
       icon: Scale,
       trend: language === 'ar' ? 'سعر شراء الخامات بالمخزن' : 'Cost value of remaining stock',
       color: 'blue' as const,
     },
     {
       label: t('Expected Potential Profit'),
-      value: `${inventorySummary.totalProfitValue.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })} ${currencyStr}`,
+      value: `${inventorySummary.totalProfitValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currencyStr}`,
       icon: TrendingUp,
       trend: language === 'ar' ? 'الأرباح المتوقعة من الخامات بالمخزن' : 'Potential profit of remaining stock',
       color: 'green' as const,
