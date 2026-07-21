@@ -806,39 +806,39 @@ export default function ManagerDashboard() {
 
   const currencyStr = language === 'ar' ? 'ج.م' : 'EGP';
 
-  // Stat Cards (Matching Reports page, Average Order Value removed per request)
+  // Stat Cards (Matching Reports page 100%)
   const statCards = [
     {
       label: t('TOTAL REVENUE (INCL. TAX)'),
-      value: `${processedData.totalRevenue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currencyStr}`,
+      value: `${analytics.totalRevenue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currencyStr}`,
       icon: DollarSign,
-      trend: language === 'ar' ? `المبيعات المحصلة (${pLabel})` : `Paid revenue (${pLabel})`,
+      trend: analytics.realRevenue > 0 ? `+${analytics.realRevenue.toFixed(2)} ${currencyStr} ${pLabel}` : t('Lifetime total'),
       color: 'green' as const,
     },
     {
       label: t('TOTAL ORDERS'),
-      value: processedData.totalOrdersCount.toLocaleString(),
+      value: analytics.totalOrders.toLocaleString(),
       icon: ShoppingBag,
-      trend: language === 'ar' ? `${processedData.paidCount} مكتمل · ${processedData.unpaidCount} جاري` : `${processedData.paidCount} completed · ${processedData.unpaidCount} Open`,
+      trend: `${analytics.realOrders} ${t('new')} ${pLabel}`,
       color: 'blue' as const,
     },
     {
       label: t('Menu Items'),
-      value: localMenuItems ? localMenuItems.length.toString() : '40',
+      value: analytics.menuItemsCount.toString(),
       icon: Coffee,
-      trend: `${localMenuItems ? localMenuItems.filter(i => i.available).length : '40'} ${t('available now')}`,
+      trend: `${analytics.availableMenuItemsCount} ${t('available now')}`,
       color: 'purple' as const,
     },
     {
       label: t('Total Stock Cost'),
-      value: `${inventorySummary.totalValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currencyStr}`,
+      value: `${inventorySummary.totalValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currencyStr}`,
       icon: Scale,
       trend: language === 'ar' ? 'سعر شراء الخامات بالمخزن' : 'Cost value of remaining stock',
       color: 'blue' as const,
     },
     {
       label: t('Expected Potential Profit'),
-      value: `${inventorySummary.totalProfitValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currencyStr}`,
+      value: `${inventorySummary.totalProfitValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currencyStr}`,
       icon: TrendingUp,
       trend: language === 'ar' ? 'الأرباح المتوقعة من الخامات بالمخزن' : 'Potential profit of remaining stock',
       color: 'green' as const,
