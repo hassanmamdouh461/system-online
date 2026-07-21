@@ -3,6 +3,7 @@ import { MenuItem, INITIAL_MENU_ITEMS } from '../types/menu';
 import { Order, OrderStatus } from '../types/order';
 import { menuRepository, orderRepository } from '../repositories';
 import { useAuth } from './AuthContext';
+import { inventoryService } from '../services/inventoryService';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -151,10 +152,36 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 
   // ── Orders mutations ──────────────────────────────────────────────────────────
 
+async function deductOrderInventory(order: Order) {
+  try {
+    for (const item of order.items) {
+      const recipe = await inventoryService.getMenuItemRecipe(item.id);
+      if (recipe && recipe.length > 0) {
+        for (const ing of recipe) {
+          const qtyNeeded = ing.quantity * item.quantity;
+          await inventoryService.deductStock(
+            ing.inventoryItemId,
+            qtyNeeded,
+            `مبيعات أوردر #${order.orderNumber} (${item.name})`,
+            `ORD-#${order.orderNumber}`
+          );
+        }
+      }
+    }
+  } catch (err) {
+    console.error('[DataContext] Error deducting stock for order:', err);
+  }
+}
+
   const addOrder = useCallback(async (order: Omit<Order, 'id'>): Promise<Order | null> => {
     try {
       const newOrder = await orderRepository.create(order, branch?.branchId);
       setOrdersList(prev => [newOrder, ...prev]);
+
+      if (newOrder) {
+        deductOrderInventory(newOrder);
+      }
+
       return newOrder;
     } catch (err) {
       console.error('[DataContext] Failed to create order in repository:', err);
