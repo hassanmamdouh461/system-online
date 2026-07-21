@@ -671,45 +671,44 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
           </div>
         </div>
 
-        {/* Invoice Summary Box */}
-        <div className="mt-2 space-y-1.5 shrink-0">
-          <div className="grid grid-cols-2 gap-1.5 text-xs md:text-sm">
-            <div className="bg-gray-50 p-2 rounded-xl border border-gray-200 flex flex-col justify-between shadow-sm">
-              <span className="text-gray-500 text-[10px] md:text-xs font-extrabold">{t('Invoice Number')}</span>
-              <span className="font-black text-gray-950 mt-1 text-xs md:text-sm">{estimatedOrderNumber}</span>
+        {/* Invoice Summary Box - Ultra Compact & Space Efficient */}
+        <div className="mt-1.5 space-y-1 shrink-0 text-xs">
+          {/* Top row: 3 status badges in 1 tight row */}
+          <div className="grid grid-cols-3 gap-1 text-[10px]">
+            <div className="bg-gray-50 px-1.5 py-1 rounded-lg border border-gray-200 flex flex-col items-center justify-center">
+              <span className="text-gray-400 font-extrabold text-[8px]">{t('Invoice Number')}</span>
+              <span className="font-black text-gray-900 mt-0.5">#{estimatedOrderNumber}</span>
             </div>
-            <div className="bg-gray-50 p-2 rounded-xl border border-gray-200 flex flex-col justify-between shadow-sm">
-              <span className="text-gray-500 text-[10px] md:text-xs font-extrabold">{t('Items Count')}</span>
-              <span className="font-black text-gray-950 mt-1 text-xs md:text-sm">{itemsCount}</span>
+            <div className="bg-gray-50 px-1.5 py-1 rounded-lg border border-gray-200 flex flex-col items-center justify-center">
+              <span className="text-gray-400 font-extrabold text-[8px]">{t('Items Count')}</span>
+              <span className="font-black text-gray-900 mt-0.5">{itemsCount}</span>
+            </div>
+            <div className="bg-gray-50 px-1.5 py-1 rounded-lg border border-gray-200 flex flex-col items-center justify-center">
+              <span className="text-gray-400 font-extrabold text-[8px]">{t('Invoice Date')}</span>
+              <span className="font-bold text-gray-800 mt-0.5">{new Date().toLocaleDateString(isRtl ? 'ar-EG' : 'en-US')}</span>
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-1.5 text-xs md:text-sm">
-            <div className="bg-gray-50 p-2 rounded-xl border border-gray-200 flex flex-col justify-between shadow-sm">
-              <span className="text-gray-500 text-[10px] md:text-xs font-extrabold">{t('Invoice Date')}</span>
-              <span className="font-extrabold text-gray-900 mt-1 text-xs md:text-sm">{new Date().toLocaleDateString(isRtl ? 'ar-EG' : 'en-US')}</span>
-            </div>
-            
-            {/* Invoice Total - Highlighted in Caramel/Yellow */}
-            <div className="bg-amber-50/50 rounded-xl p-1.5 border border-amber-200/60 flex flex-col items-center justify-center min-h-[44px] relative">
-              <span className="text-[8px] text-amber-600/80 font-extrabold mb-0.5 font-sans">{t('Total')}</span>
-              <span className="font-mono text-xs font-black text-amber-900 mt-0.5">{grandTotal.toFixed(2)} <span className="text-[9px] font-sans font-bold">{isRtl ? 'ج.م' : 'EGP'}</span></span>
-              <span className="absolute bottom-0.5 text-[6px] text-amber-600/60 font-sans">{isRtl ? 'شامل الضريبة' : 'incl. tax'}</span>
-            </div>
+          {/* Highlighted Total Bar */}
+          <div className="bg-amber-50/80 px-2.5 py-1 rounded-xl border border-amber-200 flex items-center justify-between shadow-xs">
+            <span className="text-[11px] font-extrabold text-amber-900">{t('Total')}:</span>
+            <span className="font-mono text-sm font-black text-amber-950">
+              {grandTotal.toFixed(2)} <span className="text-[9px] font-sans font-bold text-amber-800">{isRtl ? 'ج.م' : 'EGP'}</span>
+            </span>
           </div>
           
-          {/* Action buttons (only visible here for Dine-in orders to save space) */}
+          {/* Action buttons for Dine-in */}
           {orderMode === 'Dine-in' && (
-            <div className="grid grid-cols-2 gap-1.5 pt-1">
+            <div className="grid grid-cols-2 gap-1 pt-0.5">
               <button
                 onClick={handleReset}
-                className="bg-red-50 hover:bg-red-100 text-red-600 font-black py-2 rounded-xl border border-red-200 transition-all active:scale-95 text-xs md:text-sm text-center"
+                className="bg-red-50 hover:bg-red-100 text-red-600 font-black py-1.5 rounded-xl border border-red-200 transition-all active:scale-95 text-xs text-center"
               >
                 {t('Clear / Reset')}
               </button>
               <button
                 onClick={handleSaveOrder}
-                className="bg-mocha-600 hover:bg-mocha-700 text-white font-black py-2 rounded-xl border border-mocha-700 transition-all active:scale-95 text-xs md:text-sm text-center flex items-center justify-center gap-1 shadow-sm"
+                className="bg-mocha-600 hover:bg-mocha-700 text-white font-black py-1.5 rounded-xl border border-mocha-700 transition-all active:scale-95 text-xs text-center flex items-center justify-center gap-1 shadow-sm"
               >
                 <Check size={14} />
                 {t('Save Invoice')}
