@@ -4,11 +4,13 @@ interface Env {
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
+    const corsHeaders = getCorsHeaders();
+
     // 1. Handle CORS Preflight request
     if (request.method === "OPTIONS") {
       return new Response(null, {
         status: 204,
-        headers: getCorsHeaders()
+        headers: corsHeaders
       });
     }
 
@@ -16,14 +18,75 @@ export default {
       const url = new URL(request.url);
       const pathParts = url.pathname.split("/").filter(Boolean);
 
-      // Expected route format:
+      // 2. Handle /api/sync endpoint for SyncService background sync to Cloudflare D1
+      if (pathParts[0] === "api" && pathParts[1] === "sync" && request.method === "POST") {
+        try {
+          const body: any = await request.json();
+          const { type, action, data } = body || {};
+
+          if (!type || !data) {
+            return new Response(JSON.stringify({ error: "Bad Request", message: "Missing type or data" }), {
+              status: 400,
+              headers: { "Content-Type": "application/json", ...corsHeaders }
+            });
+          }
+
+          // Map resource type to D1 table name
+          const table = type === "menu" ? "menu_items" : type;
+          const docId = data.id || data.documentId;
+
+          if (!docId) {
+            return new Response(JSON.stringify({ error: "Bad Request", message: "Missing record id" }), {
+              status: 400,
+              headers: { "Content-Type": "application/json", ...corsHeaders }
+            });
+          }
+
+          if (action === "delete") {
+            await env.DB.prepare(`DELETE FROM ${table} WHERE id = ?`).bind(docId).run();
+          } else {
+            // Perform UPSERT for 'create' or 'update'
+            const normalized = normalizeData(table, data);
+            normalized.id = docId;
+
+            const keys = Object.keys(normalized);
+            const columns = keys.join(", ");
+            const placeholders = keys.map((_, i) => `?${i + 1}`).join(", ");
+            const updates = keys.filter(k => k !== "id" && k !== "createdAt" && k !== "created_at")
+                                .map(k => `${k} = excluded.${k}`)
+                                .join(", ");
+
+            const sql = `
+              INSERT INTO ${table} (${columns})
+              VALUES (${placeholders})
+              ON CONFLICT(id) DO UPDATE SET
+                ${updates}
+            `;
+
+            const values = keys.map(k => normalized[k]);
+            await env.DB.prepare(sql).bind(...values).run();
+          }
+
+          return new Response(JSON.stringify({ success: true, message: "Synced successfully to D1" }), {
+            status: 200,
+            headers: { "Content-Type": "application/json", ...corsHeaders }
+          });
+        } catch (syncErr: any) {
+          console.error('[Worker /api/sync Error]:', syncErr);
+          return new Response(JSON.stringify({ error: "Sync Error", message: syncErr.message }), {
+            status: 500,
+            headers: { "Content-Type": "application/json", ...corsHeaders }
+          });
+        }
+      }
+
+      // 3. Expected /v1 REST route format:
       // - GET/POST: /v1/databases/:dbId/collections/:collectionId/documents
       // - GET/PATCH/DELETE: /v1/databases/:dbId/collections/:collectionId/documents/:docId
-      
       if (pathParts[0] !== "v1") {
-        return new Response(JSON.stringify({ error: "Not Found", message: "Only /v1 endpoint is supported" }), {
+        return new Response(JSON.stringify({ error: "Not Found", message: "Route not supported" }), {
           status: 404,
-          headers: { "Content-Type": "application/json", ...getCorsHeaders() }
+          headers: { "Content-Type": "application/json", ...corsHeaders }
         });
       }
 
@@ -33,18 +96,14 @@ export default {
       if (dbIndex === -1 || collectionIndex === -1 || collectionIndex <= dbIndex) {
         return new Response(JSON.stringify({ error: "Bad Request", message: "Invalid API routing" }), {
           status: 400,
-          headers: { "Content-Type": "application/json", ...getCorsHeaders() }
+          headers: { "Content-Type": "application/json", ...corsHeaders }
         });
       }
 
       const collectionId = pathParts[collectionIndex + 1];
       const docId = pathParts[collectionIndex + 3]; // Option: /documents/:docId
 
-      // Map collection / resource names to D1 database table names
-      // Tables: 'menu_items', 'orders', 'customers', 'inventory'
       const table = collectionId;
-
-      // Check method
       const method = request.method;
 
       if (method === "GET") {
@@ -57,13 +116,13 @@ export default {
           if (!row) {
             return new Response(JSON.stringify({ message: "Document not found" }), {
               status: 404,
-              headers: { "Content-Type": "application/json", ...getCorsHeaders() }
+              headers: { "Content-Type": "application/json", ...corsHeaders }
             });
           }
 
           return new Response(JSON.stringify(denormalizeData(table, row)), {
             status: 200,
-            headers: { "Content-Type": "application/json", ...getCorsHeaders() }
+            headers: { "Content-Type": "application/json", ...corsHeaders }
           });
         } else {
           // Fetch all/filtered documents
@@ -72,7 +131,7 @@ export default {
 
           return new Response(JSON.stringify({ documents }), {
             status: 200,
-            headers: { "Content-Type": "application/json", ...getCorsHeaders() }
+            headers: { "Content-Type": "application/json", ...corsHeaders }
           });
         }
       }
@@ -108,7 +167,7 @@ export default {
         const row = await env.DB.prepare(`SELECT * FROM ${table} WHERE id = ?`).bind(documentId).first();
         return new Response(JSON.stringify(denormalizeData(table, row)), {
           status: 201,
-          headers: { "Content-Type": "application/json", ...getCorsHeaders() }
+          headers: { "Content-Type": "application/json", ...corsHeaders }
         });
       }
 
@@ -116,22 +175,20 @@ export default {
         if (!docId) {
           return new Response(JSON.stringify({ error: "Bad Request", message: "Document ID missing" }), {
             status: 400,
-            headers: { "Content-Type": "application/json", ...getCorsHeaders() }
+            headers: { "Content-Type": "application/json", ...corsHeaders }
           });
         }
 
-        // Update document
         const body: any = await request.json();
         const rawData = body.data || {};
         const data = normalizeData(table, rawData);
 
         const keys = Object.keys(data);
         if (keys.length === 0) {
-          // Nothing to update, return original
           const row = await env.DB.prepare(`SELECT * FROM ${table} WHERE id = ?`).bind(docId).first();
           return new Response(JSON.stringify(denormalizeData(table, row)), {
             status: 200,
-            headers: { "Content-Type": "application/json", ...getCorsHeaders() }
+            headers: { "Content-Type": "application/json", ...corsHeaders }
           });
         }
 
@@ -141,18 +198,17 @@ export default {
 
         await env.DB.prepare(sql).bind(docId, ...values).run();
 
-        // Fetch back updated row
         const row = await env.DB.prepare(`SELECT * FROM ${table} WHERE id = ?`).bind(docId).first();
         if (!row) {
           return new Response(JSON.stringify({ message: "Document not found after patch" }), {
             status: 404,
-            headers: { "Content-Type": "application/json", ...getCorsHeaders() }
+            headers: { "Content-Type": "application/json", ...corsHeaders }
           });
         }
 
         return new Response(JSON.stringify(denormalizeData(table, row)), {
           status: 200,
-          headers: { "Content-Type": "application/json", ...getCorsHeaders() }
+          headers: { "Content-Type": "application/json", ...corsHeaders }
         });
       }
 
@@ -160,26 +216,26 @@ export default {
         if (!docId) {
           return new Response(JSON.stringify({ error: "Bad Request", message: "Document ID missing" }), {
             status: 400,
-            headers: { "Content-Type": "application/json", ...getCorsHeaders() }
+            headers: { "Content-Type": "application/json", ...corsHeaders }
           });
         }
 
         await env.DB.prepare(`DELETE FROM ${table} WHERE id = ?`).bind(docId).run();
         return new Response(JSON.stringify({ success: true }), {
           status: 200,
-          headers: { "Content-Type": "application/json", ...getCorsHeaders() }
+          headers: { "Content-Type": "application/json", ...corsHeaders }
         });
       }
 
       return new Response(JSON.stringify({ error: "Method Not Allowed" }), {
-        status: 450,
-        headers: { "Content-Type": "application/json", ...getCorsHeaders() }
+        status: 405,
+        headers: { "Content-Type": "application/json", ...corsHeaders }
       });
 
     } catch (err: any) {
       return new Response(JSON.stringify({ error: "Internal Server Error", message: err.message }), {
         status: 500,
-        headers: { "Content-Type": "application/json", ...getCorsHeaders() }
+        headers: { "Content-Type": "application/json", ...corsHeaders }
       });
     }
   }
@@ -188,8 +244,8 @@ export default {
 function getCorsHeaders() {
   return {
     "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+    "Access-Control-Allow-Methods": "GET, POST, PATCH, PUT, DELETE, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Branch-ID, X-Device-ID",
     "Access-Control-Max-Age": "86400"
   };
 }
@@ -201,8 +257,10 @@ function normalizeData(table: string, data: any) {
     if ('total_amount' in normalized) normalized.totalAmount = normalized.total_amount;
     if ('payment_method' in normalized) normalized.paymentMethod = normalized.payment_method;
     if ('branchId' in normalized) normalized.branch_id = normalized.branchId;
+    if ('items' in normalized && typeof normalized.items !== 'string') {
+      normalized.items = JSON.stringify(normalized.items);
+    }
     
-    // Remove the duplicate keys to prevent SQLite column errors
     delete normalized.total_amount;
     delete normalized.payment_method;
     delete normalized.branchId;
@@ -228,7 +286,6 @@ function denormalizeData(table: string, row: any) {
   const doc: any = { ...row };
   doc.$id = row.id;
   
-  // Map created_at / updated_at / createdAt to metadata fields
   const created = row.createdAt || row.created_at || new Date().toISOString();
   const updated = row.updatedAt || row.updated_at || created;
   doc.$createdAt = created;
@@ -241,6 +298,9 @@ function denormalizeData(table: string, row: any) {
     doc.payment_method = row.paymentMethod;
     doc.branch_id = row.branch_id;
     doc.branchId = row.branch_id;
+    if (typeof row.items === 'string') {
+      try { doc.items = JSON.parse(row.items); } catch { doc.items = []; }
+    }
   }
   
   if (table === 'menu_items') {
