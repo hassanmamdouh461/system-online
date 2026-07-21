@@ -280,8 +280,10 @@ export default function Inventory() {
 
       await inventoryService.createTransaction({
         itemId: selectedItem.id,
+        itemName: selectedItem.name,
         type: adjustForm.type,
         quantity: qty,
+        unit: selectedItem.unit,
         notes: adjustForm.notes,
         referenceId: 'MANUAL'
       });

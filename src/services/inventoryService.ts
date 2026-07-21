@@ -105,6 +105,74 @@ function setWebRecipeStore(store: Record<string, RecipeIngredient[]>): void {
   }
 }
 
+const WEB_TX_KEY = 'pos_inventory_transactions_web_store';
+
+function getWebTransactions(): InventoryTransaction[] {
+  try {
+    const raw = localStorage.getItem(WEB_TX_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch (e) {}
+
+  const now = Date.now();
+  const initial: InventoryTransaction[] = [
+    {
+      id: 'tx_init_1',
+      itemId: 'inv_b_1',
+      itemName: 'بن إسبيريسو فاخر',
+      type: 'IN',
+      quantity: 25,
+      unit: 'كجم',
+      referenceId: 'PO-2026-001',
+      notes: 'رصيد مخزون افتتاحي',
+      createdAt: new Date(now - 3600000 * 24 * 3).toISOString()
+    },
+    {
+      id: 'tx_init_2',
+      itemId: 'inv_b_2',
+      itemName: 'حليب كامل الدسم',
+      type: 'IN',
+      quantity: 50,
+      unit: 'لتر',
+      referenceId: 'PO-2026-002',
+      notes: 'توريد حليب طازج',
+      createdAt: new Date(now - 3600000 * 24 * 2).toISOString()
+    },
+    {
+      id: 'tx_init_3',
+      itemId: 'inv_b_4',
+      itemName: 'خبز توست وكايزر',
+      type: 'IN',
+      quantity: 200,
+      unit: 'قطعة',
+      referenceId: 'PO-2026-003',
+      notes: 'مخزون مخبوزات طازج',
+      createdAt: new Date(now - 3600000 * 24 * 1).toISOString()
+    },
+    {
+      id: 'tx_init_4',
+      itemId: 'inv_b_15',
+      itemName: 'صدور دجاج',
+      type: 'IN',
+      quantity: 30,
+      unit: 'كجم',
+      referenceId: 'PO-2026-004',
+      notes: 'توريد لحوم ودواجن',
+      createdAt: new Date(now - 3600000 * 12).toISOString()
+    }
+  ];
+
+  try {
+    localStorage.setItem(WEB_TX_KEY, JSON.stringify(initial));
+  } catch (e) {}
+  return initial;
+}
+
+function saveWebTransactions(txs: InventoryTransaction[]) {
+  try {
+    localStorage.setItem(WEB_TX_KEY, JSON.stringify(txs));
+  } catch (e) {}
+}
+
 /**
  * Inventory Service - Dual Web/Electron Interface for Inventory and Recipes (IndexedDB persisted for Web)
  */
@@ -189,13 +257,24 @@ export const inventoryService = {
     }
   },
 
-  async deductStock(itemId: string, quantityDeducted: number): Promise<void> {
+  async deductStock(itemId: string, quantityDeducted: number, notes?: string, referenceId?: string): Promise<void> {
     try {
       const items = await this.getAll();
-      const target = items.find(i => i.id === itemId);
+      const target = items.find(i => i.id === itemId || i.name === itemId);
       if (target) {
         const newStock = Math.max(0, target.stock - quantityDeducted);
         await this.update(target.id, { stock: newStock });
+
+        await this.createTransaction({
+          itemId: target.id,
+          itemName: target.name,
+          type: 'OUT',
+          quantity: quantityDeducted,
+          unit: target.unit,
+          referenceId: referenceId || 'POS-SALE',
+          notes: notes || 'خصم تلقائي مبيعات الكاشير',
+          branchId: target.branchId
+        });
       }
     } catch (err) {
       console.error('[inventoryService] Failed to deduct stock:', err);
@@ -207,7 +286,14 @@ export const inventoryService = {
       if (typeof window !== 'undefined' && window.electronAPI?.getInventoryTransactions) {
         return await window.electronAPI.getInventoryTransactions(itemId, branchId);
       }
-      return [];
+      let list = getWebTransactions();
+      if (itemId) {
+        list = list.filter(t => t.itemId === itemId);
+      }
+      if (branchId) {
+        list = list.filter(t => !t.branchId || t.branchId === branchId);
+      }
+      return list;
     } catch (error) {
       return [];
     }
@@ -218,7 +304,15 @@ export const inventoryService = {
       if (typeof window !== 'undefined' && window.electronAPI?.createInventoryTransaction) {
         return await window.electronAPI.createInventoryTransaction(tx);
       }
-      return { ...tx, id: `tx_${Date.now()}`, createdAt: new Date().toISOString() };
+      const newTx: InventoryTransaction = {
+        ...tx,
+        id: `tx_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+        createdAt: new Date().toISOString()
+      };
+      const list = getWebTransactions();
+      list.unshift(newTx);
+      saveWebTransactions(list);
+      return newTx;
     } catch (error) {
       throw new Error('Failed to create transaction');
     }
