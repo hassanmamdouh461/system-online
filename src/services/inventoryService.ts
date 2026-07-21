@@ -3,91 +3,52 @@ import { getDB } from '../repositories/indexeddb/db';
 
 const WEB_RECIPES_STORAGE_KEY = 'web_menu_recipes_store';
 
-// ☕ Default realistic recipes seeded for all menu items using stock items:
+// ☕ Default realistic recipes seeded for all 40 menu items using active stock items:
 // inv_b_1: بن إسبيريسو فاخر (kg, EGP 450)
 // inv_b_2: حليب كامل الدسم (L, EGP 35)
 // inv_b_3: أكواب ورقية سفري (cup, EGP 2)
 // inv_b_4: عيش (piece, EGP 3)
 const DEFAULT_WEB_RECIPES: Record<string, RecipeIngredient[]> = {
-  // 1: إسبيريسو
-  '1': [
-    { inventoryItemId: 'inv_b_1', quantity: 0.009 },
-    { inventoryItemId: 'inv_b_3', quantity: 1 }
-  ],
-  // 2: إسبيريسو دبل
-  '2': [
-    { inventoryItemId: 'inv_b_1', quantity: 0.018 },
-    { inventoryItemId: 'inv_b_3', quantity: 1 }
-  ],
-  // 3: كورنادو / كورتادو
-  '3': [
-    { inventoryItemId: 'inv_b_1', quantity: 0.018 },
-    { inventoryItemId: 'inv_b_2', quantity: 0.06 },
-    { inventoryItemId: 'inv_b_3', quantity: 1 }
-  ],
-  // 4: فلات وايت
-  '4': [
-    { inventoryItemId: 'inv_b_1', quantity: 0.018 },
-    { inventoryItemId: 'inv_b_2', quantity: 0.15 },
-    { inventoryItemId: 'inv_b_3', quantity: 1 }
-  ],
-  // 5: لاتيه
-  '5': [
-    { inventoryItemId: 'inv_b_1', quantity: 0.018 },
-    { inventoryItemId: 'inv_b_2', quantity: 0.20 },
-    { inventoryItemId: 'inv_b_3', quantity: 1 }
-  ],
-  // 6: كابوتشينو
-  '6': [
-    { inventoryItemId: 'inv_b_1', quantity: 0.018 },
-    { inventoryItemId: 'inv_b_2', quantity: 0.18 },
-    { inventoryItemId: 'inv_b_3', quantity: 1 }
-  ],
-  // 7: سبانش لاتيه
-  '7': [
-    { inventoryItemId: 'inv_b_1', quantity: 0.018 },
-    { inventoryItemId: 'inv_b_2', quantity: 0.20 },
-    { inventoryItemId: 'inv_b_3', quantity: 1 }
-  ],
-  // 8: أمريكاو
-  '8': [
-    { inventoryItemId: 'inv_b_1', quantity: 0.018 },
-    { inventoryItemId: 'inv_b_3', quantity: 1 }
-  ],
-  // 9: كافيه موكا
-  '9': [
-    { inventoryItemId: 'inv_b_1', quantity: 0.018 },
-    { inventoryItemId: 'inv_b_2', quantity: 0.20 },
-    { inventoryItemId: 'inv_b_3', quantity: 1 }
-  ],
-  // 10: هوت شوكليت
-  '10': [
-    { inventoryItemId: 'inv_b_2', quantity: 0.25 },
-    { inventoryItemId: 'inv_b_3', quantity: 1 }
-  ],
-  // 11: آيس لاتيه
-  '11': [
-    { inventoryItemId: 'inv_b_1', quantity: 0.018 },
-    { inventoryItemId: 'inv_b_2', quantity: 0.22 },
-    { inventoryItemId: 'inv_b_3', quantity: 1 }
-  ],
-  // 12: آيس سبانش لاتيه
-  '12': [
-    { inventoryItemId: 'inv_b_1', quantity: 0.018 },
-    { inventoryItemId: 'inv_b_2', quantity: 0.22 },
-    { inventoryItemId: 'inv_b_3', quantity: 1 }
-  ],
-  // 13: آيس أمريكانو
-  '13': [
-    { inventoryItemId: 'inv_b_1', quantity: 0.018 },
-    { inventoryItemId: 'inv_b_3', quantity: 1 }
-  ],
-  // 14: آيس موكا
-  '14': [
-    { inventoryItemId: 'inv_b_1', quantity: 0.018 },
-    { inventoryItemId: 'inv_b_2', quantity: 0.20 },
-    { inventoryItemId: 'inv_b_3', quantity: 1 }
-  ]
+  '1': [{ inventoryItemId: 'inv_b_1', quantity: 0.009 }, { inventoryItemId: 'inv_b_3', quantity: 1 }],
+  '2': [{ inventoryItemId: 'inv_b_1', quantity: 0.018 }, { inventoryItemId: 'inv_b_3', quantity: 1 }],
+  '3': [{ inventoryItemId: 'inv_b_1', quantity: 0.018 }, { inventoryItemId: 'inv_b_2', quantity: 0.06 }, { inventoryItemId: 'inv_b_3', quantity: 1 }],
+  '4': [{ inventoryItemId: 'inv_b_1', quantity: 0.018 }, { inventoryItemId: 'inv_b_2', quantity: 0.15 }, { inventoryItemId: 'inv_b_3', quantity: 1 }],
+  '5': [{ inventoryItemId: 'inv_b_1', quantity: 0.018 }, { inventoryItemId: 'inv_b_2', quantity: 0.20 }, { inventoryItemId: 'inv_b_3', quantity: 1 }],
+  '6': [{ inventoryItemId: 'inv_b_1', quantity: 0.018 }, { inventoryItemId: 'inv_b_2', quantity: 0.18 }, { inventoryItemId: 'inv_b_3', quantity: 1 }],
+  '7': [{ inventoryItemId: 'inv_b_1', quantity: 0.018 }, { inventoryItemId: 'inv_b_2', quantity: 0.20 }, { inventoryItemId: 'inv_b_3', quantity: 1 }],
+  '8': [{ inventoryItemId: 'inv_b_1', quantity: 0.018 }, { inventoryItemId: 'inv_b_3', quantity: 1 }],
+  '9': [{ inventoryItemId: 'inv_b_1', quantity: 0.018 }, { inventoryItemId: 'inv_b_2', quantity: 0.20 }, { inventoryItemId: 'inv_b_3', quantity: 1 }],
+  '10': [{ inventoryItemId: 'inv_b_1', quantity: 0.012 }, { inventoryItemId: 'inv_b_3', quantity: 1 }],
+  '11': [{ inventoryItemId: 'inv_b_1', quantity: 0.012 }, { inventoryItemId: 'inv_b_2', quantity: 0.10 }, { inventoryItemId: 'inv_b_3', quantity: 1 }],
+  '12': [{ inventoryItemId: 'inv_b_1', quantity: 0.018 }, { inventoryItemId: 'inv_b_3', quantity: 1 }],
+  '13': [{ inventoryItemId: 'inv_b_1', quantity: 0.018 }, { inventoryItemId: 'inv_b_2', quantity: 0.20 }, { inventoryItemId: 'inv_b_3', quantity: 1 }],
+  '14': [{ inventoryItemId: 'inv_b_1', quantity: 0.018 }, { inventoryItemId: 'inv_b_2', quantity: 0.22 }, { inventoryItemId: 'inv_b_3', quantity: 1 }],
+  '15': [{ inventoryItemId: 'inv_b_1', quantity: 0.018 }, { inventoryItemId: 'inv_b_2', quantity: 0.20 }, { inventoryItemId: 'inv_b_3', quantity: 1 }],
+  '16': [{ inventoryItemId: 'inv_b_1', quantity: 0.018 }, { inventoryItemId: 'inv_b_2', quantity: 0.20 }, { inventoryItemId: 'inv_b_3', quantity: 1 }],
+  '17': [{ inventoryItemId: 'inv_b_1', quantity: 0.025 }, { inventoryItemId: 'inv_b_3', quantity: 1 }],
+  '18': [{ inventoryItemId: 'inv_b_1', quantity: 0.018 }, { inventoryItemId: 'inv_b_2', quantity: 0.20 }, { inventoryItemId: 'inv_b_3', quantity: 1 }],
+  '19': [{ inventoryItemId: 'inv_b_1', quantity: 0.018 }, { inventoryItemId: 'inv_b_2', quantity: 0.25 }, { inventoryItemId: 'inv_b_3', quantity: 1 }],
+  '20': [{ inventoryItemId: 'inv_b_1', quantity: 0.018 }, { inventoryItemId: 'inv_b_2', quantity: 0.25 }, { inventoryItemId: 'inv_b_3', quantity: 1 }],
+  '21': [{ inventoryItemId: 'inv_b_1', quantity: 0.018 }, { inventoryItemId: 'inv_b_2', quantity: 0.25 }, { inventoryItemId: 'inv_b_3', quantity: 1 }],
+  '22': [{ inventoryItemId: 'inv_b_1', quantity: 0.018 }, { inventoryItemId: 'inv_b_2', quantity: 0.25 }, { inventoryItemId: 'inv_b_3', quantity: 1 }],
+  '23': [{ inventoryItemId: 'inv_b_2', quantity: 0.25 }, { inventoryItemId: 'inv_b_3', quantity: 1 }],
+  '24': [{ inventoryItemId: 'inv_b_2', quantity: 0.25 }, { inventoryItemId: 'inv_b_3', quantity: 1 }],
+  '25': [{ inventoryItemId: 'inv_b_2', quantity: 0.25 }, { inventoryItemId: 'inv_b_3', quantity: 1 }],
+  '26': [{ inventoryItemId: 'inv_b_2', quantity: 0.25 }, { inventoryItemId: 'inv_b_3', quantity: 1 }],
+  '27': [{ inventoryItemId: 'inv_b_2', quantity: 0.25 }, { inventoryItemId: 'inv_b_3', quantity: 1 }],
+  '28': [{ inventoryItemId: 'inv_b_3', quantity: 1 }],
+  '29': [{ inventoryItemId: 'inv_b_2', quantity: 0.10 }, { inventoryItemId: 'inv_b_3', quantity: 1 }],
+  '30': [{ inventoryItemId: 'inv_b_3', quantity: 1 }],
+  '31': [{ inventoryItemId: 'inv_b_3', quantity: 1 }],
+  '32': [{ inventoryItemId: 'inv_b_3', quantity: 1 }],
+  '33': [{ inventoryItemId: 'inv_b_4', quantity: 1 }],
+  '34': [{ inventoryItemId: 'inv_b_4', quantity: 1 }],
+  '35': [{ inventoryItemId: 'inv_b_4', quantity: 1 }],
+  '36': [{ inventoryItemId: 'inv_b_4', quantity: 1 }],
+  '37': [{ inventoryItemId: 'inv_b_4', quantity: 1 }],
+  '38': [{ inventoryItemId: 'inv_b_4', quantity: 1 }],
+  '39': [{ inventoryItemId: 'inv_b_4', quantity: 1 }],
+  '40': [{ inventoryItemId: 'inv_b_4', quantity: 1 }]
 };
 
 function getWebRecipeStore(): Record<string, RecipeIngredient[]> {
