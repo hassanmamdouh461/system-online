@@ -3,13 +3,15 @@ import { Sidebar } from './Sidebar';
 import { MobileHeader } from './MobileHeader';
 import { MobileNav } from './MobileNav';
 import { TopNav } from './TopNav';
-import { Outlet } from 'react-router-dom';
+import { Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 
 export function DashboardLayout() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const { user } = useAuth();
-  const isManager = user?.role === 'manager';
+  const location = useLocation();
+  const isManagerRoute = location.pathname.startsWith('/manager');
+  const isManager = user?.role === 'manager' || isManagerRoute;
 
   // Prevent body scroll when mobile menu is open
   useEffect(() => {

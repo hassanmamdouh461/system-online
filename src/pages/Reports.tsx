@@ -189,17 +189,7 @@ export default function Reports() {
       }
     }
     
-    // Add baseline COGS for mock data representation
-    const baselineRevenueMap: Record<AnalyticsPeriod, number> = {
-      'Today': 0,
-      'This Week': 950,
-      'This Month': 4200,
-      'This Year': 52000,
-    };
-    const baselineRev = baselineRevenueMap[dateRange] || 0;
-    const baselineCogs = baselineRev * 0.35; // assume 35% ingredient cost
-    
-    return totalCogs + baselineCogs;
+    return totalCogs;
   }, [analytics.completedPeriod, recipeCosts, dateRange]);
 
   const netProfit = useMemo(() => {
@@ -232,18 +222,8 @@ export default function Reports() {
     const realCashAmount = realCashOrders.reduce((sum, o) => sum + o.totalAmount * (1 + taxRate), 0);
     const realCardAmount = realCardOrders.reduce((sum, o) => sum + o.totalAmount * (1 + taxRate), 0);
     
-    const baselineRevenueMap: Record<AnalyticsPeriod, number> = {
-      'Today': 0,
-      'This Week': 950,
-      'This Month': 4200,
-      'This Year': 52000,
-    };
-    const baselineTotal = baselineRevenueMap[dateRange] || 0;
-    const baselineCashAmount = baselineTotal * 0.60;
-    const baselineCardAmount = baselineTotal * 0.40;
-    
-    const totalCashAmount = realCashAmount + baselineCashAmount;
-    const totalCardAmount = realCardAmount + baselineCardAmount;
+    const totalCashAmount = realCashAmount;
+    const totalCardAmount = realCardAmount;
     const totalPaidAmount = totalCashAmount + totalCardAmount;
     
     return {
@@ -259,16 +239,8 @@ export default function Reports() {
     const realTakeaway = analytics.periodOrders.filter(o => o.tableId === 'Takeaway').length;
     const realDineIn = analytics.periodOrders.filter(o => o.tableId !== 'Takeaway').length;
 
-    const baselineMap: Record<AnalyticsPeriod, { takeaway: number; dineIn: number }> = {
-      'Today':      { takeaway: 0,    dineIn: 0    },
-      'This Week':  { takeaway: 72,   dineIn: 48   },
-      'This Month': { takeaway: 312,  dineIn: 208  },
-      'This Year':  { takeaway: 3900, dineIn: 2600 },
-    };
-
-    const bl = baselineMap[dateRange] || { takeaway: 0, dineIn: 0 };
-    const takeaway = bl.takeaway + realTakeaway;
-    const dineIn = bl.dineIn + realDineIn;
+    const takeaway = realTakeaway;
+    const dineIn = realDineIn;
     const total = takeaway + dineIn;
 
     return { takeaway, dineIn, total };
@@ -448,10 +420,6 @@ export default function Reports() {
             <div className="flex items-center gap-1.5">
               <div className="w-3 h-3 rounded-sm bg-caramel" />
               <span className="text-xs text-gray-500">{t('Real orders')}</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <div className="w-3 h-3 rounded-sm" style={{ background: '#e8d5c4' }} />
-              <span className="text-xs text-gray-500">{t('Historical baseline')}</span>
             </div>
           </div>
         </div>

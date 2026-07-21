@@ -113,58 +113,7 @@ function getWebTransactions(): InventoryTransaction[] {
     if (raw) return JSON.parse(raw);
   } catch (e) {}
 
-  const now = Date.now();
-  const initial: InventoryTransaction[] = [
-    {
-      id: 'tx_init_1',
-      itemId: 'inv_b_1',
-      itemName: 'بن إسبيريسو فاخر',
-      type: 'IN',
-      quantity: 25,
-      unit: 'كجم',
-      referenceId: 'PO-2026-001',
-      notes: 'رصيد مخزون افتتاحي',
-      createdAt: new Date(now - 3600000 * 24 * 3).toISOString()
-    },
-    {
-      id: 'tx_init_2',
-      itemId: 'inv_b_2',
-      itemName: 'حليب كامل الدسم',
-      type: 'IN',
-      quantity: 50,
-      unit: 'لتر',
-      referenceId: 'PO-2026-002',
-      notes: 'توريد حليب طازج',
-      createdAt: new Date(now - 3600000 * 24 * 2).toISOString()
-    },
-    {
-      id: 'tx_init_3',
-      itemId: 'inv_b_4',
-      itemName: 'خبز توست وكايزر',
-      type: 'IN',
-      quantity: 200,
-      unit: 'قطعة',
-      referenceId: 'PO-2026-003',
-      notes: 'مخزون مخبوزات طازج',
-      createdAt: new Date(now - 3600000 * 24 * 1).toISOString()
-    },
-    {
-      id: 'tx_init_4',
-      itemId: 'inv_b_15',
-      itemName: 'صدور دجاج',
-      type: 'IN',
-      quantity: 30,
-      unit: 'كجم',
-      referenceId: 'PO-2026-004',
-      notes: 'توريد لحوم ودواجن',
-      createdAt: new Date(now - 3600000 * 12).toISOString()
-    }
-  ];
-
-  try {
-    localStorage.setItem(WEB_TX_KEY, JSON.stringify(initial));
-  } catch (e) {}
-  return initial;
+  return [];
 }
 
 function saveWebTransactions(txs: InventoryTransaction[]) {
