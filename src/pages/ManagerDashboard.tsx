@@ -1390,7 +1390,6 @@ export default function ManagerDashboard() {
               <div className="space-y-2">
                 <div className="flex justify-between text-xs md:text-sm">
                   <div className="flex items-center gap-2">
-                    <span className="text-sm">🎒</span>
                     <span className="font-extrabold text-gray-800">{t('Takeaway')}</span>
                   </div>
                   <span className="font-bold text-mocha-700 tabular-nums">
@@ -1412,7 +1411,6 @@ export default function ManagerDashboard() {
               <div className="space-y-2">
                 <div className="flex justify-between text-xs md:text-sm">
                   <div className="flex items-center gap-2">
-                    <span className="text-sm">☕</span>
                     <span className="font-extrabold text-gray-800">{t('Dine-in')}</span>
                   </div>
                   <span className="font-bold text-caramel-600 tabular-nums">
@@ -1452,7 +1450,7 @@ export default function ManagerDashboard() {
               {/* Paid Invoices */}
               <div className="space-y-1.5">
                 <div className="flex justify-between text-xs md:text-sm font-bold text-gray-700">
-                  <span className="flex items-center gap-1.5">✅ {t('Paid Invoices')}</span>
+                  <span className="flex items-center gap-1.5">{t('Paid Invoices')}</span>
                   <span>{processedData.paidCount} ({Math.round((processedData.paidCount / processedData.totalCount) * 100)}%)</span>
                 </div>
                 <div className="w-full h-2.5 bg-green-50 rounded-full overflow-hidden border border-green-100/50">
@@ -1471,7 +1469,7 @@ export default function ManagerDashboard() {
               {/* Open/Unpaid Invoices */}
               <div className="space-y-1.5">
                 <div className="flex justify-between text-xs md:text-sm font-bold text-gray-700">
-                  <span className="flex items-center gap-1.5">⏳ {t('Open Invoices')}</span>
+                  <span className="flex items-center gap-1.5">{t('Open Invoices')}</span>
                   <span>{processedData.unpaidCount} ({Math.round((processedData.unpaidCount / processedData.totalCount) * 100)}%)</span>
                 </div>
                 <div className="w-full h-2.5 bg-amber-50 rounded-full overflow-hidden border border-amber-100/30">
@@ -1496,7 +1494,7 @@ export default function ManagerDashboard() {
                 {/* Cash */}
                 <div className="space-y-1">
                   <div className="flex justify-between text-xs font-semibold text-gray-600">
-                    <span className="flex items-center gap-1.5">💵 {t('Cash')}</span>
+                    <span className="flex items-center gap-1.5">{t('Cash')}</span>
                     <span>{processedData.cashPercentage}%</span>
                   </div>
                   <div className="w-full h-2 bg-emerald-50 rounded-full overflow-hidden border border-emerald-100">
@@ -1515,7 +1513,7 @@ export default function ManagerDashboard() {
                 {/* Card */}
                 <div className="space-y-1">
                   <div className="flex justify-between text-xs font-semibold text-gray-600">
-                    <span className="flex items-center gap-1.5">💳 {t('Card')}</span>
+                    <span className="flex items-center gap-1.5">{t('Card')}</span>
                     <span>{processedData.cardPercentage}%</span>
                   </div>
                   <div className="w-full h-2 bg-blue-50 rounded-full overflow-hidden border border-blue-100">

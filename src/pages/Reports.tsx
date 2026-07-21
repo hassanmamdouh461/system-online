@@ -505,7 +505,6 @@ export default function Reports() {
               <div className="space-y-2">
                 <div className="flex justify-between text-xs md:text-sm">
                   <div className="flex items-center gap-2">
-                    <span className="text-sm">🎒</span>
                     <span className="font-semibold text-gray-800">{t('Takeaway')}</span>
                   </div>
                   <span className="font-bold text-mocha-700 tabular-nums">
@@ -527,7 +526,6 @@ export default function Reports() {
               <div className="space-y-2">
                 <div className="flex justify-between text-xs md:text-sm">
                   <div className="flex items-center gap-2">
-                    <span className="text-sm">☕</span>
                     <span className="font-semibold text-gray-800">{t('Dine-in')}</span>
                   </div>
                   <span className="font-bold text-caramel-600 tabular-nums">
@@ -564,7 +562,6 @@ export default function Reports() {
               <div className="space-y-2">
                 <div className="flex justify-between text-xs md:text-sm">
                   <div className="flex items-center gap-2">
-                    <span className="text-sm">✅</span>
                     <span className="font-semibold text-gray-800">{t('Paid Invoices')}</span>
                   </div>
                   <span className="font-bold text-green-700 tabular-nums">
@@ -589,7 +586,6 @@ export default function Reports() {
               <div className="space-y-2">
                 <div className="flex justify-between text-xs md:text-sm">
                   <div className="flex items-center gap-2">
-                    <span className="text-sm">⏳</span>
                     <span className="font-semibold text-gray-800">{t('Open Invoices')}</span>
                   </div>
                   <span className="font-bold text-amber-600 tabular-nums">
@@ -624,7 +620,6 @@ export default function Reports() {
               <div className="space-y-2">
                 <div className="flex justify-between text-xs md:text-sm">
                   <div className="flex items-center gap-2">
-                    <span className="text-sm">💵</span>
                     <span className="font-semibold text-gray-800">{t('Cash')}</span>
                   </div>
                   <span className="font-bold text-emerald-700 tabular-nums">
@@ -649,7 +644,6 @@ export default function Reports() {
               <div className="space-y-2">
                 <div className="flex justify-between text-xs md:text-sm">
                   <div className="flex items-center gap-2">
-                    <span className="text-sm">💳</span>
                     <span className="font-semibold text-gray-800">{t('Card')}</span>
                   </div>
                   <span className="font-bold text-blue-700 tabular-nums">
