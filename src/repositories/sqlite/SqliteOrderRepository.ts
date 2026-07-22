@@ -22,7 +22,7 @@ export class SqliteOrderRepository implements IOrderRepository {
     return window.electronAPI.updateOrderStatus(id, status);
   }
 
-  async completeWithPayment(id: string, method: 'Cash' | 'Card'): Promise<Order> {
+  async completeWithPayment(id: string, method: 'Cash' | 'Card' | 'OnAccount'): Promise<Order> {
     return window.electronAPI.completeOrderPayment(id, method);
   }
 

@@ -84,7 +84,7 @@ export default function Dashboard() {
   ];
 
   const navItems = allNavItems.filter(item => 
-    (item.key !== 'reports' && item.key !== 'inventory') || user?.role === 'manager'
+    (item.key !== 'reports' && item.key !== 'inventory' && item.key !== 'menu') || user?.role === 'manager'
   );
 
   return (

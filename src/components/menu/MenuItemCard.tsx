@@ -9,9 +9,10 @@ interface MenuItemCardProps {
   onEdit: (item: MenuItem) => void;
   onDelete: (id: string) => void;
   onToggleStatus: (id: string) => void;
+  isManager?: boolean;
 }
 
-export function MenuItemCard({ item, onEdit, onDelete, onToggleStatus }: MenuItemCardProps) {
+export function MenuItemCard({ item, onEdit, onDelete, onToggleStatus, isManager = false }: MenuItemCardProps) {
   const { t, isRtl } = useLanguage();
   return (
     <motion.div
@@ -52,21 +53,26 @@ export function MenuItemCard({ item, onEdit, onDelete, onToggleStatus }: MenuIte
           <Power size={12} />
           {item.available ? t('Available') : t('Unavailable')}
         </button>
-        <button
-          onClick={(e) => { e.stopPropagation(); onEdit(item); }}
-          className="p-2 bg-gray-50 hover:bg-blue-50 text-gray-500 hover:text-blue-600 rounded-xl transition-colors border border-gray-100"
-          title={t('Edit')}
-        >
-          <Edit size={14} />
-        </button>
-        <button
-          onClick={(e) => { e.stopPropagation(); onDelete(item.id.toString()); }}
-          className="p-2 bg-gray-50 hover:bg-red-50 text-gray-500 hover:text-red-600 rounded-xl transition-colors border border-gray-100"
-          title={t('Delete')}
-        >
-          <Trash2 size={14} />
-        </button>
+        {isManager && (
+          <>
+            <button
+              onClick={(e) => { e.stopPropagation(); onEdit(item); }}
+              className="p-2 bg-gray-50 hover:bg-blue-50 text-gray-500 hover:text-blue-600 rounded-xl transition-colors border border-gray-100"
+              title={t('Edit')}
+            >
+              <Edit size={14} />
+            </button>
+            <button
+              onClick={(e) => { e.stopPropagation(); onDelete(item.id.toString()); }}
+              className="p-2 bg-gray-50 hover:bg-red-50 text-gray-500 hover:text-red-600 rounded-xl transition-colors border border-gray-100"
+              title={t('Delete')}
+            >
+              <Trash2 size={14} />
+            </button>
+          </>
+        )}
       </div>
     </motion.div>
   );
 }
+

@@ -1,6 +1,7 @@
-import { Order } from '../types/order';
-import { getTaxRate } from './settingsConfig';
+import { Order, getOrderGrandTotal } from '../types/order';
+import { getTaxRate, getStoreConfig } from './settingsConfig';
 import { filterItemsBySection } from './orderSection';
+import { formatOrderNumber } from './orderNumber';
 
 /**
  * Write receipt content into a hidden iframe and trigger native browser print dialog.
@@ -46,10 +47,15 @@ function printHtml(htmlContent: string) {
  */
 export function printCustomerReceipt(order: Order, lang: 'en' | 'ar' = 'ar') {
   const isRtl = lang === 'ar';
+  const ticketNo = formatOrderNumber(order);
   const subtotal = order.totalAmount;
-  const taxRate = getTaxRate();
-  const tax = subtotal * taxRate;
-  const grandTotal = subtotal + tax;
+  // Prefer frozen tax snapshot on the order (historical accuracy).
+  const taxRate = typeof order.taxRate === 'number' ? order.taxRate : getTaxRate();
+  const tax = typeof order.taxAmount === 'number' ? order.taxAmount : subtotal * taxRate;
+  const grandTotal =
+    typeof order.grandTotal === 'number'
+      ? order.grandTotal
+      : Math.max(0, subtotal + tax - (order.pointsRedeemed || 0));
 
   const title = isRtl ? 'فاتورة الدفع' : 'Payment Receipt';
   const tableLabel = isRtl ? 'الطاولة / نوع الطلب' : 'Table / Mode';
@@ -63,15 +69,34 @@ export function printCustomerReceipt(order: Order, lang: 'en' | 'ar' = 'ar') {
   const paymentMethodLabel = isRtl ? 'طريقة الدفع' : 'Payment Method';
   const statusLabel = isRtl ? 'الحالة' : 'Status';
   const thankYou = isRtl ? 'شكراً لزيارتكم! بالهناء والشفاء ☕' : 'Thank you for your visit! Enjoy ☕';
-  const cashierStamp = order.paymentStatus === 'Paid' 
-    ? (isRtl ? '✓ مدفوع' : '✓ PAID') 
-    : (isRtl ? 'غير مدفوع' : 'UNPAID');
+  const cashierStamp =
+    order.paymentStatus === 'Paid'
+      ? isRtl
+        ? '✓ مدفوع'
+        : '✓ PAID'
+      : order.paymentStatus === 'Refunded'
+        ? isRtl
+          ? '↩ مسترجع'
+          : '↩ REFUNDED'
+        : order.paymentStatus === 'OnAccount'
+          ? isRtl
+            ? 'على الحساب'
+            : 'ON ACCOUNT'
+          : isRtl
+            ? 'غير مدفوع'
+            : 'UNPAID';
+
+  const store = getStoreConfig();
+  const storeName = store.storeName || 'BrewMaster';
+  const storeTagline = store.tagline || (isRtl ? 'تجربة قهوة مميزة' : 'Premium Coffee Experience');
+  const storePhone = store.phone || '';
+  const storeAddress = store.address || '';
 
   const html = `
     <!DOCTYPE html>
     <html dir="${isRtl ? 'rtl' : 'ltr'}">
     <head>
-      <title>${title} - ${order.orderNumber}</title>
+      <title>${title} - ${formatOrderNumber(order)}</title>
       <meta charset="utf-8">
       <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -96,8 +121,8 @@ export function printCustomerReceipt(order: Order, lang: 'en' | 'ar' = 'ar') {
           text-align: center;
           font-size: 22px;
           font-weight: bold;
-          color: ${order.paymentStatus === 'Paid' ? '#10b981' : '#ef4444'};
-          border: 2px solid ${order.paymentStatus === 'Paid' ? '#10b981' : '#ef4444'};
+          color: ${order.paymentStatus === 'Paid' ? '#10b981' : order.paymentStatus === 'Refunded' ? '#dc2626' : order.paymentStatus === 'OnAccount' ? '#d97706' : '#ef4444'};
+          border: 2px solid ${order.paymentStatus === 'Paid' ? '#10b981' : order.paymentStatus === 'Refunded' ? '#dc2626' : order.paymentStatus === 'OnAccount' ? '#d97706' : '#ef4444'};
           padding: 6px;
           margin: 12px 0;
           border-radius: 6px;
@@ -156,9 +181,10 @@ export function printCustomerReceipt(order: Order, lang: 'en' | 'ar' = 'ar') {
     </head>
     <body>
       <div class="header">
-        <h1>BREWMASTER</h1>
-        <p>Premium Coffee Experience</p>
-        <p>Tel: (555) 123-4567</p>
+        <h1>${storeName}</h1>
+        <p>${storeTagline}</p>
+        ${storeAddress ? `<p>${storeAddress}</p>` : ''}
+        ${storePhone ? `<p>Tel: ${storePhone}</p>` : ''}
       </div>
 
       <div class="stamp">${cashierStamp}</div>
@@ -166,12 +192,26 @@ export function printCustomerReceipt(order: Order, lang: 'en' | 'ar' = 'ar') {
       <div class="info">
         <div class="info-row">
           <strong>${orderLabel}:</strong>
-          <span>#${order.orderNumber}</span>
+          <span>#${ticketNo}</span>
         </div>
         <div class="info-row">
           <strong>${tableLabel}:</strong>
           <span>${order.tableId === 'Takeaway' || order.tableId === 'Dine-in' ? (isRtl && order.tableId === 'Takeaway' ? 'take away' : isRtl && order.tableId === 'Dine-in' ? 'مطعم' : order.tableId) : order.tableId}</span>
         </div>
+        ${order.customerName || order.customerPhone ? `
+        <div class="info-row">
+          <strong>${isRtl ? 'العميل' : 'Customer'}:</strong>
+          <span>${order.customerName || ''}${order.customerName && order.customerPhone ? ' · ' : ''}${order.customerPhone || ''}</span>
+        </div>` : ''}
+        ${order.companyName || (order.billedToType === 'company' && order.companyId) ? `
+        <div class="info-row">
+          <strong>${isRtl ? 'الشركة / الحساب' : 'Company / Account'}:</strong>
+          <span>${order.companyName || order.companyId}${order.billedToType === 'company' ? (isRtl ? ' (على الحساب)' : ' (on account)') : ''}</span>
+        </div>` : (order.paymentStatus === 'OnAccount' ? `
+        <div class="info-row">
+          <strong>${isRtl ? 'الحساب' : 'Account'}:</strong>
+          <span>${isRtl ? 'على الحساب' : 'On account'}</span>
+        </div>` : '')}
         <div class="info-row">
           <strong>${dateLabel}:</strong>
           <span>${new Date(order.createdAt).toLocaleString(isRtl ? 'ar-EG' : 'en-US')}</span>
@@ -211,7 +251,7 @@ export function printCustomerReceipt(order: Order, lang: 'en' | 'ar' = 'ar') {
 
       <div class="footer">
         <p>${thankYou}</p>
-        <p>BrewMaster POS</p>
+        <p>${storeName} POS</p>
       </div>
     </body>
     </html>
@@ -238,7 +278,7 @@ export function printKitchenReceipt(order: Order, lang: 'en' | 'ar' = 'ar') {
     <!DOCTYPE html>
     <html dir="${isRtl ? 'rtl' : 'ltr'}">
     <head>
-      <title>${title} - ${order.orderNumber}</title>
+      <title>${title} - ${formatOrderNumber(order)}</title>
       <meta charset="utf-8">
       <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -319,7 +359,7 @@ export function printKitchenReceipt(order: Order, lang: 'en' | 'ar' = 'ar') {
       <div class="details-box">
         <div class="details-row">
           <span><strong>${orderLabel}:</strong></span>
-          <span class="large-text">#${order.orderNumber}</span>
+          <span class="large-text">#${formatOrderNumber(order)}</span>
         </div>
         <div class="details-row">
           <span><strong>${tableLabel}:</strong></span>
@@ -368,7 +408,7 @@ export function printDrinksReceipt(order: Order, lang: 'en' | 'ar' = 'ar') {
     <!DOCTYPE html>
     <html dir="${isRtl ? 'rtl' : 'ltr'}">
     <head>
-      <title>${title} - ${order.orderNumber}</title>
+      <title>${title} - ${formatOrderNumber(order)}</title>
       <meta charset="utf-8">
       <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -449,7 +489,7 @@ export function printDrinksReceipt(order: Order, lang: 'en' | 'ar' = 'ar') {
       <div class="details-box">
         <div class="details-row">
           <span><strong>${orderLabel}:</strong></span>
-          <span class="large-text">#${order.orderNumber}</span>
+          <span class="large-text">#${formatOrderNumber(order)}</span>
         </div>
         <div class="details-row">
           <span><strong>${tableLabel}:</strong></span>
@@ -488,23 +528,142 @@ export function printDrinksReceipt(order: Order, lang: 'en' | 'ar' = 'ar') {
  */
 export function printAllOrderTickets(order: Order, lang: 'en' | 'ar' = 'ar') {
   const drinkItems = filterItemsBySection(order.items, 'drinks');
+  const kitchenItems = filterItemsBySection(order.items, 'kitchen');
 
   let delay = 0;
 
-  // 1. Only print customer payment receipt if the order is PAID!
-  if (order.paymentStatus === 'Paid') {
+  // 1. Customer receipt when paid OR charged to account
+  if (order.paymentStatus === 'Paid' || order.paymentStatus === 'OnAccount') {
     printCustomerReceipt(order, lang);
     delay += 500;
   }
 
-  // 2. Print bar ticket if drink items exist
-  if (drinkItems.length > 0) {
-    if (delay > 0) {
-      setTimeout(() => {
-        printDrinksReceipt(order, lang);
-      }, delay);
-    } else {
-      printDrinksReceipt(order, lang);
-    }
+  // 2. Kitchen ticket for food items (always on place/save)
+  if (kitchenItems.length > 0) {
+    const run = () => printKitchenReceipt(order, lang);
+    if (delay > 0) setTimeout(run, delay);
+    else run();
+    delay += 500;
   }
+
+  // 3. Bar ticket for drinks (always on place/save)
+  if (drinkItems.length > 0) {
+    const run = () => printDrinksReceipt(order, lang);
+    if (delay > 0) setTimeout(run, delay);
+    else run();
+  }
+}
+
+/**
+ * Print a single company account statement: all open OnAccount invoices
+ * for the company (total amount due).
+ */
+export function printCompanyStatement(opts: {
+  companyName: string;
+  companyPhone?: string;
+  orders: Order[];
+  taxRate?: number;
+  lang?: 'en' | 'ar';
+  resolveCustomerLabel?: (o: Order) => string;
+}) {
+  const {
+    companyName,
+    companyPhone,
+    orders,
+    taxRate: taxRateOpt,
+    lang = 'ar',
+    resolveCustomerLabel,
+  } = opts;
+  const isRtl = lang === 'ar';
+  const store = getStoreConfig();
+  const fallbackTax = typeof taxRateOpt === 'number' ? taxRateOpt : getTaxRate();
+
+  const open = orders
+    .filter(o => o.paymentStatus === 'OnAccount' && o.status !== 'Cancelled')
+    .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+
+  const total = open.reduce((s, o) => s + getOrderGrandTotal(o, fallbackTax), 0);
+
+  const title = isRtl ? 'كشف حساب شركة' : 'Company Account Statement';
+  const dateLabel = isRtl ? 'التاريخ' : 'Date';
+  const invLabel = isRtl ? 'فاتورة' : 'Invoice';
+  const byLabel = isRtl ? 'بواسطة' : 'By';
+  const totalLabel = isRtl ? 'إجمالي المبالغ المستحقة' : 'Total amounts due';
+  const storeName = store.storeName || 'BrewMaster';
+
+  const rows = open
+    .map(o => {
+      const who =
+        resolveCustomerLabel?.(o) ||
+        o.customerName ||
+        o.customerPhone ||
+        '—';
+      const amt = getOrderGrandTotal(o, fallbackTax);
+      const no = formatOrderNumber(o);
+      return `
+        <tr>
+          <td style="padding:6px 4px;border-bottom:1px dashed #ccc;">#${no}</td>
+          <td style="padding:6px 4px;border-bottom:1px dashed #ccc;">${new Date(o.createdAt).toLocaleString(isRtl ? 'ar-EG' : 'en-US')}</td>
+          <td style="padding:6px 4px;border-bottom:1px dashed #ccc;">${who}</td>
+          <td style="padding:6px 4px;border-bottom:1px dashed #ccc;text-align:${isRtl ? 'left' : 'right'};font-weight:bold;">${amt.toFixed(2)}</td>
+        </tr>`;
+    })
+    .join('');
+
+  const html = `
+    <!DOCTYPE html>
+    <html dir="${isRtl ? 'rtl' : 'ltr'}">
+    <head>
+      <title>${title} - ${companyName}</title>
+      <meta charset="utf-8">
+      <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: Arial, sans-serif; padding: 16px; max-width: 480px; margin: 0 auto; color: #000; font-size: 13px; }
+        .header { text-align: center; border-bottom: 2px dashed #000; padding-bottom: 10px; margin-bottom: 12px; }
+        .header h1 { font-size: 18px; margin-bottom: 4px; }
+        .header h2 { font-size: 16px; margin: 8px 0 4px; }
+        .meta { margin: 10px 0 14px; font-size: 12px; }
+        .meta div { margin: 3px 0; display: flex; justify-content: space-between; }
+        table { width: 100%; border-collapse: collapse; margin: 8px 0 14px; }
+        th { text-align: ${isRtl ? 'right' : 'left'}; font-size: 11px; border-bottom: 2px solid #000; padding: 6px 4px; }
+        .total { border-top: 2px solid #000; padding-top: 10px; margin-top: 8px; display: flex; justify-content: space-between; font-size: 16px; font-weight: bold; }
+        .footer { text-align: center; margin-top: 18px; font-size: 11px; color: #444; border-top: 1px dashed #000; padding-top: 8px; }
+        @media print { @page { margin: 8mm; } body { max-width: 100%; } }
+      </style>
+    </head>
+    <body>
+      <div class="header">
+        <h1>${storeName}</h1>
+        <p>${title}</p>
+        <h2>${companyName}</h2>
+        ${companyPhone ? `<p>${companyPhone}</p>` : ''}
+      </div>
+      <div class="meta">
+        <div><span>${dateLabel}</span><span>${new Date().toLocaleString(isRtl ? 'ar-EG' : 'en-US')}</span></div>
+        <div><span>${isRtl ? 'عدد الفواتير' : 'Invoices'}</span><span>${open.length}</span></div>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>${invLabel}</th>
+            <th>${dateLabel}</th>
+            <th>${byLabel}</th>
+            <th>${isRtl ? 'المبلغ' : 'Amount'}</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows || `<tr><td colspan="4" style="padding:12px;text-align:center;">${isRtl ? 'لا توجد فواتير مفتوحة' : 'No open invoices'}</td></tr>`}
+        </tbody>
+      </table>
+      <div class="total">
+        <span>${totalLabel}</span>
+        <span>${total.toFixed(2)} ${isRtl ? 'ج.م' : 'EGP'}</span>
+      </div>
+      <div class="footer">
+        <p>${storeName} POS</p>
+      </div>
+    </body>
+    </html>`;
+
+  printHtml(html);
 }

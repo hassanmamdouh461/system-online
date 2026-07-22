@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { 
   LayoutDashboard, 
-  UtensilsCrossed, 
   ClipboardList, 
   CreditCard, 
   BarChart3, 
@@ -13,8 +12,10 @@ import {
   X,
   Users,
   Building2,
-  Package
+  Package,
+  LogOut
 } from 'lucide-react';
+
 import { SidebarItem } from './SidebarItem';
 import { clsx } from 'clsx';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -29,7 +30,8 @@ interface SidebarProps {
 
 export function Sidebar({ mobileOpen = false, onMobileClose }: SidebarProps) {
   const [collapsed, setCollapsed] = useState(false);
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
+
   const isMobile = useIsMobile();
   const { t, isRtl, language } = useLanguage();
 
@@ -99,7 +101,7 @@ export function Sidebar({ mobileOpen = false, onMobileClose }: SidebarProps) {
           <>
             <SidebarItem icon={ClipboardList} label={t('Cashier Board')} to="/orders" collapsed={!isMobile && collapsed} onClick={handleItemClick} />
             <SidebarItem icon={CreditCard} label={t('Payment & Invoice')} to="/payment" collapsed={!isMobile && collapsed} onClick={handleItemClick} />
-            <SidebarItem icon={UtensilsCrossed} label={t('Menu')} to="/menu" collapsed={!isMobile && collapsed} onClick={handleItemClick} />
+            <SidebarItem icon={Users} label={t('Customers')} to="/customers" collapsed={!isMobile && collapsed} onClick={handleItemClick} />
           </>
         )}
         
@@ -108,22 +110,35 @@ export function Sidebar({ mobileOpen = false, onMobileClose }: SidebarProps) {
         <SidebarItem icon={Settings} label={t('Settings')} to="/settings" collapsed={!isMobile && collapsed} onClick={handleItemClick} />
       </nav>
 
-      {/* User Mini Profile */}
-      <div className="p-4 border-t border-gray-800">
-        <div className={clsx("flex items-center gap-3 p-2 rounded-lg bg-gray-800/50", (!isMobile && collapsed) && "justify-center")}>
+      {/* User Mini Profile & Logout */}
+      <div className="p-4 border-t border-gray-800 flex items-center justify-between gap-2">
+        <div className={clsx("flex items-center gap-3 p-2 rounded-lg bg-gray-800/50 flex-1 min-w-0", (!isMobile && collapsed) && "justify-center")}>
           <img 
-            src="https://api.dicebear.com/7.x/avataaars/svg?seed=Felix" 
+            src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(user?.name || 'User')}`} 
             alt="User" 
-            className="w-8 h-8 rounded-full bg-gray-700"
+            className="w-8 h-8 rounded-full bg-gray-700 shrink-0"
           />
           {(!collapsed || isMobile) && (
-            <div className="overflow-hidden">
+            <div className="overflow-hidden min-w-0">
               <p className="text-sm font-medium text-white truncate">{user?.name ?? 'Admin User'}</p>
-              <p className="text-xs text-gray-400 truncate">{user?.role ?? 'Manager'}</p>
+              <p className="text-xs text-gray-400 truncate">{user?.role === 'manager' ? (language === 'ar' ? 'المدير' : 'Manager') : (language === 'ar' ? 'كاشير' : 'Cashier')}</p>
             </div>
           )}
         </div>
+        {(!collapsed || isMobile) && (
+          <button
+            onClick={() => {
+              logout();
+              window.location.href = '/login';
+            }}
+            className="p-2 text-gray-400 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors shrink-0"
+            title={language === 'ar' ? 'تسجيل الخروج' : 'Logout'}
+          >
+            <LogOut size={18} />
+          </button>
+        )}
       </div>
+
     </div>
   );
 

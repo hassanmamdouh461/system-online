@@ -50,7 +50,7 @@ export const ordersService = {
     }
   },
 
-  async completeWithPayment(id: string, method: 'Cash' | 'Card' = 'Cash'): Promise<Order> {
+  async completeWithPayment(id: string, method: 'Cash' | 'Card' | 'OnAccount' = 'Cash'): Promise<Order> {
     try {
       if (typeof window !== 'undefined' && window.electronAPI?.completeOrderPayment) {
         return await window.electronAPI.completeOrderPayment(id, method);

@@ -23,7 +23,7 @@ export function BranchConfigModal({ isOpen, onClose }: BranchConfigModalProps) {
       const config = getBranchConfig();
       setBranchName(config.branchName);
       setEmail(config.email);
-      setPassword(config.password);
+      setPassword(config.password || '');
       setBranchId(config.branchId);
       setSuccess(false);
       setError('');

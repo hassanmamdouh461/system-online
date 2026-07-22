@@ -12,11 +12,21 @@ import { getTaxRate } from '../utils/settingsConfig';
 import { useMenu } from '../hooks/useMenu';
 import { useAnalytics, AnalyticsPeriod } from '../hooks/useAnalytics';
 import { inventoryService } from '../services/inventoryService';
+import { resolveInvItem } from '../utils/inventoryHelpers';
+import { telegramService } from '../services/telegramService';
 import { menuService } from '../services/menuService';
-import { StatCard } from '../components/ui/StatCard';
+import { isCloudConfigured, getWorkerUrl } from '../services/cloudConfig';
 import { RecipeIngredient } from '../global';
-import SettingsPage from './Settings';
-import InventoryPage from './Inventory';
+import { lazy, Suspense } from 'react';
+import { LoadingScreen } from '../components/ui/LoadingScreen';
+import { useToast } from '../components/ui/Toast';
+
+
+const SettingsPage = lazy(() => import('./Settings'));
+const InventoryPage = lazy(() => import('./Inventory'));
+const CustomersPage = lazy(() => import('./Customers'));
+const MenuPage = lazy(() => import('./Menu'));
+
 
 // ─── Interfaces ──────────────────────────────────────────────────────────────
 interface OrderItem {
@@ -54,7 +64,7 @@ const BRANCHES = [
 ];
 
 // ─── Date Period Config ────────────────────────────────────────────────────────
-type AnalyticsPeriod = 'Today' | 'This Week' | 'This Month' | 'This Year';
+// AnalyticsPeriod is imported from useAnalytics (single source of truth)
 
 const CHART_CONFIG: Record<AnalyticsPeriod, {
   labelsAr: string[];
@@ -306,7 +316,9 @@ const INITIAL_STOCKS: Record<string, number> = {
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 export default function ManagerDashboard() {
+  const toast = useToast();
   const { t, isRtl, language, toggleLanguage } = useLanguage();
+
   const { items: localMenuItems } = useMenu();
 
   // Filters State
@@ -318,10 +330,12 @@ export default function ManagerDashboard() {
     if (saved === 'Today' || saved === 'This Week' || saved === 'This Month' || saved === 'This Year') {
       return saved as AnalyticsPeriod;
     }
+    // Default to week so restored cloud history is visible after browser wipe
     return 'This Week';
   });
+
   const [isBranchDropdownOpen, setIsBranchDropdownOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<'analytics' | 'inventory' | 'settings'>('analytics');
+  const [activeTab, setActiveTab] = useState<'analytics' | 'menu' | 'inventory' | 'customers' | 'settings'>('analytics');
   const [customerSearchTerm, setCustomerSearchTerm] = useState('');
 
   // Unified Analytics & Inventory State
@@ -342,16 +356,16 @@ export default function ManagerDashboard() {
   const [dbInventory, setDbInventory] = useState<any[]>([]);
   const [dbRecipes, setDbRecipes] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [isDemoMode, setIsDemoMode] = useState(false);
   const [errorInfo, setErrorInfo] = useState<string | null>(null);
 
   const taxRate = getTaxRate();
 
-  // ── Fetch orders and customers from Database ──
-  // Uses Electron IPC when running as desktop app, direct REST fetch when in browser
+  // ── Fetch orders, inventory, and menu items from Database ──
 
-  const fetchOrders = async () => {
-    setLoading(true);
+  const fetchOrders = async (showToast = false) => {
+    if (showToast) setIsRefreshing(true);
     setErrorInfo(null);
     try {
       let ordersList: any[];
@@ -359,8 +373,18 @@ export default function ManagerDashboard() {
       let invList: any[] = [];
       let recList: any[] = [];
 
+      // Fetch live inventory, menu items, and recipes simultaneously
+      const [liveInv, liveRec, liveMenuItems] = await Promise.all([
+        inventoryService.getAll(),
+        inventoryService.getMenuRecipes(),
+        menuService.getAll()
+      ]);
+      setLiveInventory(liveInv);
+      if (Array.isArray(liveRec)) setRecipes(liveRec);
+      if (Array.isArray(liveMenuItems)) setMenuItems(liveMenuItems);
+
       if (window.electronAPI?.getManagerOrders) {
-        // Desktop Electron app — fetch via Node main process (bypasses CORS)
+        // Desktop Electron app — fetch via Node main process
         ordersList = await window.electronAPI.getManagerOrders();
         customersList = await window.electronAPI.getManagerCustomers();
         if (window.electronAPI?.getInventory) {
@@ -370,22 +394,36 @@ export default function ManagerDashboard() {
           recList = await window.electronAPI.getMenuRecipes();
         }
       } else {
-        // Web Mode — read from Client B's isolated database (IndexedDB / Client B API)
+        // Web Mode — ALWAYS hydrate from Cloudflare D1 first (cross-browser source of truth)
+        // then merge into IndexedDB so a fresh manager browser sees cashier sales.
+        try {
+          const { hydrateFromCloud } = await import('../services/cloudHydrate');
+          await hydrateFromCloud(true);
+        } catch (hydrateErr) {
+          console.warn('[ManagerDashboard] cloud hydrate failed, using local/remote merge:', hydrateErr);
+        }
+
         const { orderRepository, customerRepository } = await import('../repositories');
-        const localOrders = await orderRepository.getAll();
-        const localCustomers = await customerRepository.getAll();
-        const { inventoryService } = await import('../services/inventoryService');
-        const localInventory = await inventoryService.getAll();
+        // undefined branchId = all branches (manager view)
+        const localOrders = await orderRepository.getAll(undefined);
+        const localCustomers = await customerRepository.getAll(undefined);
 
         ordersList = localOrders.map(o => ({
           $id: o.id,
           $createdAt: o.createdAt,
           branch_id: o.branchId || 'main_branch',
-          total_amount: o.totalAmount,
+          total_amount:
+            typeof o.grandTotal === 'number' && o.grandTotal > 0
+              ? o.grandTotal
+              : o.totalAmount,
           payment_method: o.paymentMethod || 'Cash',
           items: typeof o.items === 'string' ? o.items : JSON.stringify(o.items),
           tableId: o.tableId,
-          paymentStatus: o.paymentStatus
+          paymentStatus: o.paymentStatus,
+          paidAt: o.paidAt,
+          taxAmount: o.taxAmount,
+          taxRate: o.taxRate,
+          grandTotal: o.grandTotal,
         }));
 
         customersList = localCustomers.map(c => ({
@@ -397,7 +435,7 @@ export default function ManagerDashboard() {
           branchId: c.branchId || 'main_branch'
         }));
 
-        invList = localInventory.map(i => ({
+        invList = liveInv.map(i => ({
           $id: i.id,
           name: i.name,
           unit: i.unit,
@@ -413,22 +451,29 @@ export default function ManagerDashboard() {
       setDbInventory(invList);
       setDbRecipes(recList);
       setIsDemoMode(false);
+
+      if (showToast) {
+        toast.success(language === 'ar' ? 'تم تحديث كافة البيانات والمخزون والإحصائيات بنجاح 🔄' : 'All data, inventory, and stats refreshed successfully 🔄');
+      }
     } catch (err: any) {
       console.warn("[ManagerDashboard] Fetch error:", err);
       setErrorInfo(err.message || "Network Timeout");
-      setOrders([]);
-      setCustomers([]);
-      setDbInventory([]);
-      setDbRecipes([]);
       setIsDemoMode(false);
     } finally {
       setLoading(false);
+      setIsRefreshing(false);
     }
   };
 
+
   useEffect(() => {
     fetchOrders();
+    const interval = setInterval(() => {
+      fetchOrders();
+    }, 10000);
+    return () => clearInterval(interval);
   }, []);
+
 
   const sendConsolidatedTelegramReport = async () => {
     // 1. Get config
@@ -602,24 +647,10 @@ export default function ManagerDashboard() {
       message += `✅ تم تصدير تقرير العملاء من لوحة الإشراف المركزية`;
     }
 
-    // Send message to Telegram
+    // Send message to Telegram using shared service
     try {
-      const url = `https://api.telegram.org/bot${botToken}/sendMessage`;
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          chat_id: chatId,
-          text: message,
-          parse_mode: 'HTML'
-        })
-      });
-      const data = await res.json();
-      if (data.ok) {
-        alert(language === 'ar' ? 'تم إرسال تقرير الفترة المحددة للتليجرام بنجاح!' : 'Report for the selected period sent successfully to Telegram!');
-      } else {
-        throw new Error(data.description);
-      }
+      await telegramService.sendMessage(botToken, chatId, message, 'HTML');
+      alert(language === 'ar' ? 'تم إرسال تقرير الفترة المحددة للتليجرام بنجاح!' : 'Report for the selected period sent successfully to Telegram!');
     } catch(err: any) {
       alert(`${language === 'ar' ? 'فشل الإرسال: ' : 'Send failed: '}${err.message || 'خطأ غير معروف'}`);
     }
@@ -653,8 +684,8 @@ export default function ManagerDashboard() {
       cardPercentage: analytics.totalRevenue > 0 ? Math.round((analytics.completedPeriod.filter(o => o.paymentMethod === 'Card').reduce((s, o) => s + o.totalAmount * (1 + taxRate), 0) / analytics.totalRevenue) * 100) : 0,
       recentTransactions: analytics.recentTransactions,
       loyaltyCount: customers.length,
-      loyaltyPoints: customers.reduce((sum, c) => sum + (Number(c.points) || 0), 0),
-      loyaltyValue: customers.reduce((sum, c) => sum + (Number(c.points) || 0), 0)
+      loyaltyPoints: 0,
+      loyaltyValue: 0
     };
   }, [analytics, taxRate, customers]);
 
@@ -934,33 +965,44 @@ export default function ManagerDashboard() {
               {language === 'ar' ? 'لوحة تحكم المدير العام' : 'Web Manager Central Dashboard'}
             </h1>
             
-            {/* Live Connection Sync Status Badge */}
-            <div className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border transition-colors shadow-sm ${
-              isDemoMode 
-                ? 'bg-amber-50 text-amber-600 border-amber-200/50' 
-                : 'bg-emerald-50 text-emerald-600 border-emerald-200/50'
-            }`}>
-              {isDemoMode ? (
-                <>
-                  <WifiOff size={13} className="animate-pulse" />
-                  <span>{language === 'ar' ? 'عرض تجريبي (أوفلاين)' : 'Demo Mode (Offline)'}</span>
-                </>
-              ) : (
-                <>
+            {/* Live Connection Sync Status Badge — honest cloud status */}
+            {(() => {
+              const cloudOn = isCloudConfigured();
+              const offline = typeof navigator !== 'undefined' && !navigator.onLine;
+              if (isDemoMode || offline) {
+                return (
+                  <div className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border transition-colors shadow-sm bg-amber-50 text-amber-600 border-amber-200/50">
+                    <WifiOff size={13} className="animate-pulse" />
+                    <span>{language === 'ar' ? 'أوفلاين / محلي' : 'Offline / Local'}</span>
+                  </div>
+                );
+              }
+              if (!cloudOn) {
+                return (
+                  <div className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border transition-colors shadow-sm bg-red-50 text-red-600 border-red-200/50" title={language === 'ar' ? 'اضبط VITE_CLOUDFLARE_WORKER_URL' : 'Set VITE_CLOUDFLARE_WORKER_URL'}>
+                    <AlertCircle size={13} />
+                    <span>{language === 'ar' ? 'سحابة غير مفعّلة (محلي فقط)' : 'Cloud off (local only)'}</span>
+                  </div>
+                );
+              }
+              return (
+                <div className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border transition-colors shadow-sm bg-emerald-50 text-emerald-600 border-emerald-200/50" title={getWorkerUrl()}>
                   <SignalHigh size={13} className="text-emerald-500 animate-pulse" />
-                  <span>{language === 'ar' ? 'سيرفر Cloudflare مباشر' : 'Cloudflare Live Database'}</span>
-                </>
-              )}
-            </div>
+                  <span>{language === 'ar' ? 'Cloudflare D1 مفعّل' : 'Cloudflare D1 Enabled'}</span>
+                </div>
+              );
+            })()}
             
             {/* Manual Refresh Button */}
             <button 
-              onClick={fetchOrders}
-              className="p-2 rounded-lg hover:bg-gray-100 border border-gray-200 transition-all text-gray-500 hover:text-gray-900"
-              title="Refresh Stats"
+              onClick={() => fetchOrders(true)}
+              disabled={isRefreshing}
+              className="p-2 rounded-lg hover:bg-gray-100 border border-gray-200 transition-all text-gray-500 hover:text-gray-900 active:scale-95 disabled:opacity-50"
+              title={language === 'ar' ? 'تحديث كافة البيانات والمخزون' : 'Refresh All Data & Inventory'}
             >
-              <RefreshCw size={14} className="hover:rotate-45 transition-transform" />
+              <RefreshCw size={14} className={`transition-transform ${isRefreshing ? 'animate-spin text-mocha-650' : 'hover:rotate-45'}`} />
             </button>
+
           </div>
           <p className="text-xs md:text-sm text-gray-500 font-medium">
             {language === 'ar' 
@@ -1026,6 +1068,17 @@ export default function ManagerDashboard() {
           {language === 'ar' ? 'الإحصائيات والتحليلات' : 'Analytics & Insights'}
         </button>
         <button
+          onClick={() => setActiveTab('menu')}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-xs md:text-sm font-bold transition-all ${
+            activeTab === 'menu'
+              ? 'bg-gray-900 text-white shadow-md'
+              : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
+          }`}
+        >
+          <Coffee size={16} />
+          {language === 'ar' ? 'إدارة القائمة' : 'Menu Management'}
+        </button>
+        <button
           onClick={() => setActiveTab('inventory')}
           className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-xs md:text-sm font-bold transition-all relative ${
             activeTab === 'inventory'
@@ -1042,6 +1095,17 @@ export default function ManagerDashboard() {
               {inventorySummary.lowStockCount}
             </span>
           )}
+        </button>
+        <button
+          onClick={() => setActiveTab('customers')}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-xs md:text-sm font-bold transition-all ${
+            activeTab === 'customers'
+              ? 'bg-gray-900 text-white shadow-md'
+              : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
+          }`}
+        >
+          <Users size={16} />
+          {language === 'ar' ? 'العملاء والشركات' : 'Customers & Companies'}
         </button>
         <button
           onClick={() => setActiveTab('settings')}
@@ -1382,7 +1446,7 @@ export default function ManagerDashboard() {
                 let summary = "";
                 let more = "";
                 try {
-                  const items: OrderItem[] = JSON.parse(order.items);
+                  const items = order.items || [];
                   if (Array.isArray(items) && items.length > 0) {
                     summary = items.slice(0, 2).map(i => `${i.quantity}× ${t(i.name)}`).join(', ');
                     if (items.length > 2) {
@@ -1391,15 +1455,15 @@ export default function ManagerDashboard() {
                   }
                 } catch {}
 
-                const branchLabel = BRANCHES.find(b => b.id === order.branch_id);
+                const branchLabel = BRANCHES.find(b => b.id === (order.branchId || 'all'));
                 const bLabel = language === 'ar' ? branchLabel?.labelAr : branchLabel?.labelEn;
 
-                const elapsed = Math.round((Date.now() - new Date(order.$createdAt).getTime()) / 60000);
+                const elapsed = Math.round((Date.now() - new Date(order.createdAt).getTime()) / 60000);
                 const timeStr = elapsed < 1 ? t('just now') : elapsed < 60 ? `${elapsed}${t('m ago')}` : `${Math.round(elapsed / 60)}${t('h ago')}`;
 
                 return (
                   <motion.div
-                    key={order.$id}
+                    key={order.id}
                     initial={{ opacity: 0, x: -10 }}
                     animate={{ opacity: 1, x: 0 }}
                     transition={{ delay: idx * 0.05 }}
@@ -1419,7 +1483,7 @@ export default function ManagerDashboard() {
                     </div>
                     <div className="text-right shrink-0">
                       <p className="text-xs md:text-sm font-extrabold text-gray-900">
-                        {(Number(order.total_amount) * (1 + taxRate)).toFixed(2)} {currencyStr}
+                        {(Number(order.totalAmount) * (1 + taxRate)).toFixed(2)} {currencyStr}
                       </p>
                       <p className="text-[10px] text-gray-400 mt-0.5">{timeStr}</p>
                     </div>
@@ -1437,21 +1501,45 @@ export default function ManagerDashboard() {
       </>)}
 
       {/* ══════════════════════════════════════════════════════════════════════ */}
+      {/* ══ MENU TAB ═══════════════════════════════════════════════════════ */}
+      {/* ══════════════════════════════════════════════════════════════════════ */}
+      {activeTab === 'menu' && (
+        <Suspense fallback={<LoadingScreen />}>
+          <div className="bg-white p-4 md:p-6 rounded-2xl border border-gray-150 shadow-sm">
+            <MenuPage />
+          </div>
+        </Suspense>
+      )}
+
+      {/* ══════════════════════════════════════════════════════════════════════ */}
       {/* ══ INVENTORY TAB ══════════════════════════════════════════════════ */}
       {/* ══════════════════════════════════════════════════════════════════════ */}
       {activeTab === 'inventory' && (
-        <div className="bg-white p-4 md:p-6 rounded-2xl border border-gray-150 shadow-sm">
-          <InventoryPage />
-        </div>
+        <Suspense fallback={<LoadingScreen />}>
+          <div className="bg-white p-4 md:p-6 rounded-2xl border border-gray-150 shadow-sm">
+            <InventoryPage />
+          </div>
+        </Suspense>
+      )}
+
+      {activeTab === 'customers' && (
+        <Suspense fallback={<LoadingScreen />}>
+          <div className="bg-white p-4 md:p-6 rounded-2xl border border-gray-150 shadow-sm">
+            <CustomersPage managerMode />
+          </div>
+        </Suspense>
       )}
 
 
       {/* ── SETTINGS TAB ───────────────────────────────────────────────────────── */}
       {activeTab === 'settings' && (
-        <div className="bg-white p-4 md:p-6 rounded-2xl border border-gray-150 shadow-sm">
-          <SettingsPage />
-        </div>
+        <Suspense fallback={<LoadingScreen />}>
+          <div className="bg-white p-4 md:p-6 rounded-2xl border border-gray-150 shadow-sm">
+            <SettingsPage />
+          </div>
+        </Suspense>
       )}
+
 
     </div>
   );

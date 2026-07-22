@@ -11,6 +11,9 @@ import { inventoryService } from '../services/inventoryService';
 import { menuService } from '../services/menuService';
 import { InventoryItem, InventoryTransaction, RecipeIngredient } from '../global';
 import { MenuItem } from '../types/menu';
+import { resolveInvItem } from '../utils/inventoryHelpers';
+import { useToast } from '../components/ui/Toast';
+import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 
 export default function Inventory() {
   const { t, isRtl } = useLanguage();
@@ -236,26 +239,47 @@ export default function Inventory() {
     setIsItemModalOpen(true);
   };
 
+  const toast = useToast();
+  const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
+
   const handleSaveItem = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
       const data = {
-        name: itemForm.name,
+        name: itemForm.name.trim(),
         unit: itemForm.unit,
-        stock: parseFloat(itemForm.stock),
-        minStock: parseFloat(itemForm.minStock),
-        costPerUnit: parseFloat(itemForm.costPerUnit)
+        stock: parseFloat(itemForm.stock) || 0,
+        minStock: parseFloat(itemForm.minStock) || 0,
+        costPerUnit: parseFloat(itemForm.costPerUnit) || 0,
+        branchId: selectedItem?.branchId || 'main_branch',
       };
 
+      if (!data.name) {
+        toast.error(t('Please enter a valid quantity greater than 0').includes('quantity')
+          ? (isRtl ? 'أدخل اسم الصنف' : 'Enter item name')
+          : (isRtl ? 'أدخل اسم الصنف' : 'Enter item name'));
+        return;
+      }
+
       if (selectedItem) {
-        await inventoryService.update(selectedItem.id, data);
+        // On edit, keep stock field out of update if disabled in UI — still allow min/cost/name
+        const { stock: _stock, ...editData } = data;
+        await inventoryService.update(selectedItem.id, {
+          name: editData.name,
+          unit: editData.unit,
+          minStock: editData.minStock,
+          costPerUnit: editData.costPerUnit,
+          branchId: editData.branchId,
+        });
+        toast.success(t('Stock item updated'));
       } else {
         await inventoryService.create(data);
+        toast.success(t('Stock item created'));
       }
       setIsItemModalOpen(false);
-      fetchData();
+      await fetchData();
     } catch (error) {
-      alert(t('Failed to save stock item'));
+      toast.error(t('Failed to save stock item'));
     }
   };
 
@@ -275,35 +299,59 @@ export default function Inventory() {
     try {
       const qty = parseFloat(adjustForm.quantity);
       if (isNaN(qty) || qty <= 0) {
-        alert(t('Please enter a valid quantity greater than 0'));
+        toast.error(t('Please enter a valid quantity greater than 0'));
         return;
       }
 
+      // IN = add, OUT = subtract, ADJUST = set absolute stock level
+      let newStock = selectedItem.stock;
+      if (adjustForm.type === 'IN') {
+        newStock = selectedItem.stock + qty;
+      } else if (adjustForm.type === 'OUT') {
+        newStock = Math.max(0, selectedItem.stock - qty);
+      } else {
+        newStock = qty;
+      }
+
+      await inventoryService.update(selectedItem.id, { stock: newStock });
       await inventoryService.createTransaction({
         itemId: selectedItem.id,
         itemName: selectedItem.name,
+        itemUnit: selectedItem.unit,
         type: adjustForm.type,
         quantity: qty,
         unit: selectedItem.unit,
-        notes: adjustForm.notes,
-        referenceId: 'MANUAL'
+        notes: adjustForm.notes || (
+          adjustForm.type === 'IN' ? 'إضافة مخزون يدوي' :
+          adjustForm.type === 'OUT' ? 'صرف مخزون يدوي' :
+          `تعديل رصيد إلى ${qty}`
+        ),
+        referenceId: 'MANUAL',
+        branchId: selectedItem.branchId,
       });
+      toast.success(t('Stock adjustment saved'));
       setIsAdjustModalOpen(false);
       fetchData();
     } catch (error) {
-      alert(t('Failed to adjust stock level'));
+      toast.error(t('Failed to adjust stock level'));
     }
   };
 
-  const handleDeleteItem = async (id: string) => {
-    if (confirm(t('Are you sure you want to delete this item? This will also remove its history and recipes mapping.'))) {
-      try {
-        await inventoryService.delete(id);
-        fetchData();
-      } catch (error) {
-        alert(t('Failed to delete item'));
-      }
+  const confirmDeleteInventory = async () => {
+    if (!deleteTargetId) return;
+    try {
+      await inventoryService.delete(deleteTargetId);
+      toast.success(t('Inventory item deleted'));
+      fetchData();
+    } catch (error) {
+      toast.error(t('Failed to delete stock item'));
+    } finally {
+      setDeleteTargetId(null);
     }
+  };
+
+  const handleDeleteItem = (id: string) => {
+    setDeleteTargetId(id);
   };
 
   return (
@@ -839,7 +887,16 @@ export default function Inventory() {
         </AnimatePresence>,
         document.body
       )}
-      
+
+      <ConfirmDialog
+        isOpen={!!deleteTargetId}
+        title={t('Delete Stock Item')}
+        message={t('Are you sure you want to delete this item? This will also remove its history and recipes mapping.')}
+        confirmText={t('Delete')}
+        cancelText={t('Cancel')}
+        onConfirm={confirmDeleteInventory}
+        onCancel={() => setDeleteTargetId(null)}
+      />
     </div>
   );
 }

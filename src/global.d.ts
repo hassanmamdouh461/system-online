@@ -1,10 +1,10 @@
 export interface MenuItem {
   id: string;
   name: string;
-  description?: string;
+  description: string;
   price: number;
   category: string;
-  image?: string;
+  image: string;
   available: boolean;
   createdAt?: string;
   updatedAt?: string;
@@ -14,10 +14,12 @@ export interface MenuItem {
 
 export interface OrderItem {
   id: string;
-  menuItemId: string;
   name: string;
   price: number;
   quantity: number;
+  menuItemId?: string;
+  status?: 'New' | 'Preparing' | 'Ready' | 'Completed' | 'Cancelled';
+  category?: string;
   notes?: string;
 }
 
@@ -26,14 +28,24 @@ export interface Order {
   orderNumber: string;
   tableId: string;
   items: OrderItem[];
-  status: 'New' | 'Preparing' | 'Ready' | 'Delivered' | 'Cancelled';
-  paymentStatus: 'Unpaid' | 'Paid';
-  paymentMethod?: 'Cash' | 'Card';
+  status: 'New' | 'Preparing' | 'Ready' | 'Completed' | 'Cancelled';
+  paymentStatus: 'Unpaid' | 'OnAccount' | 'Paid' | 'Refunded';
+  paymentMethod?: 'Cash' | 'Card' | 'OnAccount';
   totalAmount: number;
+  taxRate?: number;
+  taxAmount?: number;
+  grandTotal?: number;
   createdAt: string;
   updatedAt?: string;
   paidAt?: string;
+  refundedAt?: string;
+  refundReason?: string;
   customerPhone?: string;
+  customerId?: string;
+  customerName?: string;
+  companyId?: string;
+  companyName?: string;
+  billedToType?: 'customer' | 'company';
   pointsEarned?: number;
   pointsRedeemed?: number;
   branchId?: string;
@@ -45,6 +57,21 @@ export interface Customer {
   name: string;
   phone: string;
   points: number;
+  companyId?: string;
+  tags?: string[];
+  notes?: string;
+  createdAt: string;
+  updatedAt?: string;
+  branchId?: string;
+  isSynced?: boolean;
+}
+
+export interface Company {
+  id: string;
+  name: string;
+  tags: string[];
+  phone?: string;
+  notes?: string;
   createdAt: string;
   updatedAt?: string;
   branchId?: string;
@@ -69,6 +96,7 @@ export interface InventoryTransaction {
   itemId: string;
   itemName?: string;
   itemUnit?: string;
+  unit?: string;
   type: 'IN' | 'OUT' | 'ADJUST';
   quantity: number;
   referenceId?: string;
@@ -83,9 +111,11 @@ export interface RecipeIngredient {
   inventoryItemId: string;
   itemName?: string;
   itemUnit?: string;
+  unit?: string;
   costPerUnit?: number;
   quantity: number;
 }
+
 
 declare global {
   interface Window {
@@ -99,7 +129,7 @@ declare global {
       getOrders: () => Promise<Order[]>;
       createOrder: (order: Omit<Order, 'id'>) => Promise<Order>;
       updateOrderStatus: (id: string, status: Order['status']) => Promise<Order>;
-      completeOrderPayment: (id: string, method: 'Cash' | 'Card') => Promise<Order>;
+      completeOrderPayment: (id: string, method: 'Cash' | 'Card' | 'OnAccount') => Promise<Order>;
       updateOrder: (id: string, data: Partial<Omit<Order, 'id'>>) => Promise<Order>;
       deleteOrder: (id: string) => Promise<void>;
       resetOrders: (defaults: Omit<Order, 'id'>[]) => Promise<Order[]>;

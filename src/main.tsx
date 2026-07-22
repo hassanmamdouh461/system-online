@@ -16,7 +16,7 @@ async function initApp() {
     }
   }
 
-  // 2. Monkeypatch Storage.prototype to sync localStorage changes back to SQLite
+  // 2. Monkeypatch Storage.prototype to sync localStorage changes back to SQLite with safety wraps
   const originalSetItem = Storage.prototype.setItem;
   const originalRemoveItem = Storage.prototype.removeItem;
 
@@ -24,7 +24,11 @@ async function initApp() {
     originalSetItem.apply(this, [key, value]);
     if (this === localStorage) {
       if (window.electronAPI && typeof window.electronAPI.saveSetting === 'function') {
-        window.electronAPI.saveSetting(key, value);
+        try {
+          window.electronAPI.saveSetting(key, value);
+        } catch (err) {
+          console.warn('[main.tsx] Failed to sync setting to Electron IPC:', key, err);
+        }
       }
     }
   };
@@ -33,7 +37,11 @@ async function initApp() {
     originalRemoveItem.apply(this, [key]);
     if (this === localStorage) {
       if (window.electronAPI && typeof window.electronAPI.deleteSetting === 'function') {
-        window.electronAPI.deleteSetting(key);
+        try {
+          window.electronAPI.deleteSetting(key);
+        } catch (err) {
+          console.warn('[main.tsx] Failed to delete setting via Electron IPC:', key, err);
+        }
       }
     }
   };

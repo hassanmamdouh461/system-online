@@ -52,7 +52,7 @@ export function DatabaseStatus() {
       case 'checking':
         return {
           icon: RefreshCw,
-          color: 'text-blue-605',
+          color: 'text-blue-600',
           bgColor: 'bg-blue-50',
           borderColor: 'border-blue-200',
           label: language === 'ar' ? 'جاري التحقق...' : 'Checking...',
@@ -76,7 +76,7 @@ export function DatabaseStatus() {
       case 'error':
         return {
           icon: WifiOff,
-          color: 'text-red-650',
+          color: 'text-red-600',
           bgColor: 'bg-red-50',
           borderColor: 'border-red-200',
           label: isElectron

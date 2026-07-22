@@ -43,10 +43,16 @@ export function PinSetupModal({ isOpen, onClose }: PinSetupModalProps) {
 
     if (pin === '') {
       localStorage.removeItem('brewmaster_admin_pin');
+      void import('../../services/settingsCloudService').then((m) =>
+        m.removeSetting('brewmaster_admin_pin')
+      );
       setSuccess(t('PIN has been removed'));
       setHasExistingPin(false);
     } else {
       localStorage.setItem('brewmaster_admin_pin', pin);
+      void import('../../services/settingsCloudService').then((m) =>
+        m.persistSetting('brewmaster_admin_pin', pin)
+      );
       setSuccess(t('PIN has been successfully updated'));
       setHasExistingPin(true);
     }

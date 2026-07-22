@@ -10,9 +10,11 @@ import { useAnalytics, AnalyticsPeriod } from '../hooks/useAnalytics';
 import { StatCard } from '../components/ui/StatCard';
 import { LoadingScreen } from '../components/ui/LoadingScreen';
 import { OrderStatus } from '../types/order';
+import { formatOrderNumber } from '../utils/orderNumber';
 import { useLanguage } from '../context/LanguageContext';
 import { getTaxRate } from '../utils/settingsConfig';
 import { inventoryService } from '../services/inventoryService';
+import { resolveInvItem } from '../utils/inventoryHelpers';
 import { menuService } from '../services/menuService';
 import { MenuItem } from '../types/menu';
 
@@ -68,20 +70,9 @@ export default function Reports() {
     const invMapById = new Map<string, any>();
     inventory.forEach(item => invMapById.set(item.id, item));
 
-    const resolveInvItem = (inventoryItemId: string): any => {
-      if (invMapById.has(inventoryItemId)) return invMapById.get(inventoryItemId);
-      if (inventoryItemId.startsWith('inv_b_')) {
-        const num = parseInt(inventoryItemId.replace('inv_b_', ''), 10);
-        if (!isNaN(num) && num > 0 && num <= inventory.length) {
-          return inventory[num - 1];
-        }
-      }
-      return undefined;
-    };
-
     const getUnitCost = (invItemId: string): number => {
-      const found = resolveInvItem(invItemId);
-      return found?.costPerUnit && found.costPerUnit > 0 ? found.costPerUnit : 1;
+      const found = resolveInvItem(invItemId, inventory);
+      return found ? Number(found.costPerUnit || 0) : 0;
     };
 
     const menuRecipeMap: Record<string, any[]> = {};
@@ -105,7 +96,7 @@ export default function Reports() {
 
     const invRecipesMap = new Map<string, { menuItemId: string; quantity: number }[]>();
     recipes.forEach(r => {
-      const invItem = resolveInvItem(r.inventoryItemId);
+      const invItem = resolveInvItem(r.inventoryItemId, inventory);
       const targetId = invItem ? invItem.id : r.inventoryItemId;
 
       if (!invRecipesMap.has(targetId)) invRecipesMap.set(targetId, []);
@@ -661,7 +652,7 @@ export default function Reports() {
                       </div>
                       <div className="min-w-0">
                         <p className="text-xs md:text-sm font-semibold text-gray-900 truncate text-left">
-                          #{order.orderNumber} · {order.tableId === 'Takeaway' || order.tableId === 'Dine-in' ? t(order.tableId) : `${t('Table')} ${order.tableId}`}
+                          #{formatOrderNumber(order)} · {order.tableId === 'Takeaway' || order.tableId === 'Dine-in' ? t(order.tableId) : `${t('Table')} ${order.tableId}`}
                         </p>
                         <p className="text-[11px] text-gray-400 truncate text-left">{summary}{more}</p>
                       </div>

@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, ReactNode } from 'react';
-import { getAdminCredentials } from '../utils/settingsConfig';
+import { verifyAdminCredentials } from '../utils/settingsConfig';
 
 const LS_SESSION_KEY = 'auth_session_system_online';
 
@@ -16,10 +16,13 @@ export interface User {
   role: 'admin' | 'staff' | 'manager';
 }
 
+export type LoginRole = 'admin' | 'manager';
+
 interface AuthContextType {
   user: User | null;
   branch: BranchSession | null;
-  login: (password: string) => Promise<User>;
+  /** Pass role explicitly — preferred over URL heuristics */
+  login: (password: string, role?: LoginRole) => Promise<User>;
   logout: () => void;
   isAuthenticated: boolean;
 }
@@ -31,6 +34,29 @@ interface StoredSession {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+function resolveManagerIntent(explicitRole?: LoginRole): boolean {
+  if (explicitRole === 'manager') return true;
+  if (explicitRole === 'admin') return false;
+
+  // Fallback for direct /manager-login or ?role=manager
+  if (typeof window === 'undefined') return false;
+  const path = window.location.pathname || '';
+  const search = window.location.search || '';
+  const hash = window.location.hash || '';
+  const hashPath = hash.startsWith('#') ? hash.slice(1) : hash;
+  const [hashRoute, hashQuery = ''] = hashPath.split('?');
+  const query = new URLSearchParams(search || hashQuery);
+  const roleParam = query.get('role');
+
+  return (
+    roleParam === 'manager' ||
+    path.includes('/manager-login') ||
+    path.includes('/manager') ||
+    hashRoute.includes('/manager')
+  );
+}
+
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<StoredSession | null>(() => {
     try {
@@ -40,48 +66,47 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (parsed.user && parsed.branch) return parsed;
       }
     } catch {}
-
     return null;
   });
 
-  const login = async (password: string) => {
+  const login = async (password: string, role?: LoginRole) => {
     await new Promise(resolve => setTimeout(resolve, 400));
-    
-    const creds = getAdminCredentials();
-    
-    if (password !== creds.password) {
+
+    const isValid = await verifyAdminCredentials('admin', password);
+    if (!isValid) {
       throw new Error('كلمة المرور غير صحيحة');
     }
 
-    // Determine role based on URL path
-    const hashPath = typeof window !== 'undefined' ? window.location.hash : '';
-    const isManagerPath = hashPath.includes('/manager');
+    const isManager = resolveManagerIntent(role);
 
-    const userData: User = isManagerPath ? {
-      id: 'manager',
-      name: 'مدير النظام',
-      email: 'manager@system.com',
-      role: 'manager',
-    } : {
-      id: 'main_branch',
-      name: 'كاشير الفرع الرئيسي',
-      email: 'pos@system.com',
-      role: 'admin',
-    };
+    const userData: User = isManager
+      ? {
+          id: 'manager',
+          name: 'مدير النظام',
+          email: 'manager@system.com',
+          role: 'manager',
+        }
+      : {
+          id: 'main_branch',
+          name: 'كاشير الفرع الرئيسي',
+          email: 'pos@system.com',
+          role: 'admin',
+        };
 
-    const branchSession: BranchSession = isManagerPath ? {
-      branchId: 'manager',
-      branchName: 'الإدارة العامة',
-      authToken: `token-${Date.now()}`,
-    } : {
-      branchId: 'main_branch',
-      branchName: 'الفرع الرئيسي',
-      authToken: `token-${Date.now()}`,
-    };
+    const branchSession: BranchSession = isManager
+      ? {
+          branchId: 'manager',
+          branchName: 'الإدارة العامة',
+          authToken: `token-${Date.now()}`,
+        }
+      : {
+          branchId: 'main_branch',
+          branchName: 'الفرع الرئيسي',
+          authToken: `token-${Date.now()}`,
+        };
 
     const newSession: StoredSession = { user: userData, branch: branchSession };
     setSession(newSession);
-
     localStorage.setItem(LS_SESSION_KEY, JSON.stringify(newSession));
     return userData;
   };

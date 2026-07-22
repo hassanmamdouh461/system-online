@@ -1,7 +1,9 @@
 import React from 'react';
-import { Menu, Bell, User } from 'lucide-react';
-import { useLocation } from 'react-router-dom';
+import { Menu, LogOut } from 'lucide-react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
+import { useAuth } from '../../context/AuthContext';
+import { useLanguage } from '../../context/LanguageContext';
 
 interface MobileHeaderProps {
   onMenuClick: () => void;
@@ -9,6 +11,10 @@ interface MobileHeaderProps {
 
 export function MobileHeader({ onMenuClick }: MobileHeaderProps) {
   const location = useLocation();
+  const navigate = useNavigate();
+  const { logout } = useAuth();
+  const { language } = useLanguage();
+
   
   const getPageTitle = () => {
     const path = location.pathname;
@@ -51,21 +57,18 @@ export function MobileHeader({ onMenuClick }: MobileHeaderProps) {
 
             {/* Right Actions */}
             <div className="flex items-center gap-2">
-              {/* Notifications */}
-              <motion.button 
-                whileTap={{ scale: 0.95 }}
-                className="mobile-touch-target relative p-2.5 rounded-xl bg-blue-50/80 text-blue-600 hover:bg-blue-100/80 transition-all shadow-sm border border-blue-100/50"
-              >
-                <Bell size={20} strokeWidth={2} />
-                <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-caramel rounded-full border-2 border-white shadow-sm" />
-              </motion.button>
 
-              {/* User Avatar - softer gradient */}
+              {/* Logout Button */}
               <motion.button
                 whileTap={{ scale: 0.95 }}
-                className="mobile-touch-target w-9 h-9 rounded-xl bg-gradient-to-br from-mocha-500 to-coffee-dark flex items-center justify-center text-white shadow-sm hover:shadow-md transition-all"
+                onClick={() => {
+                  logout();
+                  navigate('/login');
+                }}
+                className="mobile-touch-target p-2.5 rounded-xl bg-red-50 text-red-600 hover:bg-red-100 transition-all shadow-sm border border-red-100"
+                title={language === 'ar' ? 'تسجيل الخروج' : 'Logout'}
               >
-                <User size={18} strokeWidth={2} />
+                <LogOut size={18} strokeWidth={2} />
               </motion.button>
             </div>
           </div>
@@ -74,3 +77,5 @@ export function MobileHeader({ onMenuClick }: MobileHeaderProps) {
     </header>
   );
 }
+
+

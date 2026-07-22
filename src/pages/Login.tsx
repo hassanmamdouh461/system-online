@@ -1,15 +1,28 @@
-import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Coffee, ArrowRight, Lock } from 'lucide-react';
+import { Coffee, ArrowRight, Lock, Building2, Store } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 export default function Login() {
-  const [password, setPassword]     = useState('');
-  const [loading, setLoading]       = useState(false);
-  const [error, setError]           = useState('');
+  const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [asManager, setAsManager] = useState(true);
   const { login } = useAuth();
-  const navigate  = useNavigate();
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const roleParam = params.get('role');
+    if (roleParam === 'cashier' || roleParam === 'pos' || location.pathname === '/login') {
+      setAsManager(false);
+    } else if (roleParam === 'manager' || location.pathname === '/manager-login') {
+      setAsManager(true);
+    }
+  }, [location.pathname, location.search, location.state]);
+
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -17,12 +30,20 @@ export default function Login() {
     setLoading(true);
     try {
       if (!password) throw new Error('من فضلك ادخل كلمة المرور');
-      const loggedUser = await login(password);
+
+      // Pass role explicitly — 'manager' for manager mode, 'admin' for cashier
+      const loggedUser = await login(password, asManager ? 'manager' : 'admin');
+      const fromPath = (location.state as any)?.from?.pathname;
+
+      let destination = '/orders';
       if (loggedUser.role === 'manager') {
-        navigate('/manager-dashboard');
+        destination = (fromPath && fromPath !== '/login' && fromPath !== '/manager-login') ? fromPath : '/manager-dashboard';
       } else {
-        navigate('/orders');
+        destination = (fromPath && !fromPath.includes('manager') && fromPath !== '/login' && fromPath !== '/manager-login') ? fromPath : '/orders';
       }
+
+      navigate(destination, { replace: true });
+
     } catch (err) {
       setError(err instanceof Error ? err.message : 'كلمة المرور غير صحيحة');
     } finally {
@@ -32,7 +53,6 @@ export default function Login() {
 
   return (
     <>
-      {/* ── Animations ───────────────────────────── */}
       <style>{`
         @keyframes float2d {
           0%,  100% { transform: translateY(0px);  }
@@ -45,7 +65,6 @@ export default function Login() {
       `}</style>
 
       <div className="min-h-screen flex items-center justify-center bg-gray-900 relative overflow-hidden">
-        {/* Abstract Background Shapes */}
         <div className="absolute top-[-20%] left-[-10%] w-[500px] h-[500px] bg-caramel/20 rounded-full blur-[100px]" />
         <div className="absolute bottom-[-20%] right-[-10%] w-[500px] h-[500px] bg-mocha-700/10 rounded-full blur-[100px]" />
 
@@ -55,8 +74,7 @@ export default function Login() {
           transition={{ duration: 0.6 }}
           className="bg-white/10 backdrop-blur-lg border border-white/20 p-8 rounded-2xl w-full max-w-sm tablet:max-w-md shadow-2xl relative z-10"
         >
-          {/* ── Icon + heading ─────────────────────────────────────────────── */}
-          <div className="flex flex-col items-center mb-8 text-center">
+          <div className="flex flex-col items-center mb-6 text-center">
             <div className="relative mb-4 icon-float">
               <div className="absolute inset-0 rounded-full bg-caramel/40 blur-xl scale-150" />
               <div className="relative bg-gradient-to-br from-caramel to-mocha-600 p-3 rounded-full shadow-lg shadow-caramel/40">
@@ -67,15 +85,45 @@ export default function Login() {
               BrewMaster POS
             </h1>
             <p className="text-gray-400 text-sm">
-              ادخل كلمة المرور لتسجيل الدخول
+              {asManager
+                ? 'دخول لوحة المدير'
+                : 'ادخل كلمة المرور لتسجيل الدخول'}
             </p>
           </div>
 
-          {/* ── Form ───────────────────────────────────────────────────────── */}
+          {/* Role selector — cashier vs manager */}
+          <div className="grid grid-cols-2 gap-2 mb-6">
+            <button
+              type="button"
+              onClick={() => setAsManager(false)}
+              className={`flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-bold transition-all border ${
+                !asManager
+                  ? 'bg-caramel text-white border-caramel shadow-md'
+                  : 'bg-gray-800/40 text-gray-300 border-gray-700 hover:bg-gray-800/70'
+              }`}
+            >
+              <Store size={16} />
+              كاشير
+            </button>
+            <button
+              type="button"
+              onClick={() => setAsManager(true)}
+              className={`flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-bold transition-all border ${
+                asManager
+                  ? 'bg-caramel text-white border-caramel shadow-md'
+                  : 'bg-gray-800/40 text-gray-300 border-gray-700 hover:bg-gray-800/70'
+              }`}
+            >
+              <Building2 size={16} />
+              مدير
+            </button>
+          </div>
+
           <form onSubmit={handleSubmit} className="space-y-6">
-            {/* Password */}
             <div className="space-y-2">
-              <label className="text-gray-300 text-xs uppercase tracking-wider font-semibold ml-1">كلمة المرور / Password</label>
+              <label className="text-gray-300 text-xs uppercase tracking-wider font-semibold ml-1">
+                كلمة المرور / Password
+              </label>
               <div className="relative group">
                 <Lock className="absolute left-3 top-3 w-5 h-5 text-gray-400 group-focus-within:text-caramel transition-colors" />
                 <input
@@ -89,7 +137,6 @@ export default function Login() {
               </div>
             </div>
 
-            {/* Error */}
             {error && (
               <motion.p
                 initial={{ opacity: 0 }}
@@ -100,7 +147,6 @@ export default function Login() {
               </motion.p>
             )}
 
-            {/* Submit */}
             <motion.button
               whileHover={loading ? {} : { scale: 1.02 }}
               whileTap={loading ? {} : { scale: 0.98 }}
@@ -111,7 +157,10 @@ export default function Login() {
               {loading ? (
                 <span className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
               ) : (
-                <>دخول <ArrowRight className="w-5 h-5" /></>
+                <>
+                  {asManager ? 'دخول المدير' : 'دخول الكاشير'}{' '}
+                  <ArrowRight className="w-5 h-5" />
+                </>
               )}
             </motion.button>
           </form>

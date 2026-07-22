@@ -1,24 +1,37 @@
 import React, { useState, useMemo, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { getTaxRate } from '../../utils/settingsConfig';
 import { MenuItem, CATEGORIES } from '../../types/menu';
 import { OrderItem, Order } from '../../types/order';
 import { useLanguage } from '../../context/LanguageContext';
-import { Coffee, Trash2, Plus, Minus, CreditCard, DollarSign, Check, XCircle, Printer, Search, Settings, RotateCcw, X } from 'lucide-react';
+import { Coffee, Trash2, Plus, Minus, CreditCard, DollarSign, Check, XCircle, Printer, Search, Settings, RotateCcw, X, BookUser } from 'lucide-react';
 import { clsx } from 'clsx';
 import { printCustomerReceipt, printAllOrderTickets } from '../../utils/printReceipts';
+import { CustomerLookupStep, CustomerLookupResult } from '../payment/CustomerLookupStep';
+import { Customer } from '../../types/customer';
+import { Company } from '../../types/company';
+import { companiesService } from '../../services/companiesService';
+import { PaymentMethod, BilledToType, PaymentStatus } from '../../types/order';
 
 interface POSViewProps {
   menuItems: MenuItem[];
   onCreateOrder: (
     tableId: string,
     items: OrderItem[],
-    paymentStatus: 'Paid' | 'Unpaid',
-    paymentMethod?: 'Cash' | 'Card',
+    paymentStatus: PaymentStatus,
+    paymentMethod?: PaymentMethod,
     paidAmount?: number,
     customerPhone?: string,
     pointsEarned?: number,
-    pointsRedeemed?: number
+    pointsRedeemed?: number,
+    accountMeta?: {
+      customerId?: string;
+      customerName?: string;
+      companyId?: string;
+      companyName?: string;
+      billedToType?: BilledToType;
+    }
   ) => Promise<Order | null>;
   estimatedOrderNumber: string;
 }
@@ -37,8 +50,8 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
   const [receivedAmount, setReceivedAmount] = useState<string>(() => {
     return localStorage.getItem('pos_receivedAmount') || '0';
   });
-  const [paymentMethod, setPaymentMethod] = useState<'Cash' | 'Card'>(() => {
-    return (localStorage.getItem('pos_paymentMethod') as 'Cash' | 'Card') || 'Cash';
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(() => {
+    return (localStorage.getItem('pos_paymentMethod') as PaymentMethod) || 'Cash';
   });
   const [paymentStatus, setPaymentStatus] = useState<'Paid' | 'Unpaid'>(() => {
     return (localStorage.getItem('pos_paymentStatus') as 'Paid' | 'Unpaid') || 'Paid';
@@ -53,6 +66,13 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [customerPhone, setCustomerPhone] = useState<string>(() => {
+    return localStorage.getItem('pos_customerPhone') || '';
+  });
+  const [linkedCustomer, setLinkedCustomer] = useState<Customer | null>(null);
+  const [linkedCompany, setLinkedCompany] = useState<Company | null>(null);
+  /** When charging OnAccount: personal customer ledger vs company ledger */
+  const [billTo, setBillTo] = useState<'customer' | 'company'>('customer');
 
   // Dynamic Table Management State
   const [tables, setTables] = useState<string[]>(() => {
@@ -65,6 +85,8 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
   });
   const [isManageTablesOpen, setIsManageTablesOpen] = useState(false);
   const [newTableName, setNewTableName] = useState('');
+  /** Pending checkout action waiting for customer phone step (skippable) */
+  const [pendingCheckout, setPendingCheckout] = useState<'save' | 'print' | null>(null);
 
   useEffect(() => {
     localStorage.setItem('pos_invoiceItems', JSON.stringify(invoiceItems));
@@ -77,6 +99,10 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
   useEffect(() => {
     localStorage.setItem('pos_paymentMethod', paymentMethod);
   }, [paymentMethod]);
+
+  useEffect(() => {
+    localStorage.setItem('pos_customerPhone', customerPhone);
+  }, [customerPhone]);
 
   useEffect(() => {
     localStorage.setItem('pos_paymentStatus', paymentStatus);
@@ -254,12 +280,17 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
     setPaymentMethod('Cash');
     setPaymentStatus(orderMode === 'Takeaway' ? 'Paid' : 'Unpaid');
     setTableId('');
+    setCustomerPhone('');
+    setLinkedCustomer(null);
+    setLinkedCompany(null);
+    setBillTo('customer');
     localStorage.removeItem('pos_invoiceItems');
     localStorage.removeItem('pos_receivedAmount');
     localStorage.removeItem('pos_paymentMethod');
     localStorage.removeItem('pos_paymentStatus');
     localStorage.removeItem('pos_orderMode');
     localStorage.removeItem('pos_tableId');
+    localStorage.removeItem('pos_customerPhone');
   };
 
   // Save and place order
@@ -290,53 +321,244 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
       }
     }
 
+    // OnAccount always requires a registered customer
+    if (paymentMethod === 'OnAccount') {
+      setPendingCheckout(action);
+      return;
+    }
+
+    // Always ask for customer phone before finalizing (cashier can skip)
+    setPendingCheckout(action);
+  };
+
+  const handleCustomerLookupResolved = async (result: CustomerLookupResult) => {
+    const action = pendingCheckout;
+    setPendingCheckout(null);
+    if (!action) return;
+
+    // ── OnAccount: company or customer ledger ─────────────────────────
+    if (paymentMethod === 'OnAccount') {
+      // Direct company selection (search by company name)
+      if (result.company && !result.customer && billTo === 'company') {
+        setLinkedCompany(result.company);
+        setLinkedCustomer(null);
+        if (action === 'save') {
+          void executeSaveOrder(undefined, undefined, result.company);
+        } else {
+          void executePrintAndPay(undefined, undefined, result.company);
+        }
+        return;
+      }
+
+      if (result.skipped || (!result.customer && !result.company)) {
+        alert(
+          isRtl
+            ? 'الفاتورة على الحساب تتطلب عميل أو شركة'
+            : 'Charging to account requires a customer or company'
+        );
+        return;
+      }
+
+      let company: Company | null = result.company || null;
+      if (result.customer) {
+        setLinkedCustomer(result.customer);
+        setCustomerPhone(result.customer.phone);
+        if (!company && result.customer.companyId) {
+          try {
+            company = await companiesService.getById(result.customer.companyId);
+            // Fallback: match company by name if id lookup failed
+            if (!company) {
+              const all = await companiesService.getAll();
+              company =
+                all.find(c => c.id === result.customer!.companyId) ||
+                all.find(
+                  c => c.name.trim() === String(result.customer!.companyId).trim()
+                ) ||
+                null;
+              // Never invent a company when only one exists in the DB.
+            }
+          } catch {
+            company = null;
+          }
+        }
+      }
+      setLinkedCompany(company);
+
+      if (billTo === 'company' && !company) {
+        alert(
+          isRtl
+            ? 'لم يتم ربط الشركة — ابحث باسم الشركة مباشرة أو اربط العميل بالشركة من صفحة العملاء'
+            : 'Company not linked — search company name directly or link the customer to a company'
+        );
+        return;
+      }
+
+      const phone = result.customer?.phone;
+      if (phone) setCustomerPhone(phone);
+
+      if (action === 'save') {
+        void executeSaveOrder(phone, result.customer || undefined, company);
+      } else {
+        void executePrintAndPay(phone, result.customer || undefined, company);
+      }
+      return;
+    }
+
+    // ── Cash / Card: optional customer ────────────────────────────────
+    if (result.skipped || !result.customer) {
+      if (action === 'save') void executeSaveOrder(undefined);
+      else void executePrintAndPay(undefined);
+      return;
+    }
+
+    setLinkedCustomer(result.customer);
+    setCustomerPhone(result.customer.phone);
     if (action === 'save') {
-      executeSaveOrder();
+      void executeSaveOrder(result.customer.phone, result.customer);
     } else {
-      executePrintAndPay();
+      void executePrintAndPay(result.customer.phone, result.customer);
     }
   };
 
-  const executeSaveOrder = async (customerPhone?: string, pointsEarned?: number, pointsRedeemed?: number) => {
+  const buildAccountMeta = (customer?: Customer, company?: Company | null) => {
+    if (paymentMethod !== 'OnAccount') return undefined;
+    const co = company !== undefined ? company : linkedCompany;
+
+    // Company ledger (even without a person on the invoice)
+    if (billTo === 'company' && co) {
+      return {
+        customerId: customer?.id,
+        customerName: customer?.name,
+        companyId: co.id,
+        companyName: co.name,
+        billedToType: 'company' as BilledToType,
+      };
+    }
+
+    // Personal ledger
+    if (!customer) return undefined;
+    return {
+      customerId: customer.id,
+      customerName: customer.name,
+      companyId: undefined,
+      companyName: undefined,
+      billedToType: 'customer' as BilledToType,
+    };
+  };
+
+  const executeSaveOrder = async (
+    customerPhone?: string,
+    customer?: Customer,
+    company?: Company | null,
+    pointsEarned?: number,
+    pointsRedeemed?: number
+  ) => {
     try {
       const finalTableId = orderMode === 'Takeaway' ? 'Takeaway' : `${t('Table')} ${tableId}`;
-      const finalStatus = orderMode === 'Takeaway' ? 'Paid' : paymentStatus;
-      const paidAmt = finalStatus === 'Paid' ? (grandTotal - (pointsRedeemed || 0)) : undefined;
+      let finalStatus: PaymentStatus =
+        orderMode === 'Takeaway' ? 'Paid' : (paymentStatus as PaymentStatus);
+      let method: PaymentMethod = paymentMethod;
+      if (paymentMethod === 'OnAccount') {
+        finalStatus = 'OnAccount';
+        method = 'OnAccount';
+      }
+      const paidAmt =
+        finalStatus === 'Paid' || finalStatus === 'OnAccount'
+          ? grandTotal - (pointsRedeemed || 0)
+          : undefined;
+      const accountMeta = buildAccountMeta(customer || linkedCustomer || undefined, company);
 
-      const newOrder = await onCreateOrder(finalTableId, invoiceItems, finalStatus, paymentMethod, paidAmt, customerPhone, pointsEarned, pointsRedeemed);
-      
-      if (newOrder) {
+      const newOrder = await onCreateOrder(
+        finalTableId,
+        invoiceItems,
+        finalStatus,
+        method,
+        paidAmt,
+        customerPhone,
+        pointsEarned,
+        pointsRedeemed,
+        accountMeta
+      );
+
+      if (!newOrder) {
+        throw new Error(isRtl ? 'فشل حفظ الطلب — لم يُرجع النظام رقم طلب' : 'Failed to save order — no order returned');
+      }
+
+      try {
         printAllOrderTickets(newOrder, language);
+      } catch (printErr) {
+        console.warn('[POS] print failed (order was saved):', printErr);
       }
 
       handleReset();
-      setSuccessMessage(t('Successfully saved order'));
+      setSuccessMessage(
+        finalStatus === 'OnAccount'
+          ? isRtl
+            ? 'تم التسجيل على الحساب'
+            : 'Charged to account'
+          : t('Successfully saved order')
+      );
       setTimeout(() => setSuccessMessage(null), 3000);
     } catch (err) {
       console.error(err);
-      alert('Failed to save order');
+      const msg = err instanceof Error ? err.message : String(err);
+      alert(isRtl ? `فشل حفظ الطلب: ${msg}` : `Failed to save order: ${msg}`);
     }
   };
 
-  const executePrintAndPay = async (customerPhone?: string, pointsEarned?: number, pointsRedeemed?: number) => {
+  const executePrintAndPay = async (
+    customerPhone?: string,
+    customer?: Customer,
+    company?: Company | null,
+    pointsEarned?: number,
+    pointsRedeemed?: number
+  ) => {
     try {
       const finalTableId = orderMode === 'Takeaway' ? 'Takeaway' : `${t('Table')} ${tableId}`;
-      const finalPaymentStatus = 'Paid';
+      let finalPaymentStatus: PaymentStatus = 'Paid';
+      let method: PaymentMethod = paymentMethod;
+      if (paymentMethod === 'OnAccount') {
+        finalPaymentStatus = 'OnAccount';
+        method = 'OnAccount';
+      }
       const paidAmt = grandTotal - (pointsRedeemed || 0);
+      const accountMeta = buildAccountMeta(customer || linkedCustomer || undefined, company);
 
-      // Create order
-      const newOrder = await onCreateOrder(finalTableId, invoiceItems, finalPaymentStatus, paymentMethod, paidAmt, customerPhone, pointsEarned, pointsRedeemed);
+      const newOrder = await onCreateOrder(
+        finalTableId,
+        invoiceItems,
+        finalPaymentStatus,
+        method,
+        paidAmt,
+        customerPhone,
+        pointsEarned,
+        pointsRedeemed,
+        accountMeta
+      );
 
-      if (newOrder) {
+      if (!newOrder) {
+        throw new Error(isRtl ? 'فشل حفظ الطلب — لم يُرجع النظام رقم طلب' : 'Failed to save order — no order returned');
+      }
+
+      try {
         printAllOrderTickets(newOrder, language);
+      } catch (printErr) {
+        console.warn('[POS] print failed (order was saved):', printErr);
       }
 
       handleReset();
-      setSuccessMessage(t('Successfully saved order'));
+      setSuccessMessage(
+        finalPaymentStatus === 'OnAccount'
+          ? isRtl
+            ? 'تم التسجيل على الحساب'
+            : 'Charged to account'
+          : t('Successfully saved order')
+      );
       setTimeout(() => setSuccessMessage(null), 3050);
     } catch (err) {
       console.error(err);
-      alert('Failed to process print and save');
+      const msg = err instanceof Error ? err.message : String(err);
+      alert(isRtl ? `فشل حفظ الطلب: ${msg}` : `Failed to process order: ${msg}`);
     }
   };
 
@@ -405,38 +627,89 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
               ))}
               <button
                 onClick={() => handleKeypadPress('C')}
-                className="col-span-3 bg-red-500 hover:bg-red-600 text-white text-sm md:text-base font-black rounded-lg border border-red-600 shadow-sm active:scale-95 transition-all flex items-center justify-center h-full"
+                className="col-span-3 bg-red-500 hover:bg-red-600 text-white text-sm md:text-base font-black rounded-lg border border-red-600 shadow-sm active:scale-95 transition-all flex items-center justify-center h-full py-1.5"
               >
-                C
+                {language === 'ar' ? 'مسح الكل' : 'Clear All'}
               </button>
+
             </div>
 
             {/* Payment Method Selection */}
             <div className="pt-0.5 shrink-0">
-              <div className="space-y-0.5">
-                <label className="text-[10px] text-gray-500 font-extrabold uppercase block"><span className="font-sans">{t('Payment Method')}</span></label>
-                <div className="flex bg-gray-100 rounded-lg p-0.5 border border-gray-200">
+              <div className="space-y-1">
+                <label className="text-[10px] text-gray-500 font-extrabold uppercase block">
+                  <span className="font-sans">{t('Payment Method')}</span>
+                </label>
+                <div className="grid grid-cols-3 gap-1">
                   <button
+                    type="button"
                     onClick={() => setPaymentMethod('Cash')}
                     className={clsx(
-                      "flex-1 py-1 rounded-md text-xs font-black transition-all flex items-center justify-center gap-1",
-                      paymentMethod === 'Cash' ? "bg-white text-mocha-700 shadow-sm" : "text-gray-500 hover:bg-white/30"
+                      "py-1.5 rounded-lg text-[10px] font-black transition-all flex flex-col items-center justify-center gap-0.5 border",
+                      paymentMethod === 'Cash'
+                        ? "bg-mocha-600 text-white border-mocha-700 shadow-sm"
+                        : "bg-gray-50 text-gray-600 border-gray-200 hover:bg-white"
                     )}
                   >
-                    <DollarSign size={13} />
-                    <span className="font-sans">{t('Cash')}</span>
+                    <DollarSign size={14} />
+                    <span className="font-sans">{isRtl ? 'نقداً' : t('Cash')}</span>
                   </button>
                   <button
+                    type="button"
                     onClick={() => setPaymentMethod('Card')}
                     className={clsx(
-                      "flex-1 py-1 rounded-md text-xs font-black transition-all flex items-center justify-center gap-1",
-                      paymentMethod === 'Card' ? "bg-white text-mocha-700 shadow-sm" : "text-gray-500 hover:bg-white/30"
+                      "py-1.5 rounded-lg text-[10px] font-black transition-all flex flex-col items-center justify-center gap-0.5 border",
+                      paymentMethod === 'Card'
+                        ? "bg-mocha-600 text-white border-mocha-700 shadow-sm"
+                        : "bg-gray-50 text-gray-600 border-gray-200 hover:bg-white"
                     )}
                   >
-                    <CreditCard size={13} />
-                    <span className="font-sans">{t('Card')}</span>
+                    <CreditCard size={14} />
+                    <span className="font-sans">{isRtl ? 'بطاقة' : t('Card')}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPaymentMethod('OnAccount')}
+                    className={clsx(
+                      "py-1.5 rounded-lg text-[10px] font-black transition-all flex flex-col items-center justify-center gap-0.5 border",
+                      paymentMethod === 'OnAccount'
+                        ? "bg-amber-500 text-white border-amber-600 shadow-sm"
+                        : "bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100"
+                    )}
+                    title={isRtl ? 'تسجيل على حساب العميل/الشركة (دفع مؤجل)' : 'Charge to customer/company account'}
+                  >
+                    <BookUser size={14} />
+                    <span className="font-sans">{isRtl ? 'على الحساب' : 'On Account'}</span>
                   </button>
                 </div>
+                {paymentMethod === 'OnAccount' && (
+                  <div className="flex gap-1 mt-1">
+                    <button
+                      type="button"
+                      onClick={() => setBillTo('customer')}
+                      className={clsx(
+                        'flex-1 py-1.5 rounded-lg text-[10px] font-bold border',
+                        billTo === 'customer'
+                          ? 'bg-mocha-50 border-mocha-300 text-mocha-800'
+                          : 'bg-white border-gray-200 text-gray-500'
+                      )}
+                    >
+                      {isRtl ? 'حساب عميل' : 'Customer'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setBillTo('company')}
+                      className={clsx(
+                        'flex-1 py-1.5 rounded-lg text-[10px] font-bold border',
+                        billTo === 'company'
+                          ? 'bg-purple-50 border-purple-300 text-purple-800'
+                          : 'bg-white border-gray-200 text-gray-500'
+                      )}
+                    >
+                      {isRtl ? 'حساب شركة' : 'Company'}
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -578,6 +851,8 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
               {t('Takeaway')}
             </button>
           </div>
+
+
 
           {/* Table ID Selector (Only visible for Dine-in) - Compact & Dynamic */}
           {orderMode === 'Dine-in' && (
@@ -827,6 +1102,44 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
             </motion.div>
           </div>
         </AnimatePresence>
+      )}
+
+      {/* Customer phone lookup before checkout (skippable) */}
+      {pendingCheckout && createPortal(
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+            onClick={() => setPendingCheckout(null)}
+          />
+          <div className="relative bg-white rounded-2xl w-full max-w-md tablet:max-w-lg shadow-2xl z-10 overflow-hidden p-5">
+            <div className="flex justify-between items-center mb-2">
+              <h3 className="text-sm font-extrabold text-gray-900">
+                {language === 'ar' ? 'قبل إتمام الطلب' : 'Before completing order'}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setPendingCheckout(null)}
+                className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <CustomerLookupStep
+              initialPhone={customerPhone}
+              onResolved={handleCustomerLookupResolved}
+              onCancel={() => setPendingCheckout(null)}
+              compact
+              accountMode={
+                paymentMethod === 'OnAccount'
+                  ? billTo === 'company'
+                    ? 'company'
+                    : 'customer'
+                  : 'any'
+              }
+            />
+          </div>
+        </div>,
+        document.body
       )}
 
     </div>

@@ -8,6 +8,7 @@ import { useIsMobile } from '../../hooks/useIsMobile';
 import { filterItemsBySection } from '../../utils/orderSection';
 import { useLanguage } from '../../context/LanguageContext';
 import { printCustomerReceipt, printKitchenReceipt, printDrinksReceipt } from '../../utils/printReceipts';
+import { formatOrderNumber } from '../../utils/orderNumber';
 
 interface OrderDetailsProps {
   order: Order | null;
@@ -73,7 +74,9 @@ export function OrderDetails({ order, onClose, onUpdateStatus, type = 'all' }: O
               {/* Header */}
               <div className="p-4 md:p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
                 <div>
-                  <h2 className="text-lg md:text-xl font-bold text-gray-900">Order #{order.orderNumber}</h2>
+                  <h2 className="text-lg md:text-xl font-bold text-gray-900">
+                    {language === 'ar' ? 'طلب' : 'Order'} #{formatOrderNumber(order)}
+                  </h2>
                   <p className="text-sm text-gray-500">
                     {order.tableId === 'Takeaway' || order.tableId === 'Dine-in' ? order.tableId : `Table ${order.tableId}`}
                   </p>

@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { X, Send, Key, Hash, Clock, ShieldCheck, AlertCircle, ToggleLeft, ToggleRight } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { getTelegramConfig, setTelegramConfig } from '../../utils/settingsConfig';
+import { telegramService } from '../../services/telegramService';
 
 interface TelegramConfigModalProps {
   isOpen: boolean;
@@ -26,7 +27,7 @@ export function TelegramConfigModal({ isOpen, onClose }: TelegramConfigModalProp
       const config = getTelegramConfig();
       setBotToken(config.botToken);
       setChatId(config.chatId);
-      setReportTime(config.reportTime);
+      setReportTime(config.reportTime || '23:00');
       setEnabled(config.enabled);
       setSuccess(false);
       setTestSuccess(false);
@@ -77,23 +78,8 @@ export function TelegramConfigModal({ isOpen, onClose }: TelegramConfigModalProp
 
     setTesting(true);
     try {
-      const url = `https://api.telegram.org/bot${botToken.trim()}/sendMessage`;
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          chat_id: chatId.trim(),
-          text: `🧪 <b>رسالة تجريبية من نظام BrewMaster POS</b>\n\nتم إعداد البوت ومحادثة تليجرام بنجاح! ستصلك التقارير اليومية هنا في الموعد المحدد.`,
-          parse_mode: 'HTML'
-        })
-      });
-
-      const data = await response.json();
-      if (data.ok) {
-        setTestSuccess(true);
-      } else {
-        throw new Error(data.description || 'Failed to send message');
-      }
+      await telegramService.sendTestMessage(botToken.trim(), chatId.trim());
+      setTestSuccess(true);
     } catch (err: any) {
       console.error('[TelegramConfig] Test message failed:', err);
       setError(`خطأ أثناء الإرسال: ${err.message || 'يرجى التحقق من صحة التوكن والمعرف'}`);

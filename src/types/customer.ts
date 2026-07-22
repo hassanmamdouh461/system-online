@@ -3,9 +3,14 @@ export interface Customer {
   name: string;
   phone: string;
   points: number;
+  /** Optional link to a company this customer belongs to */
+  companyId?: string;
+  /** Free-form tags specific to this customer */
+  tags?: string[];
+  notes?: string;
   createdAt: string;
-  updatedAt?: string; // ISO string — last modification timestamp for sync conflict resolution
+  updatedAt?: string;
   /** Multi-branch sync fields */
-  branchId?: string; // UUID identifying which branch created/owns this record
-  isSynced?: boolean; // false = needs to be pushed to central server
+  branchId?: string;
+  isSynced?: boolean;
 }

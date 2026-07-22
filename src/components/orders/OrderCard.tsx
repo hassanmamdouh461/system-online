@@ -6,6 +6,7 @@ import { clsx } from 'clsx';
 
 import { filterItemsBySection, getOrderStatusForSection } from '../../utils/orderSection';
 import { useLanguage } from '../../context/LanguageContext';
+import { formatOrderNumber } from '../../utils/orderNumber';
 
 interface OrderCardProps {
   order: Order;
@@ -96,9 +97,10 @@ export const OrderCard = React.forwardRef<HTMLDivElement, OrderCardProps>(
         <div className="flex justify-between items-start mb-2 md:mb-3">
           <div className="flex items-center gap-1.5 md:gap-2">
             <span className="font-bold text-base md:text-lg text-gray-900">{order.tableId}</span>
-            <span className="text-[10px] md:text-xs px-1.5 md:px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 font-medium">
-              #{order.orderNumber}
+            <span className="text-[10px] md:text-xs px-1.5 md:px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 font-medium font-mono">
+              #{formatOrderNumber(order)}
             </span>
+
           </div>
           
           <div className="flex items-center gap-2">

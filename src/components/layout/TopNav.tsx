@@ -3,7 +3,6 @@ import { NavLink, useNavigate } from 'react-router-dom';
 import { 
   ClipboardList, 
   CreditCard, 
-  UtensilsCrossed, 
   Users, 
   BarChart3, 
   Settings, 
@@ -38,7 +37,7 @@ export function TopNav() {
     : [
         { icon: ClipboardList, label: t('Cashier Board'), to: '/orders' },
         { icon: CreditCard, label: t('Payment & Invoice'), to: '/payment' },
-        { icon: UtensilsCrossed, label: t('Menu'), to: '/menu' },
+        { icon: Users, label: t('Customers'), to: '/customers' },
         { icon: Settings, label: t('Settings'), to: '/settings' },
       ];
 

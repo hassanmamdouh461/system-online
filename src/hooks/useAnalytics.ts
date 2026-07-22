@@ -73,12 +73,19 @@ const TOP_ITEMS_BOOST: Record<AnalyticsPeriod, TopItem[]> = {
 };
 
 // ─── Period filter ────────────────────────────────────────────────────────────
-function inPeriod(dateStr: string, period: AnalyticsPeriod): boolean {
-  const d   = new Date(dateStr);
+function inPeriod(dateStr: string | undefined, period: AnalyticsPeriod): boolean {
+  if (!dateStr) return false;
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return false;
   const now = new Date();
+
   switch (period) {
     case 'Today':
-      return d.toDateString() === now.toDateString();
+      return (
+        d.getFullYear() === now.getFullYear() &&
+        d.getMonth() === now.getMonth() &&
+        d.getDate() === now.getDate()
+      );
     case 'This Week': {
       const start = new Date(now);
       start.setDate(now.getDate() - ((now.getDay() + 6) % 7));
@@ -154,21 +161,43 @@ export function useAnalytics(period: AnalyticsPeriod): AnalyticsResult {
   const error   = ordersError ?? menuError ?? null;
 
   // All orders that fall inside the requested period
+  // Do NOT blank out while loading if we already have orders (prevents flash-to-zero after hydrate)
   const periodOrders = useMemo(
-    () => (loading ? [] : orders.filter(o => inPeriod(o.createdAt, period))),
-    [orders, period, loading],
+    () => orders.filter(o => inPeriod(o.createdAt, period) || inPeriod(o.paidAt, period)),
+    [orders, period],
   );
 
   // Only paid orders contribute to revenue (paymentStatus set exclusively by Payment.tsx)
   // Financial rule: filter completed orders by the date they were actually PAID (paidAt) rather than created.
   const completedPeriod = useMemo(
-    () => orders.filter(o => o.paymentStatus === 'Paid' && inPeriod(o.paidAt || o.createdAt, period)),
+    () =>
+      orders.filter(
+        (o) =>
+          o.paymentStatus === 'Paid' &&
+          (inPeriod(o.paidAt, period) || (!o.paidAt && inPeriod(o.createdAt, period)))
+      ),
     [orders, period],
   );
 
-  // Sum of real completed-order revenue in the period (including tax)
+
+  // Sum of real completed-order revenue in the period (including frozen tax when present)
+  // CRITICAL: NaN / non-finite grandTotal/tax fields must be ignored (D1 nulls used to become 0/NaN)
   const realRevenue = useMemo(
-    () => completedPeriod.reduce((s, o) => s + o.totalAmount * (1 + getTaxRate()), 0),
+    () =>
+      completedPeriod.reduce((s, o) => {
+        if (typeof o.grandTotal === 'number' && Number.isFinite(o.grandTotal) && o.grandTotal > 0) {
+          return s + o.grandTotal;
+        }
+        const rate =
+          typeof o.taxRate === 'number' && Number.isFinite(o.taxRate) ? o.taxRate : getTaxRate();
+        const tax =
+          typeof o.taxAmount === 'number' && Number.isFinite(o.taxAmount)
+            ? o.taxAmount
+            : o.totalAmount * rate;
+        const points = Number.isFinite(o.pointsRedeemed as number) ? (o.pointsRedeemed || 0) : 0;
+        const line = o.totalAmount + tax - points;
+        return s + (Number.isFinite(line) ? line : 0);
+      }, 0),
     [completedPeriod],
   );
 
@@ -192,8 +221,22 @@ export function useAnalytics(period: AnalyticsPeriod): AnalyticsResult {
     completedPeriod.forEach(o => {
       const idx = cfg.getBucket(new Date(o.paidAt || o.createdAt));
       if (idx >= 0 && idx < cfg.labels.length) {
-        realRev[idx]   += o.totalAmount * (1 + getTaxRate());
-        realCount[idx] += 1;
+        let total = 0;
+        if (typeof o.grandTotal === 'number' && Number.isFinite(o.grandTotal) && o.grandTotal > 0) {
+          total = o.grandTotal;
+        } else {
+          const rate =
+            typeof o.taxRate === 'number' && Number.isFinite(o.taxRate) ? o.taxRate : getTaxRate();
+          const tax =
+            typeof o.taxAmount === 'number' && Number.isFinite(o.taxAmount)
+              ? o.taxAmount
+              : o.totalAmount * rate;
+          total = o.totalAmount + tax - (o.pointsRedeemed || 0);
+        }
+        if (Number.isFinite(total)) {
+          realRev[idx] += total;
+          realCount[idx] += 1;
+        }
       }
     });
 
@@ -213,13 +256,14 @@ export function useAnalytics(period: AnalyticsPeriod): AnalyticsResult {
   const topItems = useMemo<TopItem[]>(() => {
     const map: Record<string, TopItem> = {};
 
-    completedPeriod.forEach(order =>
+    completedPeriod.forEach(order => {
+      const rate = typeof order.taxRate === 'number' ? order.taxRate : getTaxRate();
       order.items.forEach(item => {
         if (!map[item.name]) map[item.name] = { name: item.name, count: 0, revenue: 0 };
-        map[item.name].count   += item.quantity;
-        map[item.name].revenue += item.quantity * item.price * (1 + getTaxRate());
-      }),
-    );
+        map[item.name].count += item.quantity;
+        map[item.name].revenue += item.quantity * item.price * (1 + rate);
+      });
+    });
 
     return Object.values(map).sort((a, b) => b.count - a.count).slice(0, 5);
   }, [completedPeriod]);
