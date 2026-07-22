@@ -667,3 +667,103 @@ export function printCompanyStatement(opts: {
 
   printHtml(html);
 }
+
+/**
+ * Print a single customer account statement: all open OnAccount invoices
+ * for the customer (total amount due).
+ */
+export function printCustomerStatement(opts: {
+  customerName: string;
+  customerPhone?: string;
+  orders: Order[];
+  taxRate?: number;
+  lang?: 'en' | 'ar';
+}) {
+  const { customerName, customerPhone, orders, taxRate: taxRateOpt, lang = 'ar' } = opts;
+  const isRtl = lang === 'ar';
+  const store = getStoreConfig();
+  const fallbackTax = typeof taxRateOpt === 'number' ? taxRateOpt : getTaxRate();
+
+  const open = orders
+    .filter(o => o.paymentStatus === 'OnAccount' && o.status !== 'Cancelled')
+    .sort((a, b) => new Date(a.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+  const total = open.reduce((s, o) => s + getOrderGrandTotal(o, fallbackTax), 0);
+
+  const title = isRtl ? 'كشف حساب عميل' : 'Customer Account Statement';
+  const dateLabel = isRtl ? 'التاريخ' : 'Date';
+  const invLabel = isRtl ? 'فاتورة' : 'Invoice';
+  const totalLabel = isRtl ? 'إجمالي الرصيد المستحق' : 'Total balance due';
+  const storeName = store.storeName || 'BrewMaster';
+
+  const rows = open
+    .map(o => {
+      const amt = getOrderGrandTotal(o, fallbackTax);
+      const no = formatOrderNumber(o);
+      return `
+        <tr>
+          <td style="padding:6px 4px;border-bottom:1px dashed #ccc;">#${no}</td>
+          <td style="padding:6px 4px;border-bottom:1px dashed #ccc;">${new Date(o.createdAt).toLocaleString(isRtl ? 'ar-EG' : 'en-US')}</td>
+          <td style="padding:6px 4px;border-bottom:1px dashed #ccc;">${o.tableId || 'Takeaway'}</td>
+          <td style="padding:6px 4px;border-bottom:1px dashed #ccc;text-align:${isRtl ? 'left' : 'right'};font-weight:bold;">${amt.toFixed(2)}</td>
+        </tr>`;
+    })
+    .join('');
+
+  const html = `
+    <!DOCTYPE html>
+    <html dir="${isRtl ? 'rtl' : 'ltr'}">
+    <head>
+      <title>${title} - ${customerName}</title>
+      <meta charset="utf-8">
+      <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: Arial, sans-serif; padding: 16px; max-width: 480px; margin: 0 auto; color: #000; font-size: 13px; }
+        .header { text-align: center; border-bottom: 2px dashed #000; padding-bottom: 10px; margin-bottom: 12px; }
+        .header h1 { font-size: 18px; margin-bottom: 4px; }
+        .header h2 { font-size: 16px; margin: 8px 0 4px; }
+        .meta { margin: 10px 0 14px; font-size: 12px; }
+        .meta div { margin: 3px 0; display: flex; justify-content: space-between; }
+        table { width: 100%; border-collapse: collapse; margin: 8px 0 14px; }
+        th { text-align: ${isRtl ? 'right' : 'left'}; font-size: 11px; border-bottom: 2px solid #000; padding: 6px 4px; }
+        .total { border-top: 2px solid #000; padding-top: 10px; margin-top: 8px; display: flex; justify-content: space-between; font-size: 16px; font-weight: bold; }
+        .footer { text-align: center; margin-top: 18px; font-size: 11px; color: #444; border-top: 1px dashed #000; padding-top: 8px; }
+        @media print { @page { margin: 8mm; } body { max-width: 100%; } }
+      </style>
+    </head>
+    <body>
+      <div class="header">
+        <h1>${storeName}</h1>
+        <p>${title}</p>
+        <h2>${customerName}</h2>
+        ${customerPhone ? `<p>${customerPhone}</p>` : ''}
+      </div>
+      <div class="meta">
+        <div><span>${dateLabel}</span><span>${new Date().toLocaleString(isRtl ? 'ar-EG' : 'en-US')}</span></div>
+        <div><span>${isRtl ? 'عدد الفواتير المفتوحة' : 'Open Invoices'}</span><span>${open.length}</span></div>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>${invLabel}</th>
+            <th>${dateLabel}</th>
+            <th>${isRtl ? 'نوع الطلب' : 'Mode'}</th>
+            <th>${isRtl ? 'المبلغ' : 'Amount'}</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows || `<tr><td colspan="4" style="padding:12px;text-align:center;">${isRtl ? 'لا توجد فواتير مفتوحة' : 'No open invoices'}</td></tr>`}
+        </tbody>
+      </table>
+      <div class="total">
+        <span>${totalLabel}</span>
+        <span>${total.toFixed(2)} ${isRtl ? 'ج.م' : 'EGP'}</span>
+      </div>
+      <div class="footer">
+        <p>${storeName} POS</p>
+      </div>
+    </body>
+    </html>`;
+
+  printHtml(html);
+}

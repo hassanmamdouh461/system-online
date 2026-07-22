@@ -24,7 +24,7 @@ import {
   getCustomerOpenInvoices,
   getCompanyOpenInvoices,
 } from '../utils/accountBalance';
-import { printCompanyStatement } from '../utils/printReceipts';
+import { printCompanyStatement, printCustomerStatement, printCustomerReceipt } from '../utils/printReceipts';
 import { formatOrderNumber } from '../utils/orderNumber';
 
 type Tab = 'customers' | 'companies';
@@ -631,6 +631,22 @@ export default function CustomersPage({ managerMode = false }: CustomersPageProp
             title={t('Customer Details')}
             actions={
               <>
+                <button
+                  type="button"
+                  title={language === 'ar' ? 'طباعة كشف حساب العميل' : 'Print customer statement'}
+                  onClick={() => {
+                    printCustomerStatement({
+                      customerName: profileCustomer.name,
+                      customerPhone: profileCustomer.phone,
+                      orders: customerOrders(profileCustomer.phone, profileCustomer.id),
+                      taxRate,
+                      lang: language === 'ar' ? 'ar' : 'en',
+                    });
+                  }}
+                  className="p-2 rounded-lg hover:bg-mocha-50 text-mocha-700"
+                >
+                  <Printer size={16} />
+                </button>
                 <button onClick={() => openEditCustomer(profileCustomer)} className="p-2 rounded-lg hover:bg-gray-100 text-gray-600">
                   <Edit3 size={16} />
                 </button>
@@ -930,9 +946,22 @@ function CustomerProfile({
                   <p className="font-bold text-gray-800 truncate">#{formatOrderNumber(o)}</p>
                   <p className="text-gray-400">{o.tableId} · {new Date(o.createdAt).toLocaleString()}</p>
                 </div>
-                <p className="font-extrabold text-red-700">
-                  {getOrderGrandTotal(o, taxRate).toFixed(2)} {currency}
-                </p>
+                <div className="flex items-center gap-2 shrink-0">
+                  <p className="font-extrabold text-red-700">
+                    {getOrderGrandTotal(o, taxRate).toFixed(2)} {currency}
+                  </p>
+                  <button
+                    type="button"
+                    title={language === 'ar' ? 'طباعة الفاتورة' : 'Print Invoice'}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      printCustomerReceipt(o, language === 'ar' ? 'ar' : 'en');
+                    }}
+                    className="p-1.5 rounded-lg hover:bg-red-100/60 text-red-700 transition-colors"
+                  >
+                    <Printer size={15} />
+                  </button>
+                </div>
               </div>
             ))}
           </div>
@@ -952,21 +981,34 @@ function CustomerProfile({
             {orders.slice(0, 30).map(o => (
               <div key={o.id} className="flex items-center justify-between px-3 py-2.5 bg-white text-xs">
                 <div className="min-w-0">
-                  <p className="font-bold text-gray-800 truncate">{formatOrderNumber(o)}</p>
+                  <p className="font-bold text-gray-800 truncate">#{formatOrderNumber(o)}</p>
                   <p className="text-gray-400">{o.tableId} · {new Date(o.createdAt).toLocaleString()}</p>
                 </div>
-                <div className="text-right shrink-0">
-                  <p className="font-extrabold text-gray-900">{getOrderGrandTotal(o, taxRate).toFixed(2)} {currency}</p>
-                  <p className={clsx(
-                    'text-[10px] font-bold',
-                    o.paymentStatus === 'Paid' ? 'text-green-600' :
-                    o.paymentStatus === 'OnAccount' ? 'text-red-600' :
-                    o.paymentStatus === 'Refunded' ? 'text-gray-400' : 'text-amber-600'
-                  )}>
-                    {o.paymentStatus === 'OnAccount'
-                      ? (language === 'ar' ? 'على الحساب' : 'On Account')
-                      : o.paymentStatus}
-                  </p>
+                <div className="flex items-center gap-2 shrink-0">
+                  <div className="text-right">
+                    <p className="font-extrabold text-gray-900">{getOrderGrandTotal(o, taxRate).toFixed(2)} {currency}</p>
+                    <p className={clsx(
+                      'text-[10px] font-bold',
+                      o.paymentStatus === 'Paid' ? 'text-green-600' :
+                      o.paymentStatus === 'OnAccount' ? 'text-red-600' :
+                      o.paymentStatus === 'Refunded' ? 'text-gray-400' : 'text-amber-600'
+                    )}>
+                      {o.paymentStatus === 'OnAccount'
+                        ? (language === 'ar' ? 'على الحساب' : 'On Account')
+                        : o.paymentStatus}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    title={language === 'ar' ? 'طباعة الفاتورة' : 'Print Invoice'}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      printCustomerReceipt(o, language === 'ar' ? 'ar' : 'en');
+                    }}
+                    className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-600 transition-colors"
+                  >
+                    <Printer size={15} />
+                  </button>
                 </div>
               </div>
             ))}
@@ -1078,9 +1120,22 @@ function CompanyProfile({
                     · {new Date(o.createdAt).toLocaleString()}
                   </p>
                 </div>
-                <p className="font-extrabold text-red-700">
-                  {getOrderGrandTotal(o, taxRate).toFixed(2)} {currency}
-                </p>
+                <div className="flex items-center gap-2 shrink-0">
+                  <p className="font-extrabold text-red-700">
+                    {getOrderGrandTotal(o, taxRate).toFixed(2)} {currency}
+                  </p>
+                  <button
+                    type="button"
+                    title={language === 'ar' ? 'طباعة الفاتورة' : 'Print Invoice'}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      printCustomerReceipt(o, language === 'ar' ? 'ar' : 'en');
+                    }}
+                    className="p-1.5 rounded-lg hover:bg-red-100/60 text-red-700 transition-colors"
+                  >
+                    <Printer size={15} />
+                  </button>
+                </div>
               </div>
             ))}
           </div>
