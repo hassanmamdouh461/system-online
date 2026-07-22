@@ -303,8 +303,11 @@ export function PaymentModal({
             method === 'OnAccount' ? (useCompany ? 'company' : 'customer') : undefined,
         });
       }
+      // Auto-print receipt immediately upon payment completion
+      handlePrintReceipt();
+
       setIsProcessing(false);
-      setStep('receipt');
+      handleClose();
     }, 100);
   };
 
@@ -414,11 +417,11 @@ export function PaymentModal({
           </div>
 
           {!isPaidView && step !== 'refund' && (
-            <div className="px-6 pt-3 flex items-center gap-2">
+            <div className="px-6 py-2.5 flex items-center gap-2 border-b border-gray-100 bg-gray-50/50 shrink-0">
               <StepDot active={step === 'customer'} done={step !== 'customer'} label={language === 'ar' ? 'عميل' : 'Customer'} />
-              <div className="flex-1 h-0.5 bg-gray-100 rounded" />
+              <div className="flex-1 h-0.5 bg-gray-200 rounded" />
               <StepDot active={step === 'pay'} done={step === 'receipt'} label={language === 'ar' ? 'دفع' : 'Pay'} />
-              <div className="flex-1 h-0.5 bg-gray-100 rounded" />
+              <div className="flex-1 h-0.5 bg-gray-200 rounded" />
               <StepDot active={step === 'receipt'} done={false} label={language === 'ar' ? 'إيصال' : 'Receipt'} />
             </div>
           )}
