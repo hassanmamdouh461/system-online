@@ -11,8 +11,12 @@ const CATEGORY_TRANSLATIONS: Record<string, string> = {
   'Iced Coffee': 'قهوة باردة',
   'Frappe': 'فرابيه',
   'Milkshakes': 'ميلك شيك',
+  'Juices': 'عصائر ومشروبات',
+  'Desserts': 'حلويات',
+  'Food': 'مأكولات',
   'Kitchen': 'مأكولات',
-  'Bar': 'مشروبات'
+  'Bar': 'مشروبات',
+  'General': 'عام'
 };
 
 const ITEM_TRANSLATIONS: Record<string, { name: string; desc: string }> = {
@@ -92,19 +96,29 @@ export default function PublicMenu() {
 
   const drinksCategories = React.useMemo(() => {
     const unique = new Set<string>();
-    unique.add('Hot Coffee');
-    unique.add('Iced Coffee');
-    unique.add('Frappe');
-    unique.add('Milkshakes');
     
     items.forEach(item => {
       const parts = item.category ? item.category.split('|') : [];
       const menuCat = parts[0] || '';
-      if (menuCat && menuCat !== 'All' && menuCat !== 'Kitchen' && menuCat !== 'ساندوتشات' && menuCat !== 'مقبلات' && menuCat !== 'حلويات') {
+      if (menuCat && menuCat !== 'All' && menuCat !== 'Kitchen' && menuCat !== 'General') {
         unique.add(menuCat);
       }
     });
-    return Array.from(unique);
+
+    const defaults = ['Hot Coffee', 'Iced Coffee', 'Frappe', 'Milkshakes'];
+    defaults.forEach(cat => unique.add(cat));
+
+    const list = Array.from(unique);
+    if (items.length === 0) return defaults;
+
+    const withItems = list.filter(cat => {
+      return items.some(item => {
+        const menuCat = item.category ? item.category.split('|')[0] : '';
+        return menuCat === cat;
+      });
+    });
+
+    return withItems.length > 0 ? withItems : defaults;
   }, [items]);
 
   const activeCategories = React.useMemo(() => {

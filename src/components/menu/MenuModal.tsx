@@ -15,14 +15,38 @@ interface MenuModalProps {
   existingItems: MenuItem[];
 }
 
+function getIngredientBaseQty(qty: number, selectedUnit: string, baseUnit: string): number {
+  const sel = (selectedUnit || '').trim().toLowerCase();
+  const base = (baseUnit || '').trim().toLowerCase();
+
+  const isSelKg = sel === 'كجم' || sel === 'kg';
+  const isSelG = sel === 'جرام' || sel === 'g' || sel === 'جم';
+  const isBaseKg = base === 'كجم' || base === 'kg';
+  const isBaseG = base === 'جرام' || base === 'g' || base === 'جم';
+
+  if (isBaseKg && isSelG) return qty / 1000;
+  if (isBaseG && isSelKg) return qty * 1000;
+
+  const isSelL = sel === 'لتر' || sel === 'l';
+  const isSelMl = sel === 'مل' || sel === 'ml';
+  const isBaseL = base === 'لتر' || base === 'l';
+  const isBaseMl = base === 'مل' || base === 'ml';
+
+  if (isBaseL && isSelMl) return qty / 1000;
+  if (isBaseMl && isSelL) return qty * 1000;
+
+  return qty;
+}
+
 export function MenuModal({ isOpen, onClose, onSave, initialData, existingItems }: MenuModalProps) {
   const { t } = useLanguage();
   const [activeTab, setActiveTab] = useState<'general' | 'recipe'>('general');
   const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([]);
-  const [mappedIngredients, setMappedIngredients] = useState<Array<{ inventoryItemId: string; quantity: number }>>([]);
+  const [mappedIngredients, setMappedIngredients] = useState<Array<{ inventoryItemId: string; quantity: number; unit?: string }>>([]);
   const [loading, setLoading] = useState(false);
 
   const [preparation, setPreparation] = useState('Bar');
+  const [showNewCategoryInput, setShowNewCategoryInput] = useState(false);
 
   const [formData, setFormData] = useState({
     name: '',
@@ -44,7 +68,8 @@ export function MenuModal({ isOpen, onClose, onSave, initialData, existingItems 
           const recipe = await inventoryService.getMenuItemRecipe(initialData.id);
           setMappedIngredients(recipe.map(r => ({
             inventoryItemId: r.inventoryItemId,
-            quantity: r.quantity
+            quantity: r.quantity,
+            unit: r.unit || r.itemUnit || ''
           })));
         } else {
           setMappedIngredients([]);
@@ -62,38 +87,79 @@ export function MenuModal({ isOpen, onClose, onSave, initialData, existingItems 
     }
   }, [initialData, isOpen]);
 
+  const availableCategories = useMemo(() => {
+    const defaults = [
+      { value: 'Hot Coffee', label: 'قهوة ساخنة (Hot Coffee)' },
+      { value: 'Iced Coffee', label: 'قهوة باردة (Iced Coffee)' },
+      { value: 'Frappe', label: 'فرابيه (Frappe)' },
+      { value: 'Milkshakes', label: 'ميلك شيك (Milkshakes)' },
+      { value: 'Juices', label: 'عصائر ومشروبات (Juices)' },
+      { value: 'Desserts', label: 'حلويات (Desserts)' },
+      { value: 'Food', label: 'مأكولات (Food)' }
+    ];
+    
+    const set = new Set(defaults.map(d => d.value));
+    const list = [...defaults];
+
+    (existingItems || []).forEach(item => {
+      const cat = item.category ? item.category.split('|')[0] : '';
+      if (cat && !set.has(cat) && cat !== 'Bar' && cat !== 'Kitchen' && cat !== 'All' && cat !== 'General') {
+        set.add(cat);
+        list.push({ value: cat, label: cat });
+      }
+    });
+
+    return list;
+  }, [existingItems]);
+
   useEffect(() => {
     if (initialData) {
       const parts = initialData.category.split('|');
-      const menuCat = parts[0] || 'General';
-      const prepArea = parts[1] || parts[0] || 'Bar';
+      const menuCat = parts[0] || 'Hot Coffee';
 
-      setFormData({
-        name: initialData.name,
-        description: initialData.description,
-        price: initialData.price.toString(),
-        category: menuCat,
-        image: initialData.image || '',
-        available: initialData.available,
-      });
-      setPreparation(prepArea);
+      const isKnown = availableCategories.some(c => c.value === menuCat);
+      if (!isKnown && menuCat !== 'General') {
+        setShowNewCategoryInput(true);
+        setFormData({
+          name: initialData.name,
+          description: initialData.description,
+          price: initialData.price.toString(),
+          category: menuCat,
+          image: initialData.image || '',
+          available: initialData.available,
+        });
+      } else {
+        setShowNewCategoryInput(false);
+        setFormData({
+          name: initialData.name,
+          description: initialData.description,
+          price: initialData.price.toString(),
+          category: menuCat === 'General' ? 'Hot Coffee' : menuCat,
+          image: initialData.image || '',
+          available: initialData.available,
+        });
+      }
+      setPreparation('Bar');
     } else {
+      setShowNewCategoryInput(false);
       setFormData({
         name: '',
         description: '',
         price: '',
-        category: 'General',
+        category: 'Hot Coffee',
         image: '',
         available: true,
       });
       setPreparation('Bar');
     }
-  }, [initialData, isOpen]);
+  }, [initialData, isOpen, availableCategories]);
 
   const calculatedCost = useMemo(() => {
     return mappedIngredients.reduce((sum, ing) => {
       const invItem = inventoryItems.find(i => i.id === ing.inventoryItemId);
-      return sum + (invItem ? invItem.costPerUnit * ing.quantity : 0);
+      if (!invItem) return sum;
+      const baseQty = getIngredientBaseQty(ing.quantity, ing.unit || invItem.unit || 'كجم', invItem.unit || 'كجم');
+      return sum + (invItem.costPerUnit * baseQty);
     }, 0);
   }, [mappedIngredients, inventoryItems]);
 
@@ -106,16 +172,26 @@ export function MenuModal({ isOpen, onClose, onSave, initialData, existingItems 
 
   const addIngredientRow = () => {
     if (inventoryItems.length === 0) return;
-    setMappedIngredients(prev => [...prev, { inventoryItemId: inventoryItems[0].id, quantity: 0 }]);
+    const first = inventoryItems[0];
+    setMappedIngredients(prev => [...prev, { inventoryItemId: first.id, quantity: 0, unit: first.unit || 'كجم' }]);
   };
 
-  const updateIngredientRow = (index: number, itemId: string, qty: number) => {
-    setMappedIngredients(prev => prev.map((item, i) => i === index ? { inventoryItemId: itemId, quantity: qty } : item));
+  const updateIngredientRow = (index: number, itemId: string, qty: number, unit?: string) => {
+    setMappedIngredients(prev => prev.map((item, i) => {
+      if (i !== index) return item;
+      const invItem = inventoryItems.find(it => it.id === itemId);
+      return {
+        inventoryItemId: itemId,
+        quantity: qty,
+        unit: unit !== undefined ? unit : (item.unit || invItem?.unit || 'كجم')
+      };
+    }));
   };
 
   const removeIngredientRow = (index: number) => {
     setMappedIngredients(prev => prev.filter((_, i) => i !== index));
   };
+
 
   const handleCategoryChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const val = e.target.value;
@@ -131,8 +207,8 @@ export function MenuModal({ isOpen, onClose, onSave, initialData, existingItems 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const menuCategory = formData.category || 'General';
-      const finalCategory = `${menuCategory}|${preparation}`;
+      const menuCategory = formData.category.trim() || 'Hot Coffee';
+      const finalCategory = `${menuCategory}|Bar`;
 
       const defaultImage = ['Hot Coffee', 'Iced Coffee', 'Frappe', 'Milkshakes', 'Bar'].includes(menuCategory)
         ? 'https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?w=400'
@@ -254,14 +330,28 @@ export function MenuModal({ isOpen, onClose, onSave, initialData, existingItems 
                     </div>
 
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">{t('Preparation Destination') || 'مكان التحضير (الكاشير)'}</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">{t('Category') || 'التصنيف'}</label>
                       <select
-                        value={preparation}
-                        onChange={(e) => setPreparation(e.target.value)}
+                        value={showNewCategoryInput ? 'CREATE_NEW' : formData.category}
+                        onChange={handleCategoryChange}
                         className="w-full px-3 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-caramel focus:border-transparent transition-all bg-white text-sm font-bold text-gray-900"
                       >
-                        <option value="Bar">بار (Bar)</option>
+                        {availableCategories.map(cat => (
+                          <option key={cat.value} value={cat.value}>{cat.label}</option>
+                        ))}
+                        <option value="CREATE_NEW">+ إضافة تصنيف جديد...</option>
                       </select>
+
+                      {showNewCategoryInput && (
+                        <input
+                          type="text"
+                          required
+                          value={formData.category}
+                          onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+                          className="w-full px-3 py-2 mt-2 rounded-xl border border-mocha-200 focus:outline-none focus:ring-2 focus:ring-caramel focus:border-transparent transition-all text-sm bg-mocha-50/50 text-gray-900 placeholder-gray-400 font-bold"
+                          placeholder="اسم التصنيف الجديد..."
+                        />
+                      )}
                     </div>
                   </div>
                 </>
@@ -294,37 +384,47 @@ export function MenuModal({ isOpen, onClose, onSave, initialData, existingItems 
                           <div key={idx} className="flex gap-2 items-center bg-gray-50 p-2 rounded-xl border border-gray-100">
                             <select
                                value={ing.inventoryItemId}
-                               onChange={(e) => updateIngredientRow(idx, e.target.value, ing.quantity)}
-                               className="flex-1 px-3 py-1.5 rounded-lg border border-gray-200 text-xs focus:outline-none bg-white font-medium"
+                               onChange={(e) => updateIngredientRow(idx, e.target.value, ing.quantity, ing.unit)}
+                               className="flex-1 px-3 py-1.5 rounded-lg border border-gray-200 text-xs focus:outline-none bg-white font-medium min-w-0"
                             >
                               {inventoryItems.map(item => (
                                 <option key={item.id} value={item.id}>{t(item.name) || item.name}</option>
                               ))}
                             </select>
 
-                            <div className="flex items-center gap-1.5 w-24">
+                            <div className="flex items-center gap-1.5 w-44 shrink-0">
                               <input
                                 type="number"
                                 step="0.001"
                                 required
                                 value={ing.quantity || ''}
-                                onChange={(e) => updateIngredientRow(idx, ing.inventoryItemId, parseFloat(e.target.value) || 0)}
-                                className="w-full px-2 py-1.5 rounded-lg border border-gray-200 text-xs focus:outline-none text-center font-bold"
+                                onChange={(e) => updateIngredientRow(idx, ing.inventoryItemId, parseFloat(e.target.value) || 0, ing.unit)}
+                                className="w-20 px-2 py-1.5 rounded-lg border border-gray-200 text-xs focus:outline-none text-center font-bold bg-white"
                                 placeholder="0"
                               />
-                              <span className="text-[10px] text-gray-400 font-semibold whitespace-nowrap">
-                                {currentInvItem ? t(currentInvItem.unit) : ''}
-                              </span>
+
+                              <select
+                                value={ing.unit || currentInvItem?.unit || 'كجم'}
+                                onChange={(e) => updateIngredientRow(idx, ing.inventoryItemId, ing.quantity, e.target.value)}
+                                className="px-2 py-1.5 rounded-lg border border-gray-200 text-xs focus:outline-none bg-white font-bold text-gray-800 shrink-0"
+                              >
+                                <option value="كجم">كجم</option>
+                                <option value="جرام">جرام</option>
+                                <option value="لتر">لتر</option>
+                                <option value="مل">مل</option>
+                                <option value="قطعة">قطعة</option>
+                              </select>
                             </div>
 
                             <button
                               type="button"
                               onClick={() => removeIngredientRow(idx)}
-                              className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                              className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-colors shrink-0"
                             >
                               <Trash2 size={14} />
                             </button>
                           </div>
+
                         );
                       })}
                     </div>
