@@ -43,9 +43,7 @@ export function MenuModal({ isOpen, onClose, onSave, initialData, existingItems 
   const [activeTab, setActiveTab] = useState<'general' | 'recipe'>('general');
   const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([]);
   const [mappedIngredients, setMappedIngredients] = useState<Array<{ inventoryItemId: string; quantity: number; unit?: string }>>([]);
-  const [loading, setLoading] = useState(false);
 
-  const [preparation, setPreparation] = useState('Bar');
   const [showNewCategoryInput, setShowNewCategoryInput] = useState(false);
   const [isCategoryDropdownOpen, setIsCategoryDropdownOpen] = useState(false);
   const [removedCategories, setRemovedCategories] = useState<string[]>(() => {
@@ -77,7 +75,6 @@ export function MenuModal({ isOpen, onClose, onSave, initialData, existingItems 
 
   useEffect(() => {
     const loadRecipeAndInventory = async () => {
-      setLoading(true);
       try {
         const inv = await inventoryService.getAll();
         setInventoryItems(inv);
@@ -94,8 +91,6 @@ export function MenuModal({ isOpen, onClose, onSave, initialData, existingItems 
         }
       } catch (err) {
         console.error('Failed to load recipe/inventory items:', err);
-      } finally {
-        setLoading(false);
       }
     };
     
@@ -171,7 +166,6 @@ export function MenuModal({ isOpen, onClose, onSave, initialData, existingItems 
           available: initialData.available,
         });
       }
-      setPreparation('Bar');
     } else {
       setShowNewCategoryInput(false);
       setFormData({
@@ -182,7 +176,6 @@ export function MenuModal({ isOpen, onClose, onSave, initialData, existingItems 
         image: '',
         available: true,
       });
-      setPreparation('Bar');
     }
   }, [initialData, isOpen, availableCategories]);
 

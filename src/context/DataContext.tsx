@@ -4,6 +4,9 @@ import { Order, OrderStatus } from '../types/order';
 import { menuRepository, orderRepository } from '../repositories';
 import { useAuth } from './AuthContext';
 import { inventoryService } from '../services/inventoryService';
+import { getIngredientBaseQty } from '../utils/units';
+import { syncService } from '../services/syncService';
+
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -25,7 +28,8 @@ interface OrdersState {
   error: Error | null;
   addOrder: (order: Omit<Order, 'id'>) => Promise<Order | null>;
   updateOrderStatus: (id: string, status: OrderStatus) => Promise<void>;
-  completeWithPayment: (id: string, method?: 'Cash' | 'Card') => Promise<void>;
+  completeWithPayment: (id: string, method?: 'Cash' | 'Card' | 'OnAccount') => Promise<void>;
+  refundOrder: (id: string, reason?: string) => Promise<void>;
   updateOrder: (id: string, data: Partial<Omit<Order, 'id'>>) => Promise<void>;
   deleteOrder: (id: string) => Promise<void>;
   refetch: () => Promise<void>;
@@ -62,10 +66,12 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     try {
       setMenuLoading(true);
       setMenuError(null);
-      const data = await menuRepository.getAll(branch?.branchId);
+      const targetBranch = (branch?.branchId === 'manager' || branch?.branchId === 'all') ? undefined : branch?.branchId;
+      const data = await menuRepository.getAll(targetBranch);
       setMenuItems(data);
     } catch (err) {
       console.warn('[DataContext] Failed to fetch menu from repository, using default initial items:', err);
+      setMenuError(err instanceof Error ? err : new Error(String(err)));
       setMenuItems(INITIAL_MENU_ITEMS);
     } finally {
       setMenuLoading(false);
@@ -78,21 +84,65 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     try {
       setOrdersLoading(true);
       setOrdersError(null);
-      const data = await orderRepository.getAll(branch?.branchId);
+      const targetBranch = (branch?.branchId === 'manager' || branch?.branchId === 'all') ? undefined : branch?.branchId;
+      // Load (with cloud merge) first, THEN renumber so junk from cloud is cleaned.
+      // After renumber, re-read LOCAL only — another cloud merge would re-inject 1000-series.
+      let data = await orderRepository.getAll(targetBranch);
+      try {
+        if (typeof orderRepository.renumberIfNeeded === 'function') {
+          const changed = await orderRepository.renumberIfNeeded();
+          if (changed > 0) {
+            data =
+              typeof orderRepository.getAllLocal === 'function'
+                ? await orderRepository.getAllLocal(targetBranch)
+                : await orderRepository.getAll(targetBranch);
+          }
+        }
+      } catch {
+        // non-fatal
+      }
       setOrdersList(data);
     } catch (err) {
       console.warn('[DataContext] Failed to fetch orders from repository:', err);
+      setOrdersError(err instanceof Error ? err : new Error(String(err)));
       setOrdersList([]);
     } finally {
       setOrdersLoading(false);
     }
   }, [branch?.branchId]);
 
-  // Fetch when branch changes
+  // Fetch when branch changes + periodic background refetch
+  // Manager: force cloud hydrate so a fresh browser sees cashier D1 sales
   useEffect(() => {
-    fetchMenu();
-    fetchOrders();
-  }, [fetchMenu, fetchOrders]);
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const { hydrateFromCloud, resetHydrateCache } = await import('../services/cloudHydrate');
+        // Always try cloud restore on mount / branch change (cross-browser source of truth)
+        resetHydrateCache();
+        await hydrateFromCloud(true);
+      } catch {
+        // offline / unconfigured
+      }
+      if (cancelled) return;
+      await fetchMenu();
+      await fetchOrders();
+    })();
+
+    const interval = setInterval(() => {
+      if (typeof navigator !== 'undefined' && navigator.onLine) {
+        // Periodic light refetch — repositories merge remote when online
+        fetchMenu();
+        fetchOrders();
+      }
+    }, 15000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [fetchMenu, fetchOrders, branch?.branchId]);
 
   // ── Menu mutations ────────────────────────────────────────────────────────────
 
@@ -152,69 +202,165 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 
   // ── Orders mutations ──────────────────────────────────────────────────────────
 
-async function deductOrderInventory(order: Order) {
-  try {
-    for (const item of order.items) {
-      const recipe = await inventoryService.getMenuItemRecipe(item.id);
-      if (recipe && recipe.length > 0) {
-        for (const ing of recipe) {
-          const qtyNeeded = ing.quantity * item.quantity;
-          await inventoryService.deductStock(
-            ing.inventoryItemId,
-            qtyNeeded,
-            `مبيعات أوردر #${order.orderNumber} (${item.name})`,
-            `ORD-#${order.orderNumber}`
-          );
+async function applyOrderInventory(
+    order: Order,
+    direction: 'deduct' | 'restore'
+  ) {
+    try {
+      const allInv = await inventoryService.getAll();
+      for (const item of order.items) {
+        const recipeKey = item.menuItemId || item.id;
+        const recipe = await inventoryService.getMenuItemRecipe(recipeKey);
+        if (recipe && recipe.length > 0) {
+          for (const ing of recipe) {
+            const rawQty = ing.quantity * item.quantity;
+            const targetInv = allInv.find(i => i.id === ing.inventoryItemId);
+            const baseQty = getIngredientBaseQty(rawQty, ing.unit || targetInv?.unit || '', targetInv?.unit || '');
+            if (direction === 'deduct') {
+              await inventoryService.deductStock(
+                ing.inventoryItemId,
+                baseQty,
+                `مبيعات أوردر #${order.orderNumber} (${item.name})`,
+                `ORD-#${order.orderNumber}`
+              );
+            } else {
+              await inventoryService.restoreStock(
+                ing.inventoryItemId,
+                baseQty,
+                `استرجاع مخزون — إلغاء أوردر #${order.orderNumber} (${item.name})`,
+                `CANCEL-#${order.orderNumber}`
+              );
+            }
+          }
         }
       }
+    } catch (err) {
+      console.error(`[DataContext] Error ${direction}ing stock for order:`, err);
     }
-  } catch (err) {
-    console.error('[DataContext] Error deducting stock for order:', err);
   }
-}
+
 
   const addOrder = useCallback(async (order: Omit<Order, 'id'>): Promise<Order | null> => {
     try {
-      const newOrder = await orderRepository.create(order, branch?.branchId);
+      const newOrder = await orderRepository.create(order, branch?.branchId || 'main_branch');
       setOrdersList(prev => [newOrder, ...prev]);
 
       if (newOrder) {
-        deductOrderInventory(newOrder);
+        // Inventory deduction must NEVER block order creation
+        void applyOrderInventory(newOrder, 'deduct').catch((invErr) => {
+          console.error('[DataContext] Failed to deduct inventory for order:', newOrder.id, invErr);
+        });
       }
+
+      // Immediate Cloudflare D1 Sync (non-blocking)
+      void syncService.syncPendingData();
 
       return newOrder;
     } catch (err) {
       console.error('[DataContext] Failed to create order in repository:', err);
-      return null;
+      // Surface real error so POS can show it instead of silent null
+      throw err instanceof Error ? err : new Error(String(err));
     }
   }, [branch?.branchId]);
 
   const updateOrderStatus = useCallback(async (id: string, status: OrderStatus) => {
     try {
+      const existing = ordersList.find(o => o.id === id);
+      // Paid orders must use refund/void flow — do not cancel+restock here.
+      if (status === 'Cancelled' && existing?.paymentStatus === 'Paid') {
+        throw new Error('Cannot cancel a paid order. Use refund/void instead.');
+      }
+
       const updatedOrder = await orderRepository.updateStatus(id, status);
       setOrdersList(prev => prev.map(o => o.id === id ? updatedOrder : o));
+
+      if (
+        status === 'Cancelled' &&
+        existing &&
+        existing.status !== 'Cancelled' &&
+        existing.paymentStatus !== 'Paid'
+      ) {
+        try {
+          await applyOrderInventory(existing, 'restore');
+        } catch (invErr) {
+          console.error('[DataContext] Failed to restore inventory on cancel:', existing.id, invErr);
+        }
+      }
+
+      void syncService.syncPendingData();
     } catch (err) {
       console.error('[DataContext] Failed to update order status in repository:', err);
+      throw err;
     }
-  }, []);
+  }, [ordersList]);
 
-  const completeWithPayment = useCallback(async (id: string, method: 'Cash' | 'Card' = 'Cash') => {
+  const completeWithPayment = useCallback(async (id: string, method: 'Cash' | 'Card' | 'OnAccount' = 'Cash') => {
     try {
       const updatedOrder = await orderRepository.completeWithPayment(id, method);
       setOrdersList(prev => prev.map(o => o.id === id ? updatedOrder : o));
+      void syncService.syncPendingData();
     } catch (err) {
       console.error('[DataContext] Failed to complete payment in repository:', err);
     }
   }, []);
 
+
+  /**
+   * Void/refund a paid order: mark payment Refunded, restore inventory,
+   * keep kitchen history but stop counting revenue.
+   */
+  const refundOrder = useCallback(async (id: string, reason?: string) => {
+    const existing = ordersList.find(o => o.id === id);
+    if (!existing) throw new Error('Order not found');
+    if (existing.paymentStatus !== 'Paid') {
+      throw new Error('Only paid orders can be refunded');
+    }
+    if (existing.paymentStatus === 'Paid' && existing.status === 'Cancelled') {
+      // still allow refund path
+    }
+
+    const updatedOrder = await orderRepository.update(id, {
+      paymentStatus: 'Refunded',
+      refundedAt: new Date().toISOString(),
+      refundReason: reason || 'Refund / void',
+      status: existing.status === 'Cancelled' ? existing.status : 'Cancelled',
+    });
+    setOrdersList(prev => prev.map(o => (o.id === id ? updatedOrder : o)));
+    try {
+      await applyOrderInventory(existing, 'restore');
+    } catch (invErr) {
+      console.error('[DataContext] Failed to restore inventory on refund:', existing.id, invErr);
+    }
+  }, [ordersList]);
+
   const updateOrder = useCallback(async (id: string, data: Partial<Omit<Order, 'id'>>) => {
     try {
+      const existing = ordersList.find(o => o.id === id);
+
+      if (data.status === 'Cancelled' && existing?.paymentStatus === 'Paid') {
+        throw new Error('Cannot cancel a paid order. Use refund/void instead.');
+      }
+
       const updatedOrder = await orderRepository.update(id, data);
       setOrdersList(prev => prev.map(o => o.id === id ? updatedOrder : o));
+
+      if (
+        data.status === 'Cancelled' &&
+        existing &&
+        existing.status !== 'Cancelled' &&
+        existing.paymentStatus !== 'Paid'
+      ) {
+        try {
+          await applyOrderInventory(existing, 'restore');
+        } catch (invErr) {
+          console.error('[DataContext] Failed to restore inventory on order update:', existing.id, invErr);
+        }
+      }
     } catch (err) {
       console.error('[DataContext] Failed to update order in repository:', err);
+      throw err;
     }
-  }, []);
+  }, [ordersList]);
 
   const deleteOrder = useCallback(async (id: string) => {
     try {
@@ -246,6 +392,7 @@ async function deductOrderInventory(order: Order) {
       addOrder,
       updateOrderStatus,
       completeWithPayment,
+      refundOrder,
       updateOrder,
       deleteOrder,
       refetch: fetchOrders,

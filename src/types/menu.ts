@@ -14,6 +14,23 @@ export interface MenuItem {
 
 export const CATEGORIES = ['All', 'Bar'];
 
+export const CATEGORY_TRANSLATIONS: Record<string, string> = {
+  'Hot Coffee': 'قهوة ساخنة',
+  'Iced Coffee': 'قهوة باردة',
+  'Frappe': 'فرابيه',
+  'Milkshakes': 'ميلك شيك',
+  'Juices': 'عصائر ومشروبات',
+  'Desserts': 'حلويات',
+  'Food': 'مأكولات',
+  'Kitchen': 'مأكولات',
+  'Bar': 'مشروبات',
+  'General': 'عام',
+  'قهوة ساخنة': 'قهوة ساخنة',
+  'قهوة باردة': 'قهوة باردة',
+  'فرابيه': 'فرابيه',
+  'ميلك شيك': 'ميلك شيك'
+};
+
 // Coffee Shop Menu Data - 32 Items (Drinks & Beverages Only)
 export const INITIAL_MENU_ITEMS: MenuItem[] = [
   // ☕ مشروبات ساخنة (البار)
@@ -37,7 +54,7 @@ export const INITIAL_MENU_ITEMS: MenuItem[] = [
   },
   {
     id: '3',
-    name: 'كورنادو',
+    name: 'كورتادو',
     description: 'أجزاء متساوية من الإسبريسو والحليب الدافئ الناعم.',
     price: 50.00,
     category: 'Hot Coffee|Bar',
@@ -291,7 +308,7 @@ export const INITIAL_MENU_ITEMS: MenuItem[] = [
     name: 'عصير ليمون بالنعناع',
     description: 'عصير ليمون طازج ممزوج بالثلج والنعناع الأخضر.',
     price: 55.00,
-    category: 'Iced Coffee|Bar',
+    category: 'Juices|Bar',
     image: 'https://images.unsplash.com/photo-1513558161293-cdaf765ed2fd?w=400&auto=format&fit=crop&q=60',
     available: true,
   },
@@ -300,7 +317,7 @@ export const INITIAL_MENU_ITEMS: MenuItem[] = [
     name: 'شاي مثلج بالخوخ',
     description: 'شاي أسود مثلج بنكهة الخوخ اللذيذة.',
     price: 50.00,
-    category: 'Iced Coffee|Bar',
+    category: 'Juices|Bar',
     image: 'https://images.unsplash.com/photo-1497534446932-c925b458314e?w=400&auto=format&fit=crop&q=60',
     available: true,
   },
@@ -309,7 +326,7 @@ export const INITIAL_MENU_ITEMS: MenuItem[] = [
     name: 'موهيتو باشون فروت',
     description: 'مزيج منعش من الليمون والنعناع الطازج والباشون فروت والصودا.',
     price: 65.00,
-    category: 'Iced Coffee|Bar',
+    category: 'Juices|Bar',
     image: 'https://images.unsplash.com/photo-1513558161293-cdaf765ed2fd?w=400&auto=format&fit=crop&q=60',
     available: true,
   },

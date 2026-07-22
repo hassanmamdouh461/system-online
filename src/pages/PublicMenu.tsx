@@ -2,22 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { Coffee, Search, AlertCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { menuService } from '../services/menuService';
-import { MenuItem } from '../types/menu';
+import { MenuItem, CATEGORY_TRANSLATIONS } from '../types/menu';
 
 const PAGE_BACKGROUND_URL = 'https://images.unsplash.com/photo-1447933601403-0c6688de566e?q=80&w=1000';
-
-const CATEGORY_TRANSLATIONS: Record<string, string> = {
-  'Hot Coffee': 'قهوة ساخنة',
-  'Iced Coffee': 'قهوة باردة',
-  'Frappe': 'فرابيه',
-  'Milkshakes': 'ميلك شيك',
-  'Juices': 'عصائر ومشروبات',
-  'Desserts': 'حلويات',
-  'Food': 'مأكولات',
-  'Kitchen': 'مأكولات',
-  'Bar': 'مشروبات',
-  'General': 'عام'
-};
 
 const ITEM_TRANSLATIONS: Record<string, { name: string; desc: string }> = {
   'espresso': { name: 'إسبيريسو', desc: 'جرعة مركزة وغنية من حبوب البن الإيطالية الفاخرة.' },

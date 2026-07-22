@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Plus, Search } from 'lucide-react';
-import { MenuItem, CATEGORIES } from '../types/menu';
+import { MenuItem, CATEGORY_TRANSLATIONS } from '../types/menu';
 import { MenuItemCard } from '../components/menu/MenuItemCard';
 import { MenuModal } from '../components/menu/MenuModal';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -25,19 +25,6 @@ export default function Menu() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<MenuItem | null>(null);
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
-
-  const CATEGORY_TRANSLATIONS: Record<string, string> = {
-    'Hot Coffee': 'قهوة ساخنة',
-    'Iced Coffee': 'قهوة باردة',
-    'Frappe': 'فرابيه',
-    'Milkshakes': 'ميلك شيك',
-    'Juices': 'عصائر ومشروبات',
-    'Desserts': 'حلويات',
-    'Food': 'مأكولات',
-    'Kitchen': 'مأكولات',
-    'Bar': 'مشروبات',
-    'General': 'عام'
-  };
 
   const dynamicCategories = React.useMemo(() => {
     const set = new Set<string>();

@@ -10,14 +10,10 @@ export const menuService = {
       if (typeof window !== 'undefined' && window.electronAPI?.getMenu) {
         return await window.electronAPI.getMenu();
       }
-      const items = await menuRepository.getAll(branchId);
-      if (items && items.length > 0) return items;
-
-      // If local IndexedDB is empty, return initial defaults
-      return items;
+      return await menuRepository.getAll(branchId);
     } catch (error) {
       console.error('[menuService] Error fetching menu:', error);
-      return await menuRepository.getAll(branchId);
+      return [];
     }
   },
 
