@@ -47,6 +47,13 @@ export function MenuModal({ isOpen, onClose, onSave, initialData, existingItems 
 
   const [preparation, setPreparation] = useState('Bar');
   const [showNewCategoryInput, setShowNewCategoryInput] = useState(false);
+  const [isCategoryDropdownOpen, setIsCategoryDropdownOpen] = useState(false);
+  const [removedCategories, setRemovedCategories] = useState<string[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem('removed_menu_categories') || '[]');
+    } catch { return []; }
+  });
+  const categoryDropdownRef = React.useRef<HTMLDivElement>(null);
 
   const [formData, setFormData] = useState({
     name: '',
@@ -56,6 +63,17 @@ export function MenuModal({ isOpen, onClose, onSave, initialData, existingItems 
     image: '',
     available: true,
   });
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (categoryDropdownRef.current && !categoryDropdownRef.current.contains(e.target as Node)) {
+        setIsCategoryDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   useEffect(() => {
     const loadRecipeAndInventory = async () => {
@@ -84,6 +102,7 @@ export function MenuModal({ isOpen, onClose, onSave, initialData, existingItems 
     if (isOpen) {
       loadRecipeAndInventory();
       setActiveTab('general');
+      setIsCategoryDropdownOpen(false);
     }
   }, [initialData, isOpen]);
 
@@ -109,8 +128,21 @@ export function MenuModal({ isOpen, onClose, onSave, initialData, existingItems 
       }
     });
 
-    return list;
-  }, [existingItems]);
+    // Filter out removed categories
+    return list.filter(cat => !removedCategories.includes(cat.value));
+  }, [existingItems, removedCategories]);
+
+  const handleRemoveCategory = (catValue: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const updated = [...removedCategories, catValue];
+    setRemovedCategories(updated);
+    localStorage.setItem('removed_menu_categories', JSON.stringify(updated));
+    // If the removed category was the selected one, reset to first available
+    if (formData.category === catValue) {
+      const remaining = availableCategories.filter(c => c.value !== catValue);
+      setFormData(prev => ({ ...prev, category: remaining.length > 0 ? remaining[0].value : 'Hot Coffee' }));
+    }
+  };
 
   useEffect(() => {
     if (initialData) {
@@ -146,7 +178,7 @@ export function MenuModal({ isOpen, onClose, onSave, initialData, existingItems 
         name: '',
         description: '',
         price: '',
-        category: 'Hot Coffee',
+        category: availableCategories.length > 0 ? availableCategories[0].value : 'Hot Coffee',
         image: '',
         available: true,
       });
@@ -192,16 +224,16 @@ export function MenuModal({ isOpen, onClose, onSave, initialData, existingItems 
     setMappedIngredients(prev => prev.filter((_, i) => i !== index));
   };
 
+  const handleSelectCategory = (catValue: string) => {
+    setShowNewCategoryInput(false);
+    setFormData(prev => ({ ...prev, category: catValue }));
+    setIsCategoryDropdownOpen(false);
+  };
 
-  const handleCategoryChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const val = e.target.value;
-    if (val === 'CREATE_NEW') {
-      setShowNewCategoryInput(true);
-      setFormData(prev => ({ ...prev, category: '' }));
-    } else {
-      setShowNewCategoryInput(false);
-      setFormData(prev => ({ ...prev, category: val }));
-    }
+  const handleCreateNewCategory = () => {
+    setShowNewCategoryInput(true);
+    setFormData(prev => ({ ...prev, category: '' }));
+    setIsCategoryDropdownOpen(false);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -233,6 +265,8 @@ export function MenuModal({ isOpen, onClose, onSave, initialData, existingItems 
   };
 
   if (!isOpen) return null;
+
+  const selectedCategoryLabel = availableCategories.find(c => c.value === formData.category)?.label || formData.category;
 
   return createPortal(
     <AnimatePresence>
@@ -329,23 +363,60 @@ export function MenuModal({ isOpen, onClose, onSave, initialData, existingItems 
                       />
                     </div>
 
-                    <div>
+                    <div ref={categoryDropdownRef} className="relative">
                       <label className="block text-sm font-medium text-gray-700 mb-1">{t('Category') || 'التصنيف'}</label>
-                      <select
-                        value={showNewCategoryInput ? 'CREATE_NEW' : formData.category}
-                        onChange={handleCategoryChange}
-                        className="w-full px-3 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-caramel focus:border-transparent transition-all bg-white text-sm font-bold text-gray-900"
+                      
+                      {/* Custom dropdown trigger */}
+                      <button
+                        type="button"
+                        onClick={() => setIsCategoryDropdownOpen(!isCategoryDropdownOpen)}
+                        className="w-full px-3 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-caramel focus:border-transparent transition-all bg-white text-sm font-bold text-gray-900 text-right flex items-center justify-between gap-1"
                       >
-                        {availableCategories.map(cat => (
-                          <option key={cat.value} value={cat.value}>{cat.label}</option>
-                        ))}
-                        <option value="CREATE_NEW">+ إضافة تصنيف جديد...</option>
-                      </select>
+                        <svg className={`w-3.5 h-3.5 text-gray-400 transition-transform shrink-0 ${isCategoryDropdownOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 9l-7 7-7-7" /></svg>
+                        <span className="truncate">{showNewCategoryInput ? 'تصنيف جديد...' : selectedCategoryLabel}</span>
+                      </button>
+
+                      {/* Custom dropdown menu */}
+                      {isCategoryDropdownOpen && (
+                        <div className="absolute left-0 right-0 top-full mt-1 bg-white border border-gray-200 rounded-xl shadow-xl z-50 max-h-56 overflow-y-auto"
+                          style={{ minWidth: '220px' }}
+                        >
+                          {availableCategories.map(cat => (
+                            <div
+                              key={cat.value}
+                              className={`flex items-center justify-between gap-1 px-3 py-2 cursor-pointer text-sm font-medium transition-colors group ${
+                                formData.category === cat.value && !showNewCategoryInput
+                                  ? 'bg-mocha-50 text-mocha-800'
+                                  : 'text-gray-700 hover:bg-gray-50'
+                              }`}
+                              onClick={() => handleSelectCategory(cat.value)}
+                            >
+                              <button
+                                type="button"
+                                onClick={(e) => handleRemoveCategory(cat.value, e)}
+                                className="p-1 rounded-md text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors opacity-0 group-hover:opacity-100 shrink-0"
+                                title="حذف التصنيف"
+                              >
+                                <X size={13} />
+                              </button>
+                              <span className="truncate text-right flex-1">{cat.label}</span>
+                            </div>
+                          ))}
+                          {/* Add new category option */}
+                          <div
+                            className="flex items-center justify-end gap-1 px-3 py-2 cursor-pointer text-sm font-bold text-mocha-700 hover:bg-mocha-50 transition-colors border-t border-gray-100"
+                            onClick={handleCreateNewCategory}
+                          >
+                            <span>+ إضافة تصنيف جديد...</span>
+                          </div>
+                        </div>
+                      )}
 
                       {showNewCategoryInput && (
                         <input
                           type="text"
                           required
+                          autoFocus
                           value={formData.category}
                           onChange={(e) => setFormData({ ...formData, category: e.target.value })}
                           className="w-full px-3 py-2 mt-2 rounded-xl border border-mocha-200 focus:outline-none focus:ring-2 focus:ring-caramel focus:border-transparent transition-all text-sm bg-mocha-50/50 text-gray-900 placeholder-gray-400 font-bold"
