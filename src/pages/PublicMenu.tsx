@@ -238,15 +238,20 @@ export default function PublicMenu() {
                   <span className="text-xs text-mocha-500 font-bold">نتائج البحث ({filteredItems.length})</span>
                   <button 
                     onClick={() => setSearchQuery('')}
-                    className="text-xs text-red-500 font-bold"
+                    className="text-xs text-red-500 font-bold hover:underline"
                   >
                     إلغاء البحث
                   </button>
                 </div>
                 
-                <motion.div layout className="space-y-4">
+                <motion.div 
+                  key="search-results"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  className="space-y-3"
+                >
                   <AnimatePresence mode="popLayout">
-                    {filteredItems.map(item => {
+                    {filteredItems.map((item, index) => {
                       const key = item.name.toLowerCase().trim();
                       const translation = ITEM_TRANSLATIONS[key];
                       const displayName = translation ? translation.name : item.name;
@@ -254,12 +259,18 @@ export default function PublicMenu() {
 
                       return (
                         <motion.div
-                          layout
                           key={item.id}
-                          initial={{ opacity: 0, y: 12 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          exit={{ opacity: 0, scale: 0.95 }}
-                          className="bg-white rounded-2xl border border-mocha-100/40 p-4 shadow-sm flex flex-col"
+                          initial={{ opacity: 0, y: 24, scale: 0.96 }}
+                          animate={{ opacity: 1, y: 0, scale: 1 }}
+                          exit={{ opacity: 0, y: -12, scale: 0.95 }}
+                          transition={{
+                            duration: 0.35,
+                            delay: index * 0.05,
+                            ease: [0.22, 1, 0.36, 1]
+                          }}
+                          whileHover={{ y: -3, scale: 1.01 }}
+                          whileTap={{ scale: 0.98 }}
+                          className="bg-white rounded-2xl border border-mocha-100/60 p-4 shadow-sm flex flex-col transition-shadow duration-300 hover:shadow-md"
                         >
                           <div className="flex justify-between items-start gap-2">
                             <h3 className="font-extrabold text-gray-900 text-base">{displayName}</h3>
@@ -302,9 +313,14 @@ export default function PublicMenu() {
                 </div>
 
                 {/* Menu Items List */}
-                <motion.div layout className="space-y-4 mt-2">
+                <motion.div 
+                  key={selectedCategory}
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  className="space-y-3 mt-2"
+                >
                   <AnimatePresence mode="popLayout">
-                    {filteredItems.map(item => {
+                    {filteredItems.map((item, index) => {
                       const key = item.name.toLowerCase().trim();
                       const translation = ITEM_TRANSLATIONS[key];
                       const displayName = translation ? translation.name : item.name;
@@ -312,13 +328,18 @@ export default function PublicMenu() {
 
                       return (
                         <motion.div
-                          layout
                           key={item.id}
-                          initial={{ opacity: 0, y: 12 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          exit={{ opacity: 0, scale: 0.95 }}
-                          transition={{ duration: 0.25 }}
-                          className="bg-white rounded-2xl border border-mocha-100/40 p-4 shadow-sm relative overflow-hidden flex flex-col transition-all hover:shadow-md"
+                          initial={{ opacity: 0, y: 24, scale: 0.96 }}
+                          animate={{ opacity: 1, y: 0, scale: 1 }}
+                          exit={{ opacity: 0, y: -12, scale: 0.95 }}
+                          transition={{
+                            duration: 0.35,
+                            delay: index * 0.05,
+                            ease: [0.22, 1, 0.36, 1]
+                          }}
+                          whileHover={{ y: -3, scale: 1.01 }}
+                          whileTap={{ scale: 0.98 }}
+                          className="bg-white rounded-2xl border border-mocha-100/60 p-4 shadow-sm relative overflow-hidden flex flex-col transition-shadow duration-300 hover:shadow-md"
                         >
                           <div className="flex justify-between items-start gap-2">
                             <h3 className="font-extrabold text-gray-900 text-base">{displayName}</h3>
