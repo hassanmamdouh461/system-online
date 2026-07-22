@@ -94,32 +94,28 @@ export default function PublicMenu() {
     return { ...item, category: `${menuCategory}|${prepDest}` };
   };
 
+  // Only consider items that are available (available !== false)
+  const availableItems = React.useMemo(() => {
+    return items.filter(item => item.available !== false);
+  }, [items]);
+
   const drinksCategories = React.useMemo(() => {
     const unique = new Set<string>();
     
-    items.forEach(item => {
+    availableItems.forEach(item => {
       const parts = item.category ? item.category.split('|') : [];
       const menuCat = parts[0] || '';
-      if (menuCat && menuCat !== 'All' && menuCat !== 'Kitchen' && menuCat !== 'General') {
+      if (menuCat && menuCat !== 'All' && menuCat !== 'Kitchen' && menuCat !== 'General' && menuCat !== 'Bar') {
         unique.add(menuCat);
       }
     });
 
     const defaults = ['Hot Coffee', 'Iced Coffee', 'Frappe', 'Milkshakes'];
-    defaults.forEach(cat => unique.add(cat));
+    if (availableItems.length === 0) return defaults;
 
     const list = Array.from(unique);
-    if (items.length === 0) return defaults;
-
-    const withItems = list.filter(cat => {
-      return items.some(item => {
-        const menuCat = item.category ? item.category.split('|')[0] : '';
-        return menuCat === cat;
-      });
-    });
-
-    return withItems.length > 0 ? withItems : defaults;
-  }, [items]);
+    return list.length > 0 ? list : defaults;
+  }, [availableItems]);
 
   const activeCategories = React.useMemo(() => {
     return drinksCategories.map(cat => ({
@@ -147,13 +143,15 @@ export default function PublicMenu() {
   }, []);
 
   useEffect(() => {
-    if (drinksCategories.length > 0 && !selectedCategory) {
-      setSelectedCategory(drinksCategories[0]);
+    if (drinksCategories.length > 0) {
+      if (!selectedCategory || !drinksCategories.includes(selectedCategory)) {
+        setSelectedCategory(drinksCategories[0]);
+      }
     }
   }, [drinksCategories, selectedCategory]);
 
-  const filteredItems = items.filter(item => {
-    // If searching, ignore category filter and show all matching items
+  const filteredItems = availableItems.filter(item => {
+    // If searching, ignore category filter and show all matching available items
     if (searchQuery.trim().length > 0) {
       const key = item.name.toLowerCase().trim();
       const translation = ITEM_TRANSLATIONS[key];

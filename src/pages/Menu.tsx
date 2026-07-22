@@ -6,9 +6,16 @@ import { MenuModal } from '../components/menu/MenuModal';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useMenu } from '../hooks/useMenu';
 import { useLanguage } from '../context/LanguageContext';
+import { useAuth } from '../context/AuthContext';
+import { useToast } from '../components/ui/Toast';
+import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 
 export default function Menu() {
+  const toast = useToast();
   const { t, isRtl } = useLanguage();
+  const { user } = useAuth();
+  const isManager = user?.role === 'manager';
+
   // Use local SQLite database for data persistence
   const { items, loading, error, addItem, updateItem, deleteItem, toggleAvailability } = useMenu();
   const [selectedCategory, setSelectedCategory] = useState('All');
@@ -17,16 +24,37 @@ export default function Menu() {
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<MenuItem | null>(null);
+  const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
 
-  // Admin menu page: filter by preparation destination only (Bar)
+  const CATEGORY_TRANSLATIONS: Record<string, string> = {
+    'Hot Coffee': 'قهوة ساخنة',
+    'Iced Coffee': 'قهوة باردة',
+    'Frappe': 'فرابيه',
+    'Milkshakes': 'ميلك شيك',
+    'Juices': 'عصائر ومشروبات',
+    'Desserts': 'حلويات',
+    'Food': 'مأكولات',
+    'Kitchen': 'مأكولات',
+    'Bar': 'مشروبات',
+    'General': 'عام'
+  };
+
   const dynamicCategories = React.useMemo(() => {
-    return ['All', 'Bar'];
-  }, []);
+    const set = new Set<string>();
+    set.add('All');
+    items.forEach(item => {
+      const cat = item.category ? item.category.split('|')[0] : '';
+      if (cat && cat !== 'Bar' && cat !== 'Kitchen' && cat !== 'General') {
+        set.add(cat);
+      }
+    });
+    return Array.from(set);
+  }, [items]);
 
   const filteredItems = items.filter(item => {
     const parts = item.category ? item.category.split('|') : [];
-    const prepDest = parts[1] || parts[0] || '';
-    const matchesCategory = selectedCategory === 'All' || prepDest === selectedCategory;
+    const menuCat = parts[0] || '';
+    const matchesCategory = selectedCategory === 'All' || menuCat === selectedCategory || parts[1] === selectedCategory;
     
     const nameTranslated = t(item.name).toLowerCase();
     const descTranslated = t(item.description || '').toLowerCase();
@@ -45,20 +73,27 @@ export default function Menu() {
   const handleToggleStatus = async (id: string) => {
     try {
       await toggleAvailability(id);
+      toast.success(t('Status updated successfully'));
     } catch (error) {
       console.error('Failed to toggle status:', error);
-      alert(t('Failed to update item availability'));
+      toast.error(t('Failed to update item availability'));
     }
   };
 
-  const handleDelete = async (id: string) => {
-    if (confirm(t('Are you sure you want to delete this item?'))) {
-      try {
-        await deleteItem(id);
-      } catch (error) {
-        console.error('Failed to delete item:', error);
-        alert(t('Failed to delete item'));
-      }
+  const confirmDelete = (id: string) => {
+    setDeleteTargetId(id);
+  };
+
+  const handleExecuteDelete = async () => {
+    if (!deleteTargetId) return;
+    try {
+      await deleteItem(deleteTargetId);
+      toast.success(t('Item deleted successfully'));
+    } catch (error) {
+      console.error('Failed to delete item:', error);
+      toast.error(t('Failed to delete item'));
+    } finally {
+      setDeleteTargetId(null);
     }
   };
 
@@ -80,11 +115,13 @@ export default function Menu() {
         const { id, ...data } = itemData;
         await updateItem(id, data);
         savedItemId = id;
+        toast.success(t('Item updated successfully'));
       } else {
         // Add new
         const newItem = await addItem(itemData);
         if (newItem) {
           savedItemId = newItem.id;
+          toast.success(t('Item added successfully'));
         }
       }
       
@@ -96,7 +133,7 @@ export default function Menu() {
       setIsModalOpen(false);
     } catch (error) {
       console.error('Failed to save item:', error);
-      alert(t('Failed to save item'));
+      toast.error(t('Failed to save item'));
     }
   };
 
@@ -120,13 +157,15 @@ export default function Menu() {
           <h1 className="text-lg md:text-2xl font-bold text-gray-900">{t('Menu Management')}</h1>
           <p className="text-xs md:text-sm text-gray-500">{t('Manage your coffee beverages and availability.')}</p>
         </div>
-        <button 
-          onClick={handleAddNew}
-          className="bg-mocha-700 hover:bg-mocha-800 text-white px-6 md:px-8 py-3.5 md:py-4 rounded-xl font-bold flex items-center justify-center gap-2.5 shadow-lg shadow-mocha-500/30 transition-all active:scale-95 w-full sm:w-auto text-base md:text-lg"
-        >
-          <Plus size={20} />
-          {t('Add New Item')}
-        </button>
+        {isManager && (
+          <button 
+            onClick={handleAddNew}
+            className="bg-mocha-700 hover:bg-mocha-800 text-white px-6 md:px-8 py-3.5 md:py-4 rounded-xl font-bold flex items-center justify-center gap-2.5 shadow-lg shadow-mocha-500/30 transition-all active:scale-95 w-full sm:w-auto text-base md:text-lg"
+          >
+            <Plus size={20} />
+            {t('Add New Item')}
+          </button>
+        )}
       </div>
 
       {/* Filters & Search */}
@@ -143,7 +182,7 @@ export default function Menu() {
                   : 'bg-mocha-100 text-mocha-800 hover:bg-mocha-200'
               }`}
             >
-              {t(category) || category}
+              {category === 'All' ? (isRtl ? 'الكل' : 'All') : (CATEGORY_TRANSLATIONS[category] || t(category) || category)}
             </button>
           ))}
         </div>
@@ -172,8 +211,9 @@ export default function Menu() {
               key={item.id}
               item={item}
               onEdit={handleEdit}
-              onDelete={handleDelete}
+              onDelete={confirmDelete}
               onToggleStatus={handleToggleStatus}
+              isManager={isManager}
             />
           ))}
         </AnimatePresence>
@@ -196,6 +236,17 @@ export default function Menu() {
         onSave={handleSave}
         initialData={editingItem}
         existingItems={items}
+      />
+
+      <ConfirmDialog
+        isOpen={!!deleteTargetId}
+        title={t('Delete Item')}
+        message={t('Are you sure you want to delete this item?')}
+        confirmText={t('Delete')}
+        cancelText={t('Cancel')}
+        onConfirm={handleExecuteDelete}
+
+        onCancel={() => setDeleteTargetId(null)}
       />
     </div>
   );
