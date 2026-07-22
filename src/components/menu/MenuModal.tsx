@@ -376,9 +376,9 @@ export function MenuModal({ isOpen, onClose, onSave, initialData, existingItems 
                         <span className="truncate">{showNewCategoryInput ? 'تصنيف جديد...' : selectedCategoryLabel}</span>
                       </button>
 
-                      {/* Custom dropdown menu */}
+                      {/* Custom dropdown menu - opens upwards */}
                       {isCategoryDropdownOpen && (
-                        <div className="absolute left-0 right-0 top-full mt-1 bg-white border border-gray-200 rounded-xl shadow-xl z-50 max-h-56 overflow-y-auto"
+                        <div className="absolute left-0 right-0 bottom-full mb-1 bg-white border border-gray-200 rounded-xl shadow-xl z-50 max-h-56 overflow-y-auto"
                           style={{ minWidth: '220px' }}
                         >
                           {availableCategories.map(cat => (
