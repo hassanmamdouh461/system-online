@@ -770,39 +770,50 @@ export default function Payment() {
 
   return (
     <div className="space-y-4 md:space-y-6">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-3">
-        <div>
-          <h1 className="text-lg md:text-2xl font-bold text-gray-900">{t('Payment & Billing')}</h1>
-          <p className="text-xs md:text-base text-gray-500">
-            {t('Process customer payments and view daily revenue.')}
-          </p>
+      {/* ── Page Header ──────────────────────────────────────────────────────────── */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-4 sm:p-5 rounded-2xl shadow-sm border border-gray-150">
+        <div className="flex items-center gap-3">
+          <div className="p-3 bg-gradient-to-br from-mocha-700 to-coffee-dark rounded-2xl shadow-md text-white">
+            <CreditCard size={24} />
+          </div>
+          <div>
+            <h1 className="text-xl md:text-2xl font-extrabold text-gray-900 tracking-tight">
+              {t('Payment & Billing')}
+            </h1>
+            <p className="text-xs text-gray-500 font-medium mt-0.5">
+              {t('Process customer payments and view daily revenue.')}
+            </p>
+          </div>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <div className="bg-white px-4 py-2.5 rounded-xl border border-mocha-100 shadow-sm flex items-center gap-2">
-            <div className="p-1.5 bg-green-50 text-green-600 rounded-lg">
-              <DollarSign size={18} />
+
+        <div className="flex items-center gap-3 flex-wrap">
+          {/* Today's Revenue */}
+          <div className="flex-1 sm:flex-initial bg-gradient-to-br from-emerald-50 to-teal-50/50 px-4 py-2.5 rounded-2xl border border-emerald-200/80 shadow-xs flex items-center gap-3">
+            <div className="p-2 bg-emerald-100 text-emerald-800 rounded-xl shadow-xs">
+              <DollarSign size={20} />
             </div>
             <div>
-              <p className="text-[10px] text-gray-500 font-medium">
+              <p className="text-[10px] text-emerald-700 font-bold uppercase tracking-wide">
                 {t("Today's Revenue")}
               </p>
-              <p className="text-base font-bold text-gray-900">
-                {totalRevenue.toFixed(2)} {currency}
+              <p className="text-base font-black text-emerald-950">
+                {totalRevenue.toFixed(2)} <span className="text-xs font-bold">{currency}</span>
               </p>
             </div>
           </div>
+
+          {/* Total Receivables */}
           {totalReceivables > 0 && (
-            <div className="bg-white px-4 py-2.5 rounded-xl border border-amber-100 shadow-sm flex items-center gap-2">
-              <div className="p-1.5 bg-amber-50 text-amber-600 rounded-lg">
-                <Wallet size={18} />
+            <div className="flex-1 sm:flex-initial bg-gradient-to-br from-rose-50 to-amber-50/50 px-4 py-2.5 rounded-2xl border border-rose-200/80 shadow-xs flex items-center gap-3">
+              <div className="p-2 bg-rose-100 text-rose-800 rounded-xl shadow-xs">
+                <Wallet size={20} />
               </div>
               <div>
-                <p className="text-[10px] text-gray-500 font-medium">
+                <p className="text-[10px] text-rose-700 font-bold uppercase tracking-wide">
                   {language === 'ar' ? 'إجمالي المبالغ المستحقة' : 'Total amounts due'}
                 </p>
-                <p className="text-base font-bold text-amber-800">
-                  {totalReceivables.toFixed(2)} {currency}
+                <p className="text-base font-black text-rose-950">
+                  {totalReceivables.toFixed(2)} <span className="text-xs font-bold">{currency}</span>
                 </p>
               </div>
             </div>
@@ -810,8 +821,8 @@ export default function Payment() {
         </div>
       </div>
 
-      {/* Tabs */}
-      <div className="flex border-b border-gray-200 gap-4 md:gap-6 overflow-x-auto">
+      {/* ── Pill Tab Switcher ────────────────────────────────────────────────────── */}
+      <div className="bg-gray-100/80 p-1.5 rounded-2xl shadow-xs border border-gray-200/60 flex overflow-x-auto gap-1">
         {(
           [
             {
@@ -838,22 +849,23 @@ export default function Payment() {
               setSelectedHolderKey(null);
             }}
             className={clsx(
-              'pb-3 font-semibold text-sm transition-all border-b-2 px-1 relative whitespace-nowrap',
+              'flex-1 py-2.5 px-4 rounded-xl font-extrabold text-xs transition-all flex items-center justify-center gap-2 relative whitespace-nowrap',
               activeTab === tab.id
-                ? 'border-mocha-700 text-mocha-800'
-                : 'border-transparent text-gray-500 hover:text-gray-700'
+                ? 'bg-white text-gray-900 shadow-md shadow-gray-200/50 border border-gray-200/80'
+                : 'text-gray-500 hover:text-gray-800'
             )}
           >
-            {tab.label} ({tab.count})
-            {activeTab === tab.id && (
-              <motion.div
-                layoutId="activeTabUnderline"
-                className="absolute bottom-0 left-0 right-0 h-0.5 bg-mocha-700"
-              />
-            )}
+            <span>{tab.label}</span>
+            <span className={clsx(
+              'px-2 py-0.5 rounded-full text-[10px] font-black',
+              activeTab === tab.id ? 'bg-mocha-100 text-mocha-900' : 'bg-gray-200 text-gray-600'
+            )}>
+              {tab.count}
+            </span>
           </button>
         ))}
       </div>
+
 
       {/* Search + filters */}
       <div className="space-y-3">
@@ -1024,112 +1036,108 @@ export default function Payment() {
             ) : (
               <div className="space-y-2 max-h-[60vh] overflow-y-auto pr-1">
                   {filteredHolders.map(h => {
-                  const active = focusedHolder?.key === h.key;
-                  return (
-                    <div
-                      key={h.key}
-                      className={clsx(
-                        'p-3.5 rounded-2xl border transition-all shadow-sm',
-                        active
-                          ? h.type === 'company'
-                            ? 'bg-purple-50 border-purple-300 ring-2 ring-purple-200'
-                            : 'bg-mocha-50 border-mocha-300 ring-2 ring-mocha-200'
-                          : 'bg-white border-gray-100 hover:border-gray-300'
-                      )}
-                    >
-                      {/* Main clickable area */}
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setSelectedHolderKey(prev => (prev === h.key ? null : h.key))
-                        }
-                        className="w-full text-right"
+                    const active = focusedHolder?.key === h.key;
+                    return (
+                      <div
+                        key={h.key}
+                        className={clsx(
+                          'p-4 rounded-2xl border transition-all shadow-xs hover:shadow-md cursor-pointer',
+                          active
+                            ? h.type === 'company'
+                              ? 'bg-purple-50/70 border-purple-300 ring-2 ring-purple-400/40'
+                              : 'bg-mocha-50/70 border-mocha-300 ring-2 ring-mocha-400/40'
+                            : 'bg-white border-gray-200/80 hover:border-gray-300'
+                        )}
                       >
-                        <div className="flex items-start gap-3">
-                          <div
-                            className={clsx(
-                              'p-2 rounded-xl shrink-0',
-                              h.type === 'company'
-                                ? 'bg-purple-100 text-purple-700'
-                                : 'bg-mocha-100 text-mocha-700'
-                            )}
-                          >
-                            {h.type === 'company' ? (
-                              <Building2 size={18} />
-                            ) : (
-                              <User size={18} />
-                            )}
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-start justify-between gap-2">
-                              <div className="min-w-0">
-                                <p className="font-extrabold text-gray-900 truncate text-sm">
-                                  {h.name}
-                                </p>
-                                {h.phone && (
-                                  <p className="text-[11px] font-mono font-bold text-gray-500 mt-0.5" dir="ltr">
-                                    {h.phone}
+                        {/* Main clickable area */}
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setSelectedHolderKey(prev => (prev === h.key ? null : h.key))
+                          }
+                          className="w-full text-right"
+                        >
+                          <div className="flex items-start gap-3">
+                            <div
+                              className={clsx(
+                                'w-10 h-10 rounded-2xl flex items-center justify-center font-black text-sm shrink-0 shadow-xs',
+                                h.type === 'company'
+                                  ? 'bg-gradient-to-br from-purple-600 to-indigo-700 text-white'
+                                  : 'bg-gradient-to-br from-mocha-600 to-coffee-dark text-white'
+                              )}
+                            >
+                              {h.type === 'company' ? (
+                                <Building2 size={18} />
+                              ) : (
+                                <User size={18} />
+                              )}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="min-w-0">
+                                  <p className="font-extrabold text-gray-900 truncate text-sm">
+                                    {h.name}
                                   </p>
-                                )}
-                                <p className="text-[10px] font-bold text-gray-400 mt-0.5">
-                                  {h.type === 'company'
-                                    ? language === 'ar'
-                                      ? 'شركة'
-                                      : 'Company'
-                                    : language === 'ar'
-                                      ? 'عميل'
-                                      : 'Customer'}
-                                  {' · '}
-                                  {h.invoiceCount}{' '}
-                                  {language === 'ar' ? 'فاتورة' : 'invoices'}
-                                </p>
-                              </div>
-                              <div className="text-left shrink-0">
-                                <p className="text-sm font-black text-red-600">
-                                  {h.balance.toFixed(2)}
-                                </p>
-                                <p className="text-[10px] text-gray-400">{currency}</p>
+                                  {h.phone && (
+                                    <p className="text-xs font-mono font-bold text-gray-500 mt-0.5" dir="ltr">
+                                      {h.phone}
+                                    </p>
+                                  )}
+                                  <div className="flex items-center gap-1.5 mt-1">
+                                    <span className={clsx(
+                                      'text-[10px] font-extrabold px-2 py-0.5 rounded-md',
+                                      h.type === 'company' ? 'bg-purple-100 text-purple-800' : 'bg-mocha-100 text-mocha-800'
+                                    )}>
+                                      {h.type === 'company'
+                                        ? language === 'ar' ? 'شركة' : 'Company'
+                                        : language === 'ar' ? 'عميل' : 'Customer'}
+                                    </span>
+                                    <span className="text-[10px] font-bold text-gray-400">
+                                      {h.invoiceCount} {language === 'ar' ? 'فاتورة' : 'invoices'}
+                                    </span>
+                                  </div>
+                                </div>
+                                <div className="text-right shrink-0">
+                                  <span className="inline-flex items-center gap-1 text-xs font-black bg-rose-50 text-rose-700 border border-rose-200/80 px-2.5 py-1 rounded-xl shadow-2xs">
+                                    <span>{h.balance.toFixed(2)}</span>
+                                    <span className="text-[10px] font-bold">{currency}</span>
+                                  </span>
+                                </div>
                               </div>
                             </div>
-                            <p className="text-[11px] text-gray-500 mt-1.5 font-semibold">
-                              {language === 'ar' ? 'الإجمالي المستحق' : 'Total due'}:{' '}
-                              <span className="text-red-700 font-black">{h.balance.toFixed(2)}</span>{' '}
-                              {currency} · {h.invoiceCount}{' '}
-                              {language === 'ar' ? 'فاتورة مفتوحة' : 'open invoices'}
-                            </p>
                           </div>
-                        </div>
-                      </button>
+                        </button>
 
-                      {/* Company: print statement button */}
-                      {h.type === 'company' && h.orders.length > 0 && (
-                        <div className="mt-2 pt-2 border-t border-purple-100">
-                          <button
-                            type="button"
-                            onClick={e => {
-                              e.stopPropagation();
-                              printCompanyStatement({
-                                companyName: h.name,
-                                companyPhone: h.phone,
-                                orders: h.orders,
-                                taxRate: fallbackTax,
-                                lang: language === 'ar' ? 'ar' : 'en',
-                                resolveCustomerLabel: o =>
-                                  resolveCustomerName(o) || o.customerPhone || '—',
-                              });
-                            }}
-                            className="w-full text-[11px] font-bold bg-purple-100 hover:bg-purple-200 text-purple-800 px-3 py-2 rounded-xl flex items-center justify-center gap-1.5 transition-colors"
-                          >
-                            <Printer size={13} />
-                            {language === 'ar'
-                              ? `طباعة كشف «${h.name}» (${h.orders.length} فاتورة · ${h.balance.toFixed(2)} ${currency})`
-                              : `Print statement (${h.orders.length} invoices · ${h.balance.toFixed(2)} ${currency})`}
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
+                        {/* Company: print statement button */}
+                        {h.type === 'company' && h.orders.length > 0 && (
+                          <div className="mt-3 pt-2.5 border-t border-purple-100/80">
+                            <button
+                              type="button"
+                              onClick={e => {
+                                e.stopPropagation();
+                                printCompanyStatement({
+                                  companyName: h.name,
+                                  companyPhone: h.phone,
+                                  orders: h.orders,
+                                  taxRate: fallbackTax,
+                                  lang: language === 'ar' ? 'ar' : 'en',
+                                  resolveCustomerLabel: o =>
+                                    resolveCustomerName(o) || o.customerPhone || '—',
+                                });
+                              }}
+                              className="w-full text-[11px] font-bold bg-purple-100/70 hover:bg-purple-200 text-purple-900 px-3 py-2 rounded-xl flex items-center justify-center gap-1.5 transition-colors"
+                            >
+                              <Printer size={13} />
+                              {language === 'ar'
+                                ? `طباعة كشف «${h.name}» (${h.orders.length} فاتورة)`
+                                : `Print statement (${h.orders.length} invoices)`}
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+
               </div>
             )}
           </div>
