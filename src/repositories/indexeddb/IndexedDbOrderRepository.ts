@@ -45,8 +45,7 @@ function mapRemoteOrder(doc: any): Order {
     ...(taxRate !== undefined ? { taxRate } : {}),
     ...(taxAmount !== undefined ? { taxAmount } : {}),
     ...(grandTotal !== undefined ? { grandTotal } : {}),
-    pointsEarned: optionalNumber(doc.pointsEarned),
-    pointsRedeemed: optionalNumber(doc.pointsRedeemed),
+
     createdAt: doc.createdAt || doc.$createdAt || new Date().toISOString(),
     updatedAt: doc.updatedAt || doc.updated_at || undefined,
     paidAt: doc.paidAt || undefined,
@@ -268,8 +267,7 @@ export class IndexedDbOrderRepository implements IOrderRepository {
           companyId: orderData.companyId,
           companyName: orderData.companyName,
           billedToType: orderData.billedToType,
-          pointsEarned: orderData.pointsEarned,
-          pointsRedeemed: orderData.pointsRedeemed,
+
           branchId: branchId || orderData.branchId || 'main_branch',
         };
 

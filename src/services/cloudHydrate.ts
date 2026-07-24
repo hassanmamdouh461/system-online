@@ -45,8 +45,7 @@ function mapOrder(doc: any): Order {
     ...(taxRate !== undefined ? { taxRate } : {}),
     ...(taxAmount !== undefined ? { taxAmount } : {}),
     ...(grandTotal !== undefined ? { grandTotal } : {}),
-    pointsEarned: optionalNumber(doc.pointsEarned),
-    pointsRedeemed: optionalNumber(doc.pointsRedeemed),
+
     createdAt: doc.createdAt || doc.$createdAt || new Date().toISOString(),
     updatedAt: doc.updatedAt || doc.updated_at || undefined,
     paidAt: doc.paidAt || undefined,

@@ -9,7 +9,7 @@ import {
 import { useAnalytics, AnalyticsPeriod } from '../hooks/useAnalytics';
 import { StatCard } from '../components/ui/StatCard';
 import { LoadingScreen } from '../components/ui/LoadingScreen';
-import { OrderStatus } from '../types/order';
+import { OrderStatus, getOrderGrandTotal } from '../types/order';
 import { formatOrderNumber } from '../utils/orderNumber';
 import { useLanguage } from '../context/LanguageContext';
 import { getTaxRate } from '../utils/settingsConfig';
@@ -215,16 +215,19 @@ export default function Reports() {
   }, [analytics.periodOrders, taxRate]);
 
   const paymentMethodStats = React.useMemo(() => {
-    const realCashOrders = analytics.completedPeriod.filter(o => o.paymentMethod === 'Cash');
-    const realCardOrders = analytics.completedPeriod.filter(o => o.paymentMethod === 'Card');
-    
-    const realCashAmount = realCashOrders.reduce((sum, o) => sum + o.totalAmount * (1 + taxRate), 0);
-    const realCardAmount = realCardOrders.reduce((sum, o) => sum + o.totalAmount * (1 + taxRate), 0);
-    
+    // Use canonical getOrderGrandTotal so totals match analytics revenue exactly
+    // (respects frozen grandTotal and pointsRedeemed discounts)
+    const realCashAmount = analytics.completedPeriod
+      .filter(o => o.paymentMethod === 'Cash')
+      .reduce((sum, o) => sum + getOrderGrandTotal(o, taxRate), 0);
+    const realCardAmount = analytics.completedPeriod
+      .filter(o => o.paymentMethod === 'Card')
+      .reduce((sum, o) => sum + getOrderGrandTotal(o, taxRate), 0);
+
     const totalCashAmount = realCashAmount;
     const totalCardAmount = realCardAmount;
     const totalPaidAmount = totalCashAmount + totalCardAmount;
-    
+
     return {
       cashAmount: totalCashAmount,
       cardAmount: totalCardAmount,
