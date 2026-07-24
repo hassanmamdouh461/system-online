@@ -1,8 +1,9 @@
-import React, { useState, useEffect, lazy, Suspense } from 'react';
+import React, { useState, useEffect, Suspense } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, Outlet, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { DataProvider } from './context/DataContext';
 import { LoadingScreen } from './components/ui/LoadingScreen';
+import { InlinePageSpinner } from './components/ui/InlinePageSpinner';
 import { LanguageProvider } from './context/LanguageContext';
 import { ToastProvider } from './components/ui/Toast';
 import { syncService } from './services/syncService';
@@ -11,37 +12,18 @@ import { hydrateFromCloud, resetHydrateCache } from './services/cloudHydrate';
 import { DashboardLayout } from './components/layout/DashboardLayout';
 import { ErrorBoundary } from './components/ui/ErrorBoundary';
 
-// Eager loaded core routes for instant interactive experience
+// Direct eager imports for 100% instant navigation without chunk pauses or splash screens
 import Login from './pages/Login';
 import Orders from './pages/Orders';
-
-function safeLazy<T extends React.ComponentType<any>>(
-  factory: () => Promise<{ default: T }>
-) {
-  return lazy(() =>
-    factory().catch((err) => {
-      console.warn('[Lazy import failed, reloading page for new build]:', err);
-      const lastReload = sessionStorage.getItem('chunk_error_reload');
-      if (!lastReload || Date.now() - parseInt(lastReload, 10) > 10000) {
-        sessionStorage.setItem('chunk_error_reload', Date.now().toString());
-        window.location.reload();
-      }
-      return new Promise<{ default: T }>(() => {});
-    })
-  );
-}
-
-// Lazy loaded heavy routes for optimal bundle code-splitting
-const Dashboard = safeLazy(() => import('./pages/Dashboard'));
-const Menu = safeLazy(() => import('./pages/Menu'));
-const Payment = safeLazy(() => import('./pages/Payment'));
-const Reports = safeLazy(() => import('./pages/Reports'));
-const ManagerDashboard = safeLazy(() => import('./pages/ManagerDashboard'));
-const Settings = safeLazy(() => import('./pages/Settings'));
-const PublicMenu = safeLazy(() => import('./pages/PublicMenu'));
-const Inventory = safeLazy(() => import('./pages/Inventory'));
-const Customers = safeLazy(() => import('./pages/Customers'));
-
+import Dashboard from './pages/Dashboard';
+import Menu from './pages/Menu';
+import Payment from './pages/Payment';
+import Reports from './pages/Reports';
+import ManagerDashboard from './pages/ManagerDashboard';
+import Settings from './pages/Settings';
+import PublicMenu from './pages/PublicMenu';
+import Inventory from './pages/Inventory';
+import Customers from './pages/Customers';
 
 function ProtectedRoute() {
   const { isAuthenticated } = useAuth();
@@ -71,7 +53,7 @@ function CashierDefaultRoute() {
 function AppRoutes() {
   return (
     <ErrorBoundary>
-      <Suspense fallback={<LoadingScreen />}>
+      <Suspense fallback={<InlinePageSpinner />}>
       <Routes>
         <Route path="/login" element={<Login />} />
         {/* Same login UI; path contains "manager" so AuthContext assigns manager role */}
@@ -105,6 +87,7 @@ function AppRoutes() {
     </ErrorBoundary>
   );
 }
+
 
 function App() {
   const [bootReady, setBootReady] = useState(false);
@@ -164,8 +147,9 @@ function App() {
   }, []);
 
   if (!bootReady) {
-    return <LoadingScreen />;
+    return <InlinePageSpinner message="جاري إعداد النظام..." />;
   }
+
 
   return (
     <AuthProvider>
