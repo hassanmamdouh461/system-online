@@ -493,24 +493,14 @@ export default function Inventory() {
             title={isRtl ? 'تصفية حسب التاريخ' : 'Filter by date'}
           />
 
-          {filterDate !== new Date().toLocaleDateString('en-CA') && (
-            <button
-              type="button"
-              onClick={() => setFilterDate(new Date().toLocaleDateString('en-CA'))}
-              className="py-2 px-2.5 text-xs font-bold bg-mocha-50 text-mocha-800 hover:bg-mocha-100 rounded-xl border border-mocha-200 transition-colors whitespace-nowrap"
-            >
-              {isRtl ? 'اليوم' : 'Today'}
-            </button>
-          )}
-
-          {(filterDate || searchQuery) && (
+          {(filterDate !== new Date().toLocaleDateString('en-CA') || searchQuery.trim() !== '') && (
             <button
               type="button"
               onClick={() => {
-                setFilterDate('');
+                setFilterDate(new Date().toLocaleDateString('en-CA'));
                 setSearchQuery('');
               }}
-              className="py-2 px-2.5 text-xs font-bold bg-red-50 text-red-600 hover:bg-red-100 rounded-xl border border-red-200 transition-colors whitespace-nowrap"
+              className="py-2 px-3 text-xs font-bold bg-red-50 text-red-600 hover:bg-red-100 rounded-xl border border-red-200 transition-colors whitespace-nowrap"
             >
               {isRtl ? 'إعادة ضبط' : 'Reset'}
             </button>
@@ -648,7 +638,7 @@ export default function Inventory() {
                           )}
                         </td>
                         <td className="p-4 text-center font-bold text-gray-800">
-                          {isOutgoing ? '-' : '+'}{tx.quantity.toFixed(2)} {t(tx.itemUnit || '')}
+                          {isOutgoing ? '-' : '+'}{tx.quantity.toFixed(2)} {t(tx.itemUnit || tx.unit || inventory.find(i => i.id === tx.itemId)?.unit || '')}
                         </td>
                         <td className="p-4 text-center font-mono text-xs text-gray-500">
                           {tx.referenceId}
