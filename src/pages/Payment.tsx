@@ -10,6 +10,9 @@ import {
   Building2,
   Wallet,
   Printer,
+  SlidersHorizontal,
+  ChevronDown,
+  Check,
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useOrders } from '../hooks/useOrders';
@@ -52,34 +55,173 @@ function realName(name?: string | null): string | undefined {
   return n;
 }
 
-function orderMatchesSearch(o: Order, term: string): boolean {
-  const q = term.trim().toLowerCase();
-  if (!q) return true;
-  const qDigits = normalize(term);
-  const hay = [
-    o.tableId,
-    o.orderNumber,
-    o.customerPhone,
-    o.customerName,
-    o.companyName,
-    o.customerId,
-    o.companyId,
-  ]
-    .filter(Boolean)
-    .join(' ')
-    .toLowerCase();
-  if (hay.includes(q)) return true;
-  if (qDigits && (o.customerPhone || '').replace(/[\s\-()]/g, '').includes(qDigits)) return true;
+export type SearchFieldType = 'all' | 'invoice' | 'phone' | 'customer' | 'table' | 'item' | 'amount';
+
+export const SEARCH_FIELDS: {
+  id: SearchFieldType;
+  icon: string;
+  labelAr: string;
+  labelEn: string;
+  placeholderAr: string;
+  placeholderEn: string;
+}[] = [
+  { id: 'all', icon: '', labelAr: 'الكل (بحث شامل)', labelEn: 'All Fields', placeholderAr: 'بحث شامل بجميع البيانات (فاتورة / هاتف / عميل / صنف)...', placeholderEn: 'Search all fields (invoice / phone / customer / item)...' },
+  { id: 'invoice', icon: '📄', labelAr: 'رقم الفاتورة #', labelEn: 'Invoice #', placeholderAr: 'ابحث برقم الفاتورة (مثال: 12 أو #12)...', placeholderEn: 'Search invoice # (e.g. 12 or #12)...' },
+  { id: 'phone', icon: '📞', labelAr: 'رقم الهاتف', labelEn: 'Phone Number', placeholderAr: 'ابحث برقم هاتف العميل...', placeholderEn: 'Search customer phone number...' },
+  { id: 'customer', icon: '👤', labelAr: 'اسم العميل / الشركة', labelEn: 'Customer / Company Name', placeholderAr: 'ابحث باسم العميل أو الشركة...', placeholderEn: 'Search customer or company name...' },
+  { id: 'table', icon: '🪑', labelAr: 'رقم الطاولة', labelEn: 'Table Number', placeholderAr: 'ابحث برقم أو اسم الطاولة (مثال: 1 أو VIP)...', placeholderEn: 'Search table # or name...' },
+  { id: 'item', icon: '☕', labelAr: 'اسم الصنف', labelEn: 'Item Name', placeholderAr: 'ابحث باسم الصنف في الفاتورة (مثال: لاتيه)...', placeholderEn: 'Search item name in invoice...' },
+  { id: 'amount', icon: '💵', labelAr: 'المبلغ / القيمة', labelEn: 'Amount / Price', placeholderAr: 'ابحث بمبلغ الفاتورة (مثال: 120)...', placeholderEn: 'Search invoice total amount...' },
+];
+
+function orderMatchesSearch(
+  o: Order,
+  term: string,
+  searchField: SearchFieldType = 'all',
+  customerMap?: Map<string, Customer>,
+  companyMap?: Map<string, Company>
+): boolean {
+  const qRaw = term.trim();
+  if (!qRaw) return true;
+
+  const qLower = qRaw.toLowerCase();
+  const qClean = qRaw.replace(/[\s\-()#]/g, '').toLowerCase();
+  const digitsOnly = qRaw.replace(/\D/g, '');
+
+  // 1. Order Number
+  if (searchField === 'all' || searchField === 'invoice') {
+    const orderNumStr = String(o.orderNumber || '');
+    const formattedNum = formatOrderNumber(o).toLowerCase();
+    const formattedClean = formattedNum.replace('#', '');
+
+    const isMatch =
+      orderNumStr.toLowerCase().includes(qLower) ||
+      formattedNum.includes(qLower) ||
+      formattedClean.includes(qLower) ||
+      (qClean && orderNumStr.toLowerCase().includes(qClean)) ||
+      (digitsOnly && (orderNumStr === digitsOnly || formattedClean === digitsOnly));
+
+    if (isMatch) {
+      if (searchField === 'invoice' || searchField === 'all') return true;
+    } else if (searchField === 'invoice') {
+      return false;
+    }
+  }
+
+  // 2. Table ID
+  if (searchField === 'all' || searchField === 'table') {
+    const tableIdStr = String(o.tableId || '').toLowerCase();
+    const cleanTable = tableIdStr
+      .replace(/^table\s*/i, '')
+      .replace(/^طاولة\s*/i, '')
+      .trim();
+
+    const isMatch =
+      tableIdStr.includes(qLower) ||
+      (digitsOnly && cleanTable === digitsOnly) ||
+      (qClean && tableIdStr.replace(/[\s\-()]/g, '').includes(qClean));
+
+    if (isMatch) {
+      if (searchField === 'table' || searchField === 'all') return true;
+    } else if (searchField === 'table') {
+      return false;
+    }
+  }
+
+  // 3. Phone Number
+  if (searchField === 'all' || searchField === 'phone') {
+    const phone = (o.customerPhone || '').replace(/[\s\-()]/g, '');
+    let matchedPhone = false;
+    if (phone && (phone.includes(qClean) || (digitsOnly && phone.includes(digitsOnly)))) {
+      matchedPhone = true;
+    }
+    if (!matchedPhone && o.customerId && customerMap) {
+      const c = customerMap.get(o.customerId) || customerMap.get(`id:${o.customerId}`);
+      if (c && (c.phone || '').replace(/[\s\-()]/g, '').includes(qClean)) {
+        matchedPhone = true;
+      }
+    }
+    if (matchedPhone) {
+      if (searchField === 'phone' || searchField === 'all') return true;
+    } else if (searchField === 'phone') {
+      return false;
+    }
+  }
+
+  // 4. Customer / Company Name
+  if (searchField === 'all' || searchField === 'customer') {
+    const custName = (o.customerName || '').toLowerCase();
+    const compName = (o.companyName || '').toLowerCase();
+    let matchedName = custName.includes(qLower) || compName.includes(qLower);
+
+    if (!matchedName && o.customerId && customerMap) {
+      const c = customerMap.get(o.customerId) || customerMap.get(`id:${o.customerId}`);
+      if (c && (c.name || '').toLowerCase().includes(qLower)) matchedName = true;
+    }
+    if (!matchedName && o.companyId && companyMap) {
+      const co = companyMap.get(o.companyId);
+      if (co && (co.name || '').toLowerCase().includes(qLower)) matchedName = true;
+    }
+
+    if (matchedName) {
+      if (searchField === 'customer' || searchField === 'all') return true;
+    } else if (searchField === 'customer') {
+      return false;
+    }
+  }
+
+  // 5. Order Items
+  if (searchField === 'all' || searchField === 'item') {
+    let itemMatch = false;
+    if (o.items && Array.isArray(o.items)) {
+      itemMatch = o.items.some(item => {
+        const iName = (item.name || '').toLowerCase();
+        const iCat = (item.category || '').toLowerCase();
+        return iName.includes(qLower) || iCat.includes(qLower);
+      });
+    }
+    if (itemMatch) {
+      if (searchField === 'item' || searchField === 'all') return true;
+    } else if (searchField === 'item') {
+      return false;
+    }
+  }
+
+  // 6. Total Price / Amount
+  if (searchField === 'all' || searchField === 'amount') {
+    const total = o.grandTotal != null ? o.grandTotal : o.totalAmount || 0;
+    const totalStr = total.toFixed(2);
+    const totalRoundedStr = Math.round(total).toString();
+
+    const isMatch = totalStr.includes(qLower) || (digitsOnly && totalRoundedStr === digitsOnly);
+
+    if (isMatch) {
+      if (searchField === 'amount' || searchField === 'all') return true;
+    } else if (searchField === 'amount') {
+      return false;
+    }
+  }
+
   return false;
 }
 
-function holderMatchesSearch(h: AccountHolder, term: string): boolean {
+function holderMatchesSearch(
+  h: AccountHolder,
+  term: string,
+  searchField: SearchFieldType = 'all',
+  customerMap?: Map<string, Customer>,
+  companyMap?: Map<string, Company>
+): boolean {
   const q = term.trim().toLowerCase();
   if (!q) return true;
   const qDigits = normalize(term);
-  if (h.name.toLowerCase().includes(q)) return true;
-  if (h.phone && normalize(h.phone).includes(qDigits)) return true;
-  if (h.orders.some(o => orderMatchesSearch(o, term))) return true;
+  if (searchField === 'all' || searchField === 'customer') {
+    if (h.name.toLowerCase().includes(q)) return true;
+  }
+  if (searchField === 'all' || searchField === 'phone') {
+    if (h.phone && normalize(h.phone).includes(qDigits)) return true;
+  }
+  if (h.orders.some(o => orderMatchesSearch(o, term, searchField, customerMap, companyMap))) return true;
   return false;
 }
 
@@ -90,7 +232,7 @@ export default function Payment() {
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterDate, setFilterDate] = useState('');
+  const [filterDate, setFilterDate] = useState<string>('');
   const [filterStartTime, setFilterStartTime] = useState('');
   const [filterEndTime, setFilterEndTime] = useState('');
   const [selectedHolderKey, setSelectedHolderKey] = useState<string | null>(null);
@@ -179,15 +321,8 @@ export default function Payment() {
   };
 
   const resolveCompanyId = (o: Order): string | undefined => {
+    if (o.billedToType === 'customer') return undefined;
     if (o.companyId) return o.companyId;
-    if (o.customerId) {
-      const c = customerByPhone.get(`id:${o.customerId}`);
-      if (c?.companyId) return c.companyId;
-    }
-    if (o.customerPhone) {
-      const c = customerByPhone.get(normalize(o.customerPhone));
-      if (c?.companyId) return c.companyId;
-    }
     return undefined;
   };
 
@@ -297,10 +432,24 @@ export default function Payment() {
     return Array.from(map.values()).sort((a, b) => b.balance - a.balance);
   }, [accountOrders, fallbackTax, language, customerByPhone, companyById, customers]);
 
+  const [searchField, setSearchField] = useState<SearchFieldType>('all');
+  const [isFilterDropdownOpen, setIsFilterDropdownOpen] = useState(false);
+  const filterDropdownRef = React.useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (filterDropdownRef.current && !filterDropdownRef.current.contains(event.target as Node)) {
+        setIsFilterDropdownOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
   const filteredHolders = useMemo(() => {
     if (!searchTerm.trim()) return accountHolders;
-    return accountHolders.filter(h => holderMatchesSearch(h, searchTerm));
-  }, [accountHolders, searchTerm]);
+    return accountHolders.filter(h => holderMatchesSearch(h, searchTerm, searchField, customerByPhone, companyById));
+  }, [accountHolders, searchTerm, searchField, customerByPhone, companyById]);
 
   // When a holder is selected (or single search match), focus their invoices
   const focusedHolder = useMemo(() => {
@@ -389,10 +538,18 @@ export default function Payment() {
       const matchesSearch =
         activeTab === 'accounts' && focusedHolder
           ? true
-          : orderMatchesSearch(o, searchTerm);
+          : orderMatchesSearch(o, searchTerm, searchField, customerByPhone, companyById);
 
       const orderDate = new Date(o.paidAt || o.createdAt).toLocaleDateString('en-CA');
-      const matchesDate = !filterDate || orderDate === filterDate;
+      
+      let matchesDate = true;
+      if (activeTab === 'paid') {
+        matchesDate = orderDate === (filterDate || new Date().toLocaleDateString('en-CA'));
+      } else {
+        if (filterDate) {
+          matchesDate = orderDate === filterDate;
+        }
+      }
 
       let matchesTime = true;
       if (filterStartTime || filterEndTime) {
@@ -628,7 +785,7 @@ export default function Payment() {
             </div>
             <div>
               <p className="text-[10px] text-gray-500 font-medium">
-                {t("Today's Revenue (incl. tax)")}
+                {t("Today's Revenue")}
               </p>
               <p className="text-base font-bold text-gray-900">
                 {totalRevenue.toFixed(2)} {currency}
@@ -660,17 +817,17 @@ export default function Payment() {
             {
               id: 'pending' as const,
               label: t('Pending Payments'),
-              count: pendingOrders.length,
+              count: pendingOrders.filter(o => !filterDate || new Date(o.paidAt || o.createdAt).toLocaleDateString('en-CA') === filterDate).length,
             },
             {
               id: 'accounts' as const,
               label: language === 'ar' ? 'على الحساب' : 'On Account',
-              count: accountOrders.length,
+              count: accountOrders.filter(o => !filterDate || new Date(o.paidAt || o.createdAt).toLocaleDateString('en-CA') === filterDate).length,
             },
             {
               id: 'paid' as const,
               label: t('Paid Invoices'),
-              count: paidOrders.length,
+              count: paidOrders.filter(o => new Date(o.paidAt || o.createdAt).toLocaleDateString('en-CA') === (filterDate || new Date().toLocaleDateString('en-CA'))).length,
             },
           ] as const
         ).map(tab => (
@@ -700,47 +857,111 @@ export default function Payment() {
 
       {/* Search + filters */}
       <div className="space-y-3">
-        <div className="relative w-full">
-          <Search
-            className={clsx(
-              'absolute top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4 pointer-events-none z-10',
-              isRtl ? 'right-3.5' : 'left-3.5'
-            )}
-          />
-          <input
-            type="search"
-            dir={isRtl ? 'rtl' : 'ltr'}
-            placeholder={
-              activeTab === 'accounts'
-                ? language === 'ar'
-                  ? 'ابحث باسم العميل أو الشركة أو الهاتف...'
-                  : 'Search customer, company, or phone...'
-                : language === 'ar'
-                  ? 'ابحث برقم الطاولة أو الطلب أو الهاتف...'
-                  : 'Search table, order, or phone...'
-            }
-            value={searchTerm}
-            onChange={e => {
-              setSearchTerm(e.target.value);
-              setSelectedHolderKey(null);
-            }}
-            className={clsx(
-              'w-full py-3 bg-white border border-gray-200 rounded-2xl',
-              'focus:outline-none focus:ring-2 focus:ring-caramel/50 focus:border-caramel',
-              'shadow-sm text-sm text-gray-900 placeholder:text-gray-400',
-              isRtl ? 'pr-11 pl-4 text-right' : 'pl-11 pr-4 text-left'
-            )}
-          />
+        <div className="relative w-full flex items-center">
+          <div className="relative flex-1">
+            <Search
+              className={clsx(
+                'absolute top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4 pointer-events-none z-10',
+                isRtl ? 'right-3.5' : 'left-3.5'
+              )}
+            />
+            <input
+              type="search"
+              dir={isRtl ? 'rtl' : 'ltr'}
+              placeholder={
+                language === 'ar'
+                  ? (SEARCH_FIELDS.find(f => f.id === searchField)?.placeholderAr || 'بحث شامل...')
+                  : (SEARCH_FIELDS.find(f => f.id === searchField)?.placeholderEn || 'Search...')
+              }
+              value={searchTerm}
+              onChange={e => {
+                setSearchTerm(e.target.value);
+                setSelectedHolderKey(null);
+              }}
+              className={clsx(
+                'w-full py-3 bg-white border border-gray-200 rounded-2xl',
+                'focus:outline-none focus:ring-2 focus:ring-caramel/50 focus:border-caramel',
+                'shadow-sm text-sm text-gray-900 placeholder:text-gray-400',
+                isRtl ? 'pr-11 pl-44 text-right' : 'pl-11 pr-44 text-left'
+              )}
+            />
+
+            {/* Interactive Filter Dropdown Button */}
+            <div
+              ref={filterDropdownRef}
+              className={clsx(
+                'absolute top-1/2 -translate-y-1/2 z-20',
+                isRtl ? 'left-2' : 'right-2'
+              )}
+            >
+              <button
+                type="button"
+                onClick={() => setIsFilterDropdownOpen(!isFilterDropdownOpen)}
+                className="px-3 py-1.5 bg-mocha-50 hover:bg-mocha-100 text-mocha-900 border border-mocha-200 rounded-xl text-xs font-black flex items-center gap-1.5 transition-all shadow-xs active:scale-95"
+                title={language === 'ar' ? 'تخصيص هدف البحث' : 'Filter search target'}
+              >
+                <SlidersHorizontal size={14} className="text-mocha-700" />
+                <span>{SEARCH_FIELDS.find(f => f.id === searchField)?.icon}</span>
+                <span className="hidden sm:inline">
+                  {language === 'ar'
+                    ? SEARCH_FIELDS.find(f => f.id === searchField)?.labelAr
+                    : SEARCH_FIELDS.find(f => f.id === searchField)?.labelEn}
+                </span>
+                <ChevronDown
+                  size={14}
+                  className={`transition-transform duration-200 text-mocha-600 ${
+                    isFilterDropdownOpen ? 'rotate-180' : ''
+                  }`}
+                />
+              </button>
+
+              {/* Dropdown Options List */}
+              {isFilterDropdownOpen && (
+                <div
+                  className={clsx(
+                    'absolute top-full mt-1.5 w-60 bg-white rounded-2xl shadow-2xl border border-gray-200 py-1.5 z-50 text-gray-800 font-sans',
+                    isRtl ? 'left-0' : 'right-0'
+                  )}
+                >
+                  <div className="px-3.5 py-1.5 text-[10px] font-extrabold text-gray-400 uppercase tracking-wide border-b border-gray-100">
+                    {language === 'ar' ? 'البحث بواسطة:' : 'Filter Search By:'}
+                  </div>
+                  {SEARCH_FIELDS.map(field => (
+                    <button
+                      key={field.id}
+                      type="button"
+                      onClick={() => {
+                        setSearchField(field.id);
+                        setIsFilterDropdownOpen(false);
+                      }}
+                      className={clsx(
+                        'w-full px-3.5 py-2.5 text-xs font-bold flex items-center justify-between transition-colors',
+                        searchField === field.id
+                          ? 'bg-mocha-600 text-white font-black'
+                          : 'text-gray-700 hover:bg-mocha-50 hover:text-mocha-900'
+                      )}
+                    >
+                      <div className="flex items-center gap-2">
+                        {field.icon ? <span className="text-sm">{field.icon}</span> : null}
+                        <span>{language === 'ar' ? field.labelAr : field.labelEn}</span>
+                      </div>
+                      {searchField === field.id && <Check size={14} />}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
           <input
             type="date"
-            value={filterDate}
+            value={activeTab === 'paid' ? (filterDate || new Date().toLocaleDateString('en-CA')) : filterDate}
             onChange={e => setFilterDate(e.target.value)}
             className="py-2.5 px-3 bg-white border border-gray-200 rounded-xl text-sm text-gray-700 shadow-sm min-w-[150px]"
           />
-          {(filterDate || filterStartTime || filterEndTime || searchTerm || selectedHolderKey) && (
+          {( filterDate || filterStartTime || filterEndTime || searchTerm || selectedHolderKey) && (
             <button
               type="button"
               onClick={() => {
@@ -752,7 +973,7 @@ export default function Payment() {
               }}
               className="py-2.5 px-3 text-xs font-bold bg-red-50 text-red-600 hover:bg-red-100 rounded-xl border border-red-200"
             >
-              {t('Clear Filter')}
+              {language === 'ar' ? 'إعادة ضبط' : 'Reset'}
             </button>
           )}
         </div>

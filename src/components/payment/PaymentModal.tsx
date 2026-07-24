@@ -13,14 +13,11 @@ import {
   Undo2,
   Lock,
   BookUser,
-  Star,
 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { useLanguage } from '../../context/LanguageContext';
 import {
   getTaxRate,
-  getLoyaltyConfig,
-  pointsToDiscount,
   verifyAdminPin,
   hasAdminPin,
   getStoreConfig,
@@ -38,7 +35,6 @@ export interface PaymentCompletePayload {
   method: 'Cash' | 'Card' | 'OnAccount';
   customerPhone?: string;
   customer?: Customer | null;
-  pointsRedeemed?: number;
   customerId?: string;
   customerName?: string;
   companyId?: string;
@@ -70,7 +66,6 @@ export function PaymentModal({
   const [linkedCompany, setLinkedCompany] = useState<Company | null>(null);
   const [billTo, setBillTo] = useState<'customer' | 'company'>('customer');
   const [customerPhone, setCustomerPhone] = useState<string | undefined>(undefined);
-  const [redeemPoints, setRedeemPoints] = useState(0);
   const [refundReason, setRefundReason] = useState('');
   const [refundPin, setRefundPin] = useState('');
   const [refundError, setRefundError] = useState('');
@@ -79,7 +74,6 @@ export function PaymentModal({
   const paymentFiredRef = useRef(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const store = getStoreConfig();
-  const loyalty = getLoyaltyConfig();
 
   useEffect(() => {
     if (isOpen && order) {
@@ -108,7 +102,6 @@ export function PaymentModal({
         setBillTo(
           order.billedToType === 'company' || !!order.companyId ? 'company' : 'customer'
         );
-        setRedeemPoints(0);
 
         // Restore company first (company-only invoices may have no phone)
         if (order.companyId) {
@@ -169,11 +162,10 @@ export function PaymentModal({
       } else {
         setPaymentMethod('Cash');
         setIsProcessing(false);
-        setStep('customer');
+        setStep('pay');
         setCustomerPhone(order.customerPhone);
         setLinkedCustomer(null);
         setLinkedCompany(null);
-        setRedeemPoints(0);
         setBillTo('customer');
         if (order.customerPhone) {
           customersService.getByPhone(order.customerPhone).then(async c => {
@@ -221,7 +213,6 @@ export function PaymentModal({
       setLinkedCustomer(null);
       setLinkedCompany(null);
       setCustomerPhone(undefined);
-      setRedeemPoints(0);
       setStep('pay');
       return;
     }
@@ -232,14 +223,12 @@ export function PaymentModal({
       setLinkedCustomer(null);
       setCustomerPhone(undefined);
       setBillTo('company');
-      setRedeemPoints(0);
       setStep('pay');
       return;
     }
 
     setLinkedCustomer(result.customer);
     setCustomerPhone(result.customer?.phone);
-    setRedeemPoints(0);
 
     let company: Company | null = result.company || null;
     if (!company && result.customer?.companyId) {
@@ -294,7 +283,6 @@ export function PaymentModal({
           method,
           customerPhone: customerPhone || linkedCustomer?.phone || undefined,
           customer: linkedCustomer,
-          pointsRedeemed: undefined,
           customerId: linkedCustomer?.id,
           customerName: linkedCustomer?.name,
           companyId: useCompany ? linkedCompany?.id : undefined,
@@ -331,7 +319,6 @@ export function PaymentModal({
         grandTotal: total,
         taxRate,
         taxAmount: tax,
-        pointsRedeemed: order.pointsRedeemed,
       },
       language
     );
@@ -416,15 +403,6 @@ export function PaymentModal({
             </button>
           </div>
 
-          {!isPaidView && step !== 'refund' && (
-            <div className="px-6 py-2.5 flex items-center gap-2 border-b border-gray-100 bg-gray-50/50 shrink-0">
-              <StepDot active={step === 'customer'} done={step !== 'customer'} label={language === 'ar' ? 'عميل' : 'Customer'} />
-              <div className="flex-1 h-0.5 bg-gray-200 rounded" />
-              <StepDot active={step === 'pay'} done={step === 'receipt'} label={language === 'ar' ? 'دفع' : 'Pay'} />
-              <div className="flex-1 h-0.5 bg-gray-200 rounded" />
-              <StepDot active={step === 'receipt'} done={false} label={language === 'ar' ? 'إيصال' : 'Receipt'} />
-            </div>
-          )}
 
           <div className="p-6 overflow-y-auto flex-1">
             {step === 'refund' ? (
@@ -505,7 +483,7 @@ export function PaymentModal({
               />
             ) : !showReceipt ? (
               <div className="space-y-6">
-                {(linkedCustomer || customerPhone) && (
+                {linkedCustomer || customerPhone ? (
                   <div className="flex items-center justify-between gap-2 bg-mocha-50 border border-mocha-100 rounded-xl px-3 py-2">
                     <div className="flex items-center gap-2 min-w-0">
                       <User size={16} className="text-mocha-700 shrink-0" />
@@ -515,12 +493,6 @@ export function PaymentModal({
                         </p>
                         <p className="text-[11px] text-gray-500">
                           {customerPhone}
-                          {loyalty.enabled && linkedCustomer && (
-                            <span className="ms-2 text-amber-700 font-bold">
-                              · {linkedCustomer.points || 0}{' '}
-                              {language === 'ar' ? 'نقطة' : 'pts'}
-                            </span>
-                          )}
                         </p>
                       </div>
                     </div>
@@ -530,6 +502,17 @@ export function PaymentModal({
                       className="text-[11px] font-bold text-mocha-700 hover:underline shrink-0"
                     >
                       {language === 'ar' ? 'تغيير' : 'Change'}
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex justify-end">
+                    <button
+                      type="button"
+                      onClick={() => setStep('customer')}
+                      className="text-xs font-semibold text-mocha-700 hover:underline flex items-center gap-1.5"
+                    >
+                      <User size={14} />
+                      {language === 'ar' ? '+ ربط عميل (اختياري)' : '+ Link customer (optional)'}
                     </button>
                   </div>
                 )}
@@ -733,6 +716,40 @@ export function PaymentModal({
                       <p className="text-xs text-gray-400">{store.phone}</p>
                     )}
                   </div>
+
+                  {/* Items list */}
+                  <div className="mb-4 border-b border-gray-200 pb-4">
+                    {order.items.map((item, idx) => (
+                      <div key={idx} className="flex justify-between text-xs mb-1.5 items-start gap-4">
+                        <div className="flex gap-2 text-gray-800">
+                          <span className="font-bold min-w-[20px]">{item.quantity}x</span>
+                          <span className="break-words">{language === 'ar' ? ((item as any).nameAr || item.name) : ((item as any).nameEn || item.name)}</span>
+                        </div>
+                        <span className="font-medium whitespace-nowrap">{(item.quantity * item.price).toFixed(2)}</span>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Subtotals & Tax */}
+                  <div className="space-y-1 mb-4 border-b border-gray-200 pb-4 text-xs text-gray-600">
+                    <div className="flex justify-between">
+                      <span>{t('Subtotal')}</span>
+                      <span>{subtotal.toFixed(2)}</span>
+                    </div>
+                    {tax > 0 && (
+                      <div className="flex justify-between">
+                        <span>{t('Tax')} ({(taxRate * 100).toFixed(0)}%)</span>
+                        <span>{tax.toFixed(2)}</span>
+                      </div>
+                    )}
+                    {Boolean((order as any).discountAmount) && (order as any).discountAmount > 0 && (
+                      <div className="flex justify-between text-red-600">
+                        <span>{t('Discount')}</span>
+                        <span>-{((order as any).discountAmount).toFixed(2)}</span>
+                      </div>
+                    )}
+                  </div>
+
                   <div className="flex justify-between font-bold text-base">
                     <span>{t('TOTAL')}</span>
                     <span>
@@ -745,13 +762,14 @@ export function PaymentModal({
                   <div className="flex gap-3">
                     <button
                       onClick={handlePrintReceipt}
-                      className="flex-1 py-3 border border-gray-200 rounded-xl font-medium hover:bg-gray-50 flex items-center justify-center gap-2"
+                      className="flex-1 py-3 border border-gray-300 bg-white text-gray-800 rounded-xl font-bold hover:bg-gray-50 flex items-center justify-center gap-2 shadow-sm"
                     >
-                      <Printer size={18} /> {t('Print Receipt')}
+                      <Printer size={18} className="text-gray-700" />
+                      <span>{t('Print Receipt')}</span>
                     </button>
                     <button
                       onClick={handleClose}
-                      className="flex-1 py-3 bg-mocha-700 text-white rounded-xl font-medium hover:bg-mocha-800"
+                      className="flex-1 py-3 bg-mocha-700 text-white rounded-xl font-bold hover:bg-mocha-800 shadow-sm"
                     >
                       {t('Done')}
                     </button>
@@ -777,26 +795,4 @@ export function PaymentModal({
   );
 }
 
-function StepDot({
-  active,
-  done,
-  label,
-}: {
-  active: boolean;
-  done: boolean;
-  label: string;
-}) {
-  return (
-    <div className="flex flex-col items-center gap-0.5 min-w-[3.5rem]">
-      <div
-        className={clsx(
-          'w-2.5 h-2.5 rounded-full',
-          active ? 'bg-mocha-700' : done ? 'bg-green-500' : 'bg-gray-200'
-        )}
-      />
-      <span className={clsx('text-[9px] font-bold', active ? 'text-mocha-800' : 'text-gray-400')}>
-        {label}
-      </span>
-    </div>
-  );
-}
+
