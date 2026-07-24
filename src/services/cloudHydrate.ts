@@ -46,7 +46,13 @@ function mapOrder(doc: any): Order {
     ...(taxAmount !== undefined ? { taxAmount } : {}),
     ...(grandTotal !== undefined ? { grandTotal } : {}),
 
-    createdAt: doc.createdAt || doc.$createdAt || new Date().toISOString(),
+    createdAt:
+      doc.createdAt ||
+      doc.created_at ||
+      doc.$createdAt ||
+      doc.paidAt ||
+      doc.paid_at ||
+      undefined,
     updatedAt: doc.updatedAt || doc.updated_at || undefined,
     paidAt: doc.paidAt || undefined,
     customerPhone: doc.customerPhone || doc.customer_phone || undefined,
@@ -71,6 +77,10 @@ function mapMenu(doc: any): MenuItem {
     image: doc.image,
     available: doc.available === 1 || doc.available === true || doc.available === '1',
     branchId: doc.branch_id || doc.branchId,
+    createdAt: doc.created_at || doc.createdAt,
+    updatedAt: doc.updated_at || doc.updatedAt,
+    // Respect the soft-delete tombstone written by IndexedDbMenuRepository.delete.
+    deletedAt: doc.deleted_at || doc.deletedAt,
   };
 }
 
@@ -270,12 +280,21 @@ export async function hydrateFromCloud(force = false): Promise<HydrateResult> {
         if (orders && orders.length > 0) {
           result.orders = await withDB(async (db) => {
             const existing = await db.getAll('orders');
+            const syncQueue = await db.getAll('sync_queue');
+            const pendingDeletions = new Set(
+              syncQueue
+                .filter((r) => ((r.type as string) === 'order' || (r.type as string) === 'orders') && r.action === 'delete')
+
+                .map((r) => r.data?.id || r.data?.documentId)
+                .filter(Boolean)
+            );
             const localById = new Map(existing.map((o) => [o.id, o]));
             const tx = db.transaction('orders', 'readwrite');
             let n = 0;
             for (const doc of orders) {
               const remote = mapOrder(doc);
               if (!remote.id) continue;
+              if (pendingDeletions.has(remote.id)) continue;
               const local = localById.get(remote.id);
               const merged = mergeOrderRecords(local, remote) as Order;
               try {
@@ -289,11 +308,47 @@ export async function hydrateFromCloud(force = false): Promise<HydrateResult> {
             return n;
           });
         }
+
         if (menu && menu.length > 0) {
-          result.menu = await putMany(
-            'menu_items',
-            menu.map(mapMenu).filter((m) => !!m.id)
-          );
+          // Menu: merge-aware so a soft-deleted item is NOT resurrected.
+          // We keep whichever deletedAt is newer (local vs cloud) so a delete on
+          // any device wins. Only items with no tombstone (or a tombstone older
+          // than a fresh local create) end up live.
+          result.menu = await withDB(async (db) => {
+            const existing = (await db.getAll('menu_items')) as MenuItem[];
+            const localById = new Map(existing.map((m) => [m.id, m]));
+            const tx = db.transaction('menu_items', 'readwrite');
+            let n = 0;
+            for (const doc of menu) {
+              const remote = mapMenu(doc);
+              if (!remote.id) continue;
+              const local = localById.get(remote.id);
+              const localDeletedAt = local?.deletedAt;
+              const remoteDeletedAt = remote.deletedAt;
+              const effectiveDeletedAt =
+                !localDeletedAt
+                  ? remoteDeletedAt
+                  : !remoteDeletedAt
+                    ? localDeletedAt
+                    : new Date(localDeletedAt).getTime() >= new Date(remoteDeletedAt).getTime()
+                      ? localDeletedAt
+                      : remoteDeletedAt;
+              const merged: MenuItem = {
+                ...(local || ({} as MenuItem)),
+                ...remote,
+                id: remote.id,
+                deletedAt: effectiveDeletedAt,
+              };
+              try {
+                await tx.store.put(merged);
+                n++;
+              } catch (e) {
+                console.warn('[hydrate] skip bad menu row:', e);
+              }
+            }
+            await tx.done;
+            return n;
+          });
         }
         if (customers && customers.length > 0) {
           // Merge customers: keep local name/companyId when cloud sends placeholder «عميل»
@@ -388,20 +443,55 @@ export async function hydrateFromCloud(force = false): Promise<HydrateResult> {
           });
         }
         if (inventory && inventory.length > 0) {
-          result.inventory = await putMany(
-            'inventory',
-            inventory.map((doc: any) => ({
-              id: String(doc.id || doc.$id),
-              name: doc.name || 'عنصر',
-              unit: doc.unit || 'وحدة',
-              stock: optionalNumber(doc.stock) ?? 0,
-              minStock: optionalNumber(doc.minStock) ?? 0,
-              costPerUnit: optionalNumber(doc.costPerUnit) ?? 0,
-              branchId: doc.branch_id || doc.branchId,
-              createdAt: doc.createdAt || doc.created_at || new Date().toISOString(),
-              updatedAt: doc.updatedAt || doc.updated_at || new Date().toISOString(),
-            }))
-          );
+          // Inventory: merge-aware so a soft-deleted item is NOT resurrected.
+          // We keep whichever deletedAt is newer (local vs cloud) so a delete on
+          // any device wins. Only items with no tombstone end up live.
+          result.inventory = await withDB(async (db) => {
+            const existing = (await db.getAll('inventory')) as any[];
+            const localById = new Map(existing.map((m: any) => [m.id, m]));
+            const tx = db.transaction('inventory', 'readwrite');
+            let n = 0;
+            for (const doc of inventory) {
+              const id = String(doc.id || doc.$id);
+              if (!id) continue;
+              const local = localById.get(id);
+              const localDeletedAt = local?.deletedAt;
+              const remoteDeletedAt = doc.deleted_at || doc.deletedAt;
+
+              // Resolve the effective tombstone: whichever side has a NEWER
+              // deletedAt wins.
+              const effectiveDeletedAt =
+                !localDeletedAt
+                  ? remoteDeletedAt
+                  : !remoteDeletedAt
+                    ? localDeletedAt
+                    : new Date(localDeletedAt).getTime() >= new Date(remoteDeletedAt).getTime()
+                      ? localDeletedAt
+                      : remoteDeletedAt;
+
+              const merged = {
+                ...(local || {}),
+                id,
+                name: doc.name || local?.name || 'عنصر',
+                unit: doc.unit || local?.unit || 'وحدة',
+                stock: optionalNumber(doc.stock) ?? local?.stock ?? 0,
+                minStock: optionalNumber(doc.minStock) ?? local?.minStock ?? 0,
+                costPerUnit: optionalNumber(doc.costPerUnit) ?? local?.costPerUnit ?? 0,
+                branchId: doc.branch_id || doc.branchId || local?.branchId,
+                createdAt: doc.createdAt || doc.created_at || local?.createdAt || new Date().toISOString(),
+                updatedAt: doc.updatedAt || doc.updated_at || local?.updatedAt || new Date().toISOString(),
+                deletedAt: effectiveDeletedAt || undefined,
+              };
+              try {
+                await tx.store.put(merged);
+                n++;
+              } catch (e) {
+                console.warn('[hydrate] skip bad inventory row:', e);
+              }
+            }
+            await tx.done;
+            return n;
+          });
         }
       });
 
@@ -412,20 +502,8 @@ export async function hydrateFromCloud(force = false): Promise<HydrateResult> {
         result.transactions = applyTransactionsFromCloud(transactions);
       }
 
-      // Bootstrap reverse: if D1 menu empty but local has items, push them
-      if ((!menu || menu.length === 0) && typeof navigator !== 'undefined' && navigator.onLine) {
-        try {
-          const localMenu = await withDB((db) => db.getAll('menu_items'));
-          if (localMenu.length > 0) {
-            const { menuRepository } = await import('../repositories');
-            if (typeof (menuRepository as any).bootstrapPushAll === 'function') {
-              await (menuRepository as any).bootstrapPushAll(localMenu);
-            }
-          }
-        } catch (e) {
-          console.warn('[hydrate] menu bootstrap push skipped:', e);
-        }
-      }
+      // Bootstrap reverse push disabled — menu items sync individually on create/update/delete.
+      // This prevents wiped cloud data from being re-uploaded from stale local caches.
 
       // If no settings on cloud but local has durable keys, push them
       if (settingsCount === 0) {

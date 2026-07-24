@@ -87,7 +87,8 @@ function getAvatarGradient(name: string): string {
 export default function CustomersPage({ managerMode = false }: CustomersPageProps) {
   const { t, language, isRtl } = useLanguage();
   const { user, branch } = useAuth();
-  const { orders } = useOrders();
+  const { orders, deleteOrder } = useOrders();
+
   const taxRate = getTaxRate();
   const branchId = branch?.branchId === 'manager' ? undefined : branch?.branchId;
 
@@ -805,7 +806,9 @@ export default function CustomersPage({ managerMode = false }: CustomersPageProp
               t={t}
               language={language}
               allOrders={orders}
+              onDeleteOrder={deleteOrder}
             />
+
           </ModalShell>
         )}
       </AnimatePresence>
@@ -992,7 +995,7 @@ function ModalShell({
 }
 
 function CustomerProfileDetail({
-  customer, company, orders, taxRate, currency, t, language, allOrders,
+  customer, company, orders, taxRate, currency, t, language, allOrders, onDeleteOrder,
 }: {
   customer: Customer;
   company?: Company;
@@ -1002,12 +1005,12 @@ function CustomerProfileDetail({
   t: (k: string) => string;
   language: string;
   allOrders: Order[];
+  onDeleteOrder: (id: string) => Promise<void>;
 }) {
   const stats = orderStats(orders, taxRate);
   const balance = getCustomerAccountBalance(allOrders, customer, taxRate);
   const openInvoices = getCustomerOpenInvoices(allOrders, customer);
   const gradient = getAvatarGradient(customer.name);
-
 
   return (
     <div className="p-6 space-y-6">
@@ -1083,7 +1086,7 @@ function CustomerProfileDetail({
                   <p className="font-extrabold text-gray-900">#{formatOrderNumber(o)}</p>
                   <p className="text-[11px] text-gray-500 mt-0.5">{new Date(o.createdAt).toLocaleString()}</p>
                 </div>
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2">
                   <span className="font-black text-rose-700 text-sm">{getOrderGrandTotal(o, taxRate).toFixed(2)} {currency}</span>
                   <button
                     onClick={() => printCustomerReceipt(o, language === 'ar' ? 'ar' : 'en')}
@@ -1091,6 +1094,18 @@ function CustomerProfileDetail({
                     title={t('Print Receipt')}
                   >
                     <Printer size={15} />
+                  </button>
+                  <button
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      if (window.confirm(language === 'ar' ? `هل أنت تأكد من حذف الفاتورة #${formatOrderNumber(o)} نهائياً؟` : `Are you sure you want to delete invoice #${formatOrderNumber(o)}?`)) {
+                        await onDeleteOrder(o.id);
+                      }
+                    }}
+                    className="p-1.5 rounded-lg text-rose-600 hover:bg-rose-200/80 hover:text-rose-900 transition-colors"
+                    title={language === 'ar' ? 'حذف الفاتورة' : 'Delete Invoice'}
+                  >
+                    <Trash2 size={15} />
                   </button>
                 </div>
               </div>
@@ -1116,7 +1131,7 @@ function CustomerProfileDetail({
                   <p className="font-bold text-gray-900">#{formatOrderNumber(o)}</p>
                   <p className="text-[11px] text-gray-400 mt-0.5">{new Date(o.createdAt).toLocaleString()}</p>
                 </div>
-                <div className="flex items-center gap-3 shrink-0">
+                <div className="flex items-center gap-2 shrink-0">
                   <div className="text-right">
                     <p className="font-extrabold text-gray-900">{getOrderGrandTotal(o, taxRate).toFixed(2)} {currency}</p>
                     <p className={clsx(
@@ -1135,6 +1150,18 @@ function CustomerProfileDetail({
                   >
                     <Printer size={15} />
                   </button>
+                  <button
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      if (window.confirm(language === 'ar' ? `هل أنت تأكد من حذف الفاتورة #${formatOrderNumber(o)} نهائياً؟` : `Are you sure you want to delete invoice #${formatOrderNumber(o)}?`)) {
+                        await onDeleteOrder(o.id);
+                      }
+                    }}
+                    className="p-1.5 rounded-lg text-gray-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+                    title={language === 'ar' ? 'حذف الفاتورة' : 'Delete Invoice'}
+                  >
+                    <Trash2 size={15} />
+                  </button>
                 </div>
               </div>
             ))}
@@ -1144,6 +1171,7 @@ function CustomerProfileDetail({
     </div>
   );
 }
+
 
 function CompanyProfileDetail({
   company, members, orders, taxRate, currency, t, language, onOpenCustomer, allOrders,

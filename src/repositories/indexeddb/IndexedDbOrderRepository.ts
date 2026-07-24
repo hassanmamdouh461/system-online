@@ -46,7 +46,12 @@ function mapRemoteOrder(doc: any): Order {
     ...(taxAmount !== undefined ? { taxAmount } : {}),
     ...(grandTotal !== undefined ? { grandTotal } : {}),
 
-    createdAt: doc.createdAt || doc.$createdAt || new Date().toISOString(),
+    createdAt:
+      doc.createdAt ||
+      doc.created_at ||
+      doc.$createdAt ||
+      doc.paidAt ||
+      undefined,
     updatedAt: doc.updatedAt || doc.updated_at || undefined,
     paidAt: doc.paidAt || undefined,
     customerPhone: doc.customerPhone || doc.customer_phone || undefined,
@@ -381,7 +386,16 @@ export class IndexedDbOrderRepository implements IOrderRepository {
         void syncService.syncPendingData();
       });
     });
+
+    // Directly delete from Cloud D1 worker database so cloudHydrate does NOT resurrect it
+    try {
+      const { cloudDeleteDocument } = await import('../../services/cloudConfig');
+      await cloudDeleteDocument('orders', id);
+    } catch {
+      // ignore
+    }
   }
+
 
   async resetToDefaults(defaults: Omit<Order, 'id'>[], branchId?: string): Promise<Order[]> {
     await enqueueWrite(async () => {
