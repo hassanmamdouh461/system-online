@@ -7,15 +7,20 @@ import {
   Search,
   Calculator,
   User,
+  Users,
   Building2,
+  FileText,
   Wallet,
   Printer,
   SlidersHorizontal,
   ChevronDown,
   Check,
+  Trash2,
 } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 import { useOrders } from '../hooks/useOrders';
+
 import { useLanguage } from '../context/LanguageContext';
 import {
   getTaxRate,
@@ -228,8 +233,11 @@ function holderMatchesSearch(
 export default function Payment() {
   const toast = useToast();
   const { t, isRtl, language } = useLanguage();
-  const { orders: allOrders, error, completeWithPayment, updateOrder, refundOrder } = useOrders();
+
+  const { orders: allOrders, error, completeWithPayment, updateOrder, refundOrder, deleteOrder } = useOrders();
+
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+  const [cancelOrderTarget, setCancelOrderTarget] = useState<Order | null>(null);
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterDate, setFilterDate] = useState<string>('');
@@ -238,6 +246,21 @@ export default function Payment() {
   const [selectedHolderKey, setSelectedHolderKey] = useState<string | null>(null);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
+
+  const handleExecuteCancelOrder = async () => {
+    if (!cancelOrderTarget) return;
+    try {
+      await updateOrder(cancelOrderTarget.id, { status: 'Cancelled' });
+      await deleteOrder(cancelOrderTarget.id);
+      toast.success(language === 'ar' ? 'تم إلغاء وحذف الطلب بنجاح' : 'Order cancelled and deleted');
+    } catch (err) {
+      console.error('Failed to cancel order:', err);
+      toast.error(language === 'ar' ? 'فشل إلغاء الطلب' : 'Failed to cancel order');
+    } finally {
+      setCancelOrderTarget(null);
+    }
+  };
+
 
   const [activeTab, setActiveTab] = useState<'pending' | 'accounts' | 'paid'>('pending');
 
@@ -393,21 +416,18 @@ export default function Payment() {
 
       // Pure personal account (no company affiliation)
       const phoneKey = o.customerPhone ? normalize(o.customerPhone) : '';
-      const idPart = o.customerId || phoneKey || o.id;
-      const key = `cu:${idPart}`;
+      const idPart = o.customerId || phoneKey;
+      const key = idPart ? `cu:${idPart}` : 'cu:unassigned';
       const existing = map.get(key);
-      // Prefer real name → phone → last-resort generic (only when nothing else)
-      const displayName =
-        custName ||
-        o.customerPhone?.trim() ||
-        (language === 'ar' ? 'عميل' : 'Customer');
+      const displayName = idPart
+        ? (custName || o.customerPhone?.trim() || (language === 'ar' ? 'عميل' : 'Customer'))
+        : (language === 'ar' ? 'فواتير بدون اسم عميل' : 'Unassigned Invoices');
 
       if (existing) {
         existing.balance += total;
         existing.invoiceCount += 1;
         existing.orders.push(o);
         if (!existing.phone && o.customerPhone) existing.phone = o.customerPhone;
-        // Upgrade placeholder title when we later discover a real name/phone
         if (custName) {
           existing.name = custName;
         } else if (
@@ -431,6 +451,7 @@ export default function Payment() {
 
     return Array.from(map.values()).sort((a, b) => b.balance - a.balance);
   }, [accountOrders, fallbackTax, language, customerByPhone, companyById, customers]);
+
 
   const [searchField, setSearchField] = useState<SearchFieldType>('all');
   const [isFilterDropdownOpen, setIsFilterDropdownOpen] = useState(false);
@@ -482,13 +503,25 @@ export default function Payment() {
   const handlePaymentComplete = async (payload: PaymentCompletePayload) => {
     try {
       const order = allOrders.find(o => o.id === payload.orderId);
-      const taxRate = typeof order?.taxRate === 'number' ? order.taxRate : getTaxRate();
+
+      // Preserve the frozen financial snapshot (taxRate/taxAmount/grandTotal).
+      // The order is created with these values in POS; we must NOT recompute them
+      // here, otherwise rounding or a stale taxRate can diverge from the amount
+      // shown at checkout and silently rewrite historical invoices / reports.
+      // Only fill them in when the order was created without a snapshot.
+      const taxRate =
+        typeof order?.taxRate === 'number' ? order.taxRate
+        : typeof order?.taxAmount === 'number' && order.totalAmount > 0
+          ? order.taxAmount / order.totalAmount
+          : fallbackTax;
       const taxAmount =
         typeof order?.taxAmount === 'number'
           ? order.taxAmount
           : (order?.totalAmount || 0) * taxRate;
-
-      const grandTotal = Math.max(0, (order?.totalAmount || 0) + taxAmount);
+      const grandTotal =
+        typeof order?.grandTotal === 'number' && order.grandTotal > 0
+          ? order.grandTotal
+          : Math.max(0, (order?.totalAmount || 0) + taxAmount);
 
       await updateOrder(payload.orderId, {
         ...(payload.customerPhone ? { customerPhone: payload.customerPhone } : {}),
@@ -497,9 +530,10 @@ export default function Payment() {
         ...(payload.companyId ? { companyId: payload.companyId } : {}),
         ...(payload.companyName ? { companyName: payload.companyName } : {}),
         ...(payload.billedToType ? { billedToType: payload.billedToType } : {}),
-        taxRate,
-        taxAmount,
-        grandTotal,
+        // Only persist the snapshot fields when they weren't already frozen.
+        ...(typeof order?.taxRate !== 'number' ? { taxRate } : {}),
+        ...(typeof order?.taxAmount !== 'number' ? { taxAmount } : {}),
+        ...(typeof order?.grandTotal !== 'number' || order.grandTotal <= 0 ? { grandTotal } : {}),
       });
       await completeWithPayment(payload.orderId, payload.method);
     } catch (err) {
@@ -542,26 +576,22 @@ export default function Payment() {
 
       const orderDate = new Date(o.paidAt || o.createdAt).toLocaleDateString('en-CA');
       
+      // Date/time filters only apply to the Paid tab — pending & accounts show all open invoices
       let matchesDate = true;
+      let matchesTime = true;
       if (activeTab === 'paid') {
         matchesDate = orderDate === (filterDate || new Date().toLocaleDateString('en-CA'));
-      } else {
-        if (filterDate) {
-          matchesDate = orderDate === filterDate;
-        }
-      }
-
-      let matchesTime = true;
-      if (filterStartTime || filterEndTime) {
-        const orderDateObj = new Date(o.paidAt || o.createdAt);
-        const orderMinutes = orderDateObj.getHours() * 60 + orderDateObj.getMinutes();
-        if (filterStartTime) {
-          const [sH, sM] = filterStartTime.split(':').map(Number);
-          if (orderMinutes < sH * 60 + sM) matchesTime = false;
-        }
-        if (filterEndTime) {
-          const [eH, eM] = filterEndTime.split(':').map(Number);
-          if (orderMinutes > eH * 60 + eM) matchesTime = false;
+        if (filterStartTime || filterEndTime) {
+          const orderDateObj = new Date(o.paidAt || o.createdAt);
+          const orderMinutes = orderDateObj.getHours() * 60 + orderDateObj.getMinutes();
+          if (filterStartTime) {
+            const [sH, sM] = filterStartTime.split(':').map(Number);
+            if (orderMinutes < sH * 60 + sM) matchesTime = false;
+          }
+          if (filterEndTime) {
+            const [eH, eM] = filterEndTime.split(':').map(Number);
+            if (orderMinutes > eH * 60 + eM) matchesTime = false;
+          }
         }
       }
 
@@ -764,8 +794,16 @@ export default function Payment() {
         >
           <Printer size={18} />
         </button>
+        <button
+          onClick={() => setCancelOrderTarget(order)}
+          className="py-3 px-3 rounded-xl border border-red-200 bg-red-50 text-red-600 hover:bg-red-100 transition-colors"
+          title={language === 'ar' ? 'إلغاء وحذف الطلب' : 'Cancel/Delete order'}
+        >
+          <Trash2 size={18} />
+        </button>
       </div>
     </motion.div>
+
   );
 
   return (
@@ -817,12 +855,12 @@ export default function Payment() {
             {
               id: 'pending' as const,
               label: t('Pending Payments'),
-              count: pendingOrders.filter(o => !filterDate || new Date(o.paidAt || o.createdAt).toLocaleDateString('en-CA') === filterDate).length,
+              count: pendingOrders.length,
             },
             {
               id: 'accounts' as const,
               label: language === 'ar' ? 'على الحساب' : 'On Account',
-              count: accountOrders.filter(o => !filterDate || new Date(o.paidAt || o.createdAt).toLocaleDateString('en-CA') === filterDate).length,
+              count: accountOrders.length,
             },
             {
               id: 'paid' as const,
@@ -954,42 +992,47 @@ export default function Payment() {
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          <input
-            type="date"
-            value={activeTab === 'paid' ? (filterDate || new Date().toLocaleDateString('en-CA')) : filterDate}
-            onChange={e => setFilterDate(e.target.value)}
-            className="py-2.5 px-3 bg-white border border-gray-200 rounded-xl text-sm text-gray-700 shadow-sm min-w-[150px]"
-          />
-          {( filterDate || filterStartTime || filterEndTime || searchTerm || selectedHolderKey) && (
-            <button
-              type="button"
-              onClick={() => {
-                setFilterDate('');
-                setFilterStartTime('');
-                setFilterEndTime('');
-                setSearchTerm('');
-                setSelectedHolderKey(null);
-              }}
-              className="py-2.5 px-3 text-xs font-bold bg-red-50 text-red-600 hover:bg-red-100 rounded-xl border border-red-200"
-            >
-              {language === 'ar' ? 'إعادة ضبط' : 'Reset'}
-            </button>
-          )}
-        </div>
+        {activeTab === 'paid' && (
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              type="date"
+              value={filterDate || new Date().toLocaleDateString('en-CA')}
+              onChange={e => setFilterDate(e.target.value)}
+              className="py-2.5 px-3 bg-white border border-gray-200 rounded-xl text-sm text-gray-700 shadow-sm min-w-[150px]"
+            />
+            {( filterDate || filterStartTime || filterEndTime || searchTerm || selectedHolderKey) && (
+              <button
+                type="button"
+                onClick={() => {
+                  setFilterDate('');
+                  setFilterStartTime('');
+                  setFilterEndTime('');
+                  setSearchTerm('');
+                  setSelectedHolderKey(null);
+                }}
+                className="py-2.5 px-3 text-xs font-bold bg-red-50 text-red-600 hover:bg-red-100 rounded-xl border border-red-200"
+              >
+                {language === 'ar' ? 'إعادة ضبط' : 'Reset'}
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {/* ── Accounts tab: balance lookup + split layout ── */}
       {activeTab === 'accounts' && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-          {/* Left: holders list with balances */}
+          {/* Left: holders (customers / companies) with balances */}
           <div className="lg:col-span-4 space-y-3">
-            <div className="flex items-center justify-between">
-              <h2 className="text-sm font-extrabold text-gray-800">
-                {language === 'ar' ? 'الحسابات المدينة' : 'Account balances'}
-              </h2>
+            <div className="flex items-center justify-between bg-gradient-to-l from-mocha-600 to-coffee-dark text-white p-3 rounded-2xl shadow-md">
+              <div className="flex items-center gap-2">
+                <Users size={18} className="text-white" />
+                <h2 className="text-sm font-extrabold">
+                  {language === 'ar' ? 'العملاء والحسابات' : 'Customers & Accounts'}
+                </h2>
+              </div>
               {(searchTerm.trim() || focusedHolder) && (
-                <span className="text-xs font-black text-amber-800 bg-amber-50 border border-amber-200 px-2 py-1 rounded-lg">
+                <span className="text-xs font-black bg-white/20 text-white px-2 py-1 rounded-lg">
                   {language === 'ar' ? 'المطلوب:' : 'Due:'}{' '}
                   {(focusedHolder ? focusedHolder.balance : searchTotalBalance).toFixed(2)}{' '}
                   {currency}
@@ -1018,9 +1061,11 @@ export default function Payment() {
                         'p-3.5 rounded-2xl border transition-all shadow-sm',
                         active
                           ? h.type === 'company'
-                            ? 'bg-purple-50 border-purple-300 ring-2 ring-purple-200'
-                            : 'bg-mocha-50 border-mocha-300 ring-2 ring-mocha-200'
-                          : 'bg-white border-gray-100 hover:border-gray-300'
+                            ? 'bg-purple-50 border-purple-400 ring-2 ring-purple-300 scale-[1.02]'
+                            : 'bg-mocha-50 border-mocha-400 ring-2 ring-mocha-300 scale-[1.02]'
+                          : h.type === 'company'
+                            ? 'bg-white border-purple-100 hover:border-purple-300 hover:shadow-md'
+                            : 'bg-white border-mocha-100 hover:border-mocha-300 hover:shadow-md'
                       )}
                     >
                       {/* Main clickable area */}
@@ -1034,10 +1079,10 @@ export default function Payment() {
                         <div className="flex items-start gap-3">
                           <div
                             className={clsx(
-                              'p-2 rounded-xl shrink-0',
+                              'p-2.5 rounded-xl shrink-0 shadow-sm',
                               h.type === 'company'
-                                ? 'bg-purple-100 text-purple-700'
-                                : 'bg-mocha-100 text-mocha-700'
+                                ? 'bg-gradient-to-br from-purple-500 to-purple-700 text-white'
+                                : 'bg-gradient-to-br from-mocha-500 to-coffee-dark text-white'
                             )}
                           >
                             {h.type === 'company' ? (
@@ -1057,32 +1102,30 @@ export default function Payment() {
                                     {h.phone}
                                   </p>
                                 )}
-                                <p className="text-[10px] font-bold text-gray-400 mt-0.5">
-                                  {h.type === 'company'
-                                    ? language === 'ar'
-                                      ? 'شركة'
-                                      : 'Company'
-                                    : language === 'ar'
-                                      ? 'عميل'
-                                      : 'Customer'}
-                                  {' · '}
-                                  {h.invoiceCount}{' '}
-                                  {language === 'ar' ? 'فاتورة' : 'invoices'}
-                                </p>
+                                <div className="flex items-center gap-1.5 mt-0.5">
+                                  <span className={clsx(
+                                    'text-[9px] font-black px-1.5 py-0.5 rounded-full',
+                                    h.type === 'company'
+                                      ? 'bg-purple-100 text-purple-700'
+                                      : 'bg-mocha-100 text-mocha-700'
+                                  )}>
+                                    {h.type === 'company'
+                                      ? language === 'ar' ? 'شركة' : 'Company'
+                                      : language === 'ar' ? 'عميل' : 'Customer'}
+                                  </span>
+                                  <span className="text-[10px] font-bold text-gray-400">
+                                    {h.invoiceCount}{' '}
+                                    {language === 'ar' ? 'فاتورة' : 'invoices'}
+                                  </span>
+                                </div>
                               </div>
-                              <div className="text-left shrink-0">
-                                <p className="text-sm font-black text-red-600">
+                              <div className="text-left shrink-0 bg-red-50 border border-red-100 px-2 py-1 rounded-lg">
+                                <p className="text-sm font-black text-red-600 leading-tight">
                                   {h.balance.toFixed(2)}
                                 </p>
-                                <p className="text-[10px] text-gray-400">{currency}</p>
+                                <p className="text-[9px] text-gray-400">{currency}</p>
                               </div>
                             </div>
-                            <p className="text-[11px] text-gray-500 mt-1.5 font-semibold">
-                              {language === 'ar' ? 'الإجمالي المستحق' : 'Total due'}:{' '}
-                              <span className="text-red-700 font-black">{h.balance.toFixed(2)}</span>{' '}
-                              {currency} · {h.invoiceCount}{' '}
-                              {language === 'ar' ? 'فاتورة مفتوحة' : 'open invoices'}
-                            </p>
                           </div>
                         </div>
                       </button>
@@ -1122,19 +1165,22 @@ export default function Payment() {
 
           {/* Right: invoices for selection / all */}
           <div className="lg:col-span-8 space-y-3">
-            <div className="flex items-center justify-between gap-2 flex-wrap">
-              <h2 className="text-sm font-extrabold text-gray-800">
-                {focusedHolder
-                  ? language === 'ar'
-                    ? `فواتير: ${focusedHolder.name}`
-                    : `Invoices: ${focusedHolder.name}`
-                  : language === 'ar'
-                    ? 'كل فواتير الحساب'
-                    : 'All account invoices'}
-              </h2>
+            <div className="flex items-center justify-between gap-2 flex-wrap bg-gradient-to-l from-blue-700 to-blue-900 text-white p-3 rounded-2xl shadow-md">
+              <div className="flex items-center gap-2">
+                <FileText size={18} className="text-white" />
+                <h2 className="text-sm font-extrabold">
+                  {focusedHolder
+                    ? language === 'ar'
+                      ? `فواتير: ${focusedHolder.name}`
+                      : `Invoices: ${focusedHolder.name}`
+                    : language === 'ar'
+                      ? 'كل فواتير الحساب'
+                      : 'All account invoices'}
+                </h2>
+              </div>
               {focusedHolder && (
                 <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-xs font-black bg-red-50 text-red-700 border border-red-100 px-3 py-1.5 rounded-xl">
+                  <span className="text-xs font-black bg-white/20 text-white px-3 py-1.5 rounded-xl">
                     {language === 'ar' ? 'عليه' : 'Owes'} {focusedHolder.balance.toFixed(2)}{' '}
                     {currency}
                   </span>
@@ -1152,16 +1198,16 @@ export default function Payment() {
                             resolveCustomerName(o) || o.customerPhone || '—',
                         });
                       }}
-                      className="text-xs font-bold bg-purple-600 hover:bg-purple-700 text-white px-3 py-1.5 rounded-xl flex items-center gap-1.5"
+                      className="text-xs font-bold bg-white/20 hover:bg-white/30 text-white px-3 py-1.5 rounded-xl flex items-center gap-1.5 transition-colors"
                     >
                       <Printer size={14} />
-                      {language === 'ar' ? 'طباعة كشف الشركة' : 'Print company statement'}
+                      {language === 'ar' ? 'طباعة كشف الشركة' : 'Print statement'}
                     </button>
                   )}
                   <button
                     type="button"
                     onClick={() => setSelectedHolderKey(null)}
-                    className="text-xs font-bold text-gray-500 hover:text-gray-800 underline"
+                    className="text-xs font-bold text-white/80 hover:text-white underline"
                   >
                     {language === 'ar' ? 'عرض الكل' : 'Show all'}
                   </button>
@@ -1212,6 +1258,24 @@ export default function Payment() {
         onPaymentComplete={handlePaymentComplete}
         onRefund={handleRefund}
       />
+
+      <ConfirmDialog
+        isOpen={!!cancelOrderTarget}
+        title={language === 'ar' ? 'إلغاء وحذف الطلب' : 'Cancel & Delete Order'}
+        message={
+          cancelOrderTarget
+            ? language === 'ar'
+              ? `هل أنت تأكد من رغبتك في إلغاء وحذف الطلب رقم #${formatOrderNumber(cancelOrderTarget)} بقيمة ${getOrderGrandTotal(cancelOrderTarget, fallbackTax).toFixed(2)} ${currency}؟ سيتم استرجاع أي خامات وحذف الطلب نهائياً.`
+              : `Are you sure you want to cancel and delete order #${formatOrderNumber(cancelOrderTarget)}?`
+            : ''
+        }
+        confirmText={language === 'ar' ? 'نعم، إلغاء وحذف' : 'Yes, Delete'}
+        cancelText={language === 'ar' ? 'تراجع' : 'Cancel'}
+        type="danger"
+        onConfirm={handleExecuteCancelOrder}
+        onCancel={() => setCancelOrderTarget(null)}
+      />
     </div>
   );
 }
+
