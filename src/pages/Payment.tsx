@@ -954,29 +954,43 @@ export default function Payment() {
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          <input
-            type="date"
-            value={activeTab === 'paid' ? (filterDate || new Date().toLocaleDateString('en-CA')) : filterDate}
-            onChange={e => setFilterDate(e.target.value)}
-            className="py-2.5 px-3 bg-white border border-gray-200 rounded-xl text-sm text-gray-700 shadow-sm min-w-[150px]"
-          />
-          {( filterDate || filterStartTime || filterEndTime || searchTerm || selectedHolderKey) && (
-            <button
-              type="button"
-              onClick={() => {
-                setFilterDate('');
-                setFilterStartTime('');
-                setFilterEndTime('');
-                setSearchTerm('');
-                setSelectedHolderKey(null);
-              }}
-              className="py-2.5 px-3 text-xs font-bold bg-red-50 text-red-600 hover:bg-red-100 rounded-xl border border-red-200"
-            >
-              {language === 'ar' ? 'إعادة ضبط' : 'Reset'}
-            </button>
-          )}
-        </div>
+        {activeTab === 'paid' && (
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              type="date"
+              value={filterDate || new Date().toLocaleDateString('en-CA')}
+              onChange={e => setFilterDate(e.target.value)}
+              className="py-2.5 px-3 bg-white border border-gray-200 rounded-xl text-sm text-gray-700 shadow-sm min-w-[150px]"
+            />
+            {(filterDate || filterStartTime || filterEndTime || searchTerm || selectedHolderKey) && (
+              <button
+                type="button"
+                onClick={() => {
+                  setFilterDate('');
+                  setFilterStartTime('');
+                  setFilterEndTime('');
+                  setSearchTerm('');
+                  setSelectedHolderKey(null);
+                }}
+                className="py-2.5 px-3 text-xs font-bold bg-red-50 text-red-600 hover:bg-red-100 rounded-xl border border-red-200"
+              >
+                {language === 'ar' ? 'إعادة ضبط' : 'Reset'}
+              </button>
+            )}
+          </div>
+        )}
+        {activeTab !== 'paid' && (searchTerm || selectedHolderKey) && (
+          <button
+            type="button"
+            onClick={() => {
+              setSearchTerm('');
+              setSelectedHolderKey(null);
+            }}
+            className="py-2.5 px-3 text-xs font-bold bg-red-50 text-red-600 hover:bg-red-100 rounded-xl border border-red-200"
+          >
+            {language === 'ar' ? 'إعادة ضبط' : 'Reset'}
+          </button>
+        )}
       </div>
 
       {/* ── Accounts tab: balance lookup + split layout ── */}
