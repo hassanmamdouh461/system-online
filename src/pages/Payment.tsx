@@ -1009,8 +1009,9 @@ export default function Payment() {
                     {language === 'ar' ? 'الحسابات والمدينون' : 'Account Debtors'}
                   </h2>
                   <p className="text-[10px] text-slate-400 font-semibold">
-                    {language === 'ar' ? 'اختر حسناً لعرض فواتيره' : 'Click to focus account'}
+                    {language === 'ar' ? 'اختر حساباً لعرض فواتيره' : 'Click to focus account'}
                   </p>
+
                 </div>
               </div>
 
