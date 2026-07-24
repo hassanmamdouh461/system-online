@@ -485,21 +485,35 @@ export default function Inventory() {
             />
           </div>
 
-          <input
-            type="date"
-            value={filterDate}
-            onChange={(e) => setFilterDate(e.target.value)}
-            className="py-2 px-3 bg-white border border-gray-200 rounded-xl text-sm text-gray-700 shadow-sm min-w-[140px]"
-            title={isRtl ? 'تصفية حسب التاريخ' : 'Filter by date'}
-          />
+          {activeTab === 'history' && (
+            <>
+              <input
+                type="date"
+                value={filterDate}
+                onChange={(e) => setFilterDate(e.target.value)}
+                className="py-2 px-3 bg-white border border-gray-200 rounded-xl text-sm text-gray-700 shadow-sm min-w-[140px]"
+                title={isRtl ? 'تصفية حسب التاريخ' : 'Filter by date'}
+              />
 
-          {(filterDate !== new Date().toLocaleDateString('en-CA') || searchQuery.trim() !== '') && (
+              {(filterDate !== new Date().toLocaleDateString('en-CA') || searchQuery.trim() !== '') && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFilterDate(new Date().toLocaleDateString('en-CA'));
+                    setSearchQuery('');
+                  }}
+                  className="py-2 px-3 text-xs font-bold bg-red-50 text-red-600 hover:bg-red-100 rounded-xl border border-red-200 transition-colors whitespace-nowrap"
+                >
+                  {isRtl ? 'إعادة ضبط' : 'Reset'}
+                </button>
+              )}
+            </>
+          )}
+
+          {activeTab === 'stock' && searchQuery.trim() !== '' && (
             <button
               type="button"
-              onClick={() => {
-                setFilterDate(new Date().toLocaleDateString('en-CA'));
-                setSearchQuery('');
-              }}
+              onClick={() => setSearchQuery('')}
               className="py-2 px-3 text-xs font-bold bg-red-50 text-red-600 hover:bg-red-100 rounded-xl border border-red-200 transition-colors whitespace-nowrap"
             >
               {isRtl ? 'إعادة ضبط' : 'Reset'}
