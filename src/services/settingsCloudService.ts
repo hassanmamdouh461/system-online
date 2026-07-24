@@ -16,19 +16,24 @@ import { syncService } from './syncService';
 export const DURABLE_SETTING_KEYS = [
   'brewmaster_tax_rate',
   'brewmaster_admin_creds_v2',
+  'brewmaster_manager_creds_v1',
   'brewmaster_admin_pin',
   'brewmaster_branch_config',
   'brewmaster_store_config',
   'brewmaster_telegram_config',
   'brewmaster_telegram_bot_token',
   'brewmaster_telegram_chat_id',
-  'brewmaster_loyalty_config',
   'brewmaster_language',
+  'pos_tables_list',
 ] as const;
 
 export type DurableSettingKey = (typeof DURABLE_SETTING_KEYS)[number];
 
 function settingDocId(key: string, branchId?: string): string {
+  // System-wide durable settings use a unified prefix so all devices read and write the exact same document
+  if (DURABLE_SETTING_KEYS.includes(key as DurableSettingKey)) {
+    return `global::${key}`;
+  }
   const b = branchId || getBranchIdHeader() || 'default';
   return `${b}::${key}`;
 }
@@ -147,26 +152,22 @@ export async function hydrateSettingsFromCloud(): Promise<number> {
     const docs = await cloudGetCollection('settings');
     if (!docs || docs.length === 0) return 0;
 
-    const branch = getBranchIdHeader();
-    let n = 0;
-    for (const doc of docs) {
+    // Filter to durable setting keys
+    const durableDocs = docs.filter((doc) => {
       const key = String(doc.key || '');
-      if (!key || !DURABLE_SETTING_KEYS.includes(key as DurableSettingKey)) continue;
-      const docBranch = doc.branch_id || doc.branchId || 'default';
-      // Accept default / main_branch / current branch
-      if (
-        docBranch !== branch &&
-        docBranch !== 'default' &&
-        docBranch !== 'main_branch' &&
-        branch !== 'manager' &&
-        branch !== 'all'
-      ) {
-        // still allow if id is for this branch
-        const id = String(doc.id || '');
-        if (!id.startsWith(`${branch}::`) && !id.startsWith('default::') && !id.startsWith('main_branch::')) {
-          continue;
-        }
-      }
+      return key && DURABLE_SETTING_KEYS.includes(key as DurableSettingKey);
+    });
+
+    // Sort documents by timestamp (oldest first, so newest updates overwrite older ones)
+    durableDocs.sort((a, b) => {
+      const tA = new Date(a.updatedAt || a.updated_at || a.createdAt || 0).getTime();
+      const tB = new Date(b.updatedAt || b.updated_at || b.createdAt || 0).getTime();
+      return tA - tB;
+    });
+
+    let n = 0;
+    for (const doc of durableDocs) {
+      const key = String(doc.key);
       const value = doc.value == null ? '' : String(doc.value);
       try {
         localStorage.setItem(key, value);
@@ -175,13 +176,14 @@ export async function hydrateSettingsFromCloud(): Promise<number> {
         // ignore
       }
     }
-    console.info('[settingsCloud] hydrated', n, 'keys');
+    console.info('[settingsCloud] hydrated', n, 'durable setting keys');
     return n;
   } catch (err) {
     console.warn('[settingsCloud] hydrate failed:', err);
     return 0;
   }
 }
+
 
 /**
  * Push all durable localStorage settings to D1 (bootstrap after wipe recovery reverse).

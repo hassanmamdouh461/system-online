@@ -1,10 +1,10 @@
 // Keys for localStorage
 const LS_TAX_RATE_KEY = 'brewmaster_tax_rate';
 const LS_ADMIN_CREDS_KEY = 'brewmaster_admin_creds_v2';
+const LS_MANAGER_CREDS_KEY = 'brewmaster_manager_creds_v1';
 const LS_BRANCH_CONFIG_KEY = 'brewmaster_branch_config';
 const LS_STORE_CONFIG_KEY = 'brewmaster_store_config';
 const LS_TELEGRAM_CONFIG_KEY = 'brewmaster_telegram_config';
-const LS_LOYALTY_KEY = 'brewmaster_loyalty_config';
 
 /** Fire-and-forget durable cloud persist (never blocks UI) */
 function cloudPersist(key: string, value: string) {
@@ -49,12 +49,6 @@ export interface TelegramConfig {
   reportTime?: string;
 }
 
-export interface LoyaltyConfig {
-  enabled: boolean;
-  earnPerCurrency: number;  // e.g. 10 EGP = 1 point
-  redeemValue: number;      // e.g. 1 point = 0.5 EGP discount
-}
-
 const DEFAULT_BRANCH_CONFIG: BranchConfig = {
   branchId: 'main_branch',
   branchName: 'Main Branch',
@@ -76,12 +70,6 @@ const DEFAULT_TELEGRAM_CONFIG: TelegramConfig = {
   chatId: '',
   enabled: false,
   reportTime: '23:00',
-};
-
-const DEFAULT_LOYALTY_CONFIG: LoyaltyConfig = {
-  enabled: true,
-  earnPerCurrency: 10,
-  redeemValue: 0.5,
 };
 
 // ─── Web Crypto API PBKDF2 Password Hashing Helpers ───────────────────────────
@@ -161,11 +149,20 @@ export async function setAdminCredentials(username: string, password: string): P
 
 export async function verifyAdminCredentials(username: string, password: string): Promise<boolean> {
   const branchCfg = getBranchConfig();
-  const allowedDefaults = ['123', '123456', 'admin', branchCfg.password].filter(Boolean);
+  let saved = getAdminCredentials();
 
-  if (allowedDefaults.includes(password)) return true;
+  // If credentials are not in localStorage yet (e.g. fresh browser / cleared cache), hydrate settings immediately
+  if (!saved) {
+    try {
+      const { hydrateSettingsFromCloud } = await import('../services/settingsCloudService');
+      await hydrateSettingsFromCloud();
+      saved = getAdminCredentials();
+    } catch {
+      // ignore
+    }
+  }
 
-  const saved = getAdminCredentials();
+  const hasStoredCredentials = !!(saved && (saved.hash || saved.password));
   if (saved) {
     if (saved.hash && saved.salt) {
       const computed = await hashPassword(password, saved.salt);
@@ -174,8 +171,63 @@ export async function verifyAdminCredentials(username: string, password: string)
     if (saved.password && saved.password === password) return true;
   }
 
+  if (!hasStoredCredentials) {
+    const allowedDefaults = ['123', '123456', 'admin', branchCfg.password].filter(Boolean);
+    if (allowedDefaults.includes(password)) return true;
+  }
+
   return false;
 }
+
+export function getManagerCredentials() {
+  const saved = localStorage.getItem(LS_MANAGER_CREDS_KEY);
+  if (saved) {
+    try {
+      return JSON.parse(saved);
+    } catch {}
+  }
+  return null;
+}
+
+export async function setManagerCredentials(username: string, password: string): Promise<void> {
+  const { hash, salt } = await hashPassword(password);
+  const payload = JSON.stringify({ username, hash, salt });
+  localStorage.setItem(LS_MANAGER_CREDS_KEY, payload);
+  cloudPersist(LS_MANAGER_CREDS_KEY, payload);
+}
+
+export async function verifyManagerCredentials(username: string, password: string): Promise<boolean> {
+  const branchCfg = getBranchConfig();
+  let saved = getManagerCredentials();
+
+  // If credentials are not in localStorage yet (e.g. fresh browser / cleared cache), hydrate settings immediately
+  if (!saved) {
+    try {
+      const { hydrateSettingsFromCloud } = await import('../services/settingsCloudService');
+      await hydrateSettingsFromCloud();
+      saved = getManagerCredentials();
+    } catch {
+      // ignore
+    }
+  }
+
+  const hasStoredCredentials = !!(saved && (saved.hash || saved.password));
+  if (saved) {
+    if (saved.hash && saved.salt) {
+      const computed = await hashPassword(password, saved.salt);
+      if (computed.hash === saved.hash) return true;
+    }
+    if (saved.password && saved.password === password) return true;
+  }
+
+  if (!hasStoredCredentials) {
+    const allowedDefaults = ['123', '123456', 'admin', branchCfg.password].filter(Boolean);
+    if (allowedDefaults.includes(password)) return true;
+  }
+
+  return false;
+}
+
 
 
 export function getBranchConfig(): BranchConfig {
@@ -245,20 +297,6 @@ export function setTelegramConfig(config: TelegramConfig): void {
     localStorage.setItem('brewmaster_telegram_chat_id', config.chatId);
     cloudPersist('brewmaster_telegram_chat_id', config.chatId);
   }
-}
-
-export function getLoyaltyConfig(): LoyaltyConfig {
-  return { enabled: false, earnPerCurrency: 0, redeemValue: 0 };
-}
-
-export function setLoyaltyConfig(_config: Partial<LoyaltyConfig>): void {}
-
-export function calculatePointsEarned(_grandTotal: number): number {
-  return 0;
-}
-
-export function pointsToDiscount(_points: number): number {
-  return 0;
 }
 
 export function verifyAdminPin(pin: string): boolean {
