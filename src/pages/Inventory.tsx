@@ -14,6 +14,7 @@ import { MenuItem } from '../types/menu';
 import { resolveInvItem } from '../utils/inventoryHelpers';
 import { useToast } from '../components/ui/Toast';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
+import { getIngredientBaseQty } from '../utils/units';
 
 export default function Inventory() {
   const { t, isRtl } = useLanguage();
@@ -24,6 +25,7 @@ export default function Inventory() {
   const [recipes, setRecipes] = useState<RecipeIngredient[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+  const [filterDate, setFilterDate] = useState<string>(() => new Date().toLocaleDateString('en-CA'));
   
   // Modals state
   const [isItemModalOpen, setIsItemModalOpen] = useState(false);
@@ -116,14 +118,17 @@ export default function Inventory() {
     const menuTotalCostMap = new Map<string, number>();
     Object.entries(menuRecipeMap).forEach(([mId, ingList]) => {
       const totalCost = ingList.reduce((sum, ing) => {
-        const cost = getUnitCost(ing.inventoryItemId);
-        return sum + (ing.quantity * cost);
+        const invItem = resolveInvItem(ing.inventoryItemId);
+        if (!invItem) return sum; // Skip deleted items
+        const cost = invItem.costPerUnit && invItem.costPerUnit > 0 ? invItem.costPerUnit : 1;
+        const baseQty = getIngredientBaseQty(ing.quantity, ing.unit || '', invItem.unit || '');
+        return sum + (baseQty * cost);
       }, 0);
       menuTotalCostMap.set(mId, totalCost > 0 ? totalCost : 1);
     });
 
     // 6. Map recipe entries to target inventory items
-    const invRecipesMap = new Map<string, { menuItemId: string; quantity: number }[]>();
+    const invRecipesMap = new Map<string, { menuItemId: string; quantity: number; unit?: string }[]>();
 
     recipes.forEach(r => {
       const invItem = resolveInvItem(r.inventoryItemId);
@@ -134,7 +139,8 @@ export default function Inventory() {
       }
       invRecipesMap.get(targetId)!.push({
         menuItemId: String(r.menuItemId),
-        quantity: r.quantity
+        quantity: r.quantity,
+        unit: r.unit
       });
     });
 
@@ -144,8 +150,8 @@ export default function Inventory() {
       const itemUnitCost = item.costPerUnit && item.costPerUnit > 0 ? item.costPerUnit : 1;
 
       if (itemRecipes.length === 0) {
-        // Default standard 2.5x margin multiplier for newly created unlinked raw materials
-        yields[item.id] = itemUnitCost * 2.5;
+        // Return 0 for unlinked raw materials as requested by user
+        yields[item.id] = 0;
         return;
       }
 
@@ -156,19 +162,22 @@ export default function Inventory() {
         const menuItem = menuMap.get(String(rec.menuItemId));
         const totalRecipeCost = menuTotalCostMap.get(String(rec.menuItemId)) || 1;
         if (menuItem && rec.quantity > 0) {
-          const itemCostInRecipe = rec.quantity * itemUnitCost;
-          const costShareFraction = itemCostInRecipe / totalRecipeCost;
-          const allocatedRevenue = costShareFraction * menuItem.price;
-          const unitYield = allocatedRevenue / rec.quantity;
-          totalUnitYield += unitYield;
-          validCount++;
+          const baseQty = getIngredientBaseQty(rec.quantity, rec.unit || '', item.unit || '');
+          if (baseQty > 0) {
+            const itemCostInRecipe = baseQty * itemUnitCost;
+            const costShareFraction = itemCostInRecipe / totalRecipeCost;
+            const allocatedRevenue = costShareFraction * menuItem.price;
+            const unitYield = allocatedRevenue / baseQty;
+            totalUnitYield += unitYield;
+            validCount++;
+          }
         }
       });
 
       if (validCount > 0) {
         yields[item.id] = totalUnitYield / validCount;
       } else {
-        yields[item.id] = itemUnitCost * 2.5;
+        yields[item.id] = 0;
       }
     });
 
@@ -192,9 +201,16 @@ export default function Inventory() {
                             t(itemName).toLowerCase().includes(searchQuery.toLowerCase()) ||
                             (tx.referenceId && tx.referenceId.toLowerCase().includes(searchQuery.toLowerCase())) ||
                             (tx.notes && tx.notes.toLowerCase().includes(searchQuery.toLowerCase()));
-      return matchesSearch;
+
+      let matchesDate = true;
+      if (filterDate && tx.createdAt) {
+        const txDate = new Date(tx.createdAt).toLocaleDateString('en-CA');
+        matchesDate = txDate === filterDate;
+      }
+
+      return matchesSearch && matchesDate;
     });
-  }, [transactions, searchQuery, t]);
+  }, [transactions, searchQuery, filterDate, t]);
 
   // Total Inventory Cost Value
   const totalValue = useMemo(() => {
@@ -457,15 +473,48 @@ export default function Inventory() {
           </button>
         </div>
 
-        <div className="relative flex-1 max-w-md">
-          <Search className={`absolute top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4 ${isRtl ? 'right-3' : 'left-3'}`} />
+        <div className="flex flex-wrap items-center gap-2 flex-1 max-w-xl">
+          <div className="relative flex-1 min-w-[180px]">
+            <Search className={`absolute top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4 ${isRtl ? 'right-3' : 'left-3'}`} />
+            <input
+              type="text"
+              placeholder={activeTab === 'stock' ? t('Search stock items...') : t('Search history logs...')}
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className={`w-full py-2 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-caramel focus:border-transparent text-sm ${isRtl ? 'pr-9 pl-4' : 'pl-9 pr-4'}`}
+            />
+          </div>
+
           <input
-            type="text"
-            placeholder={activeTab === 'stock' ? t('Search stock items...') : t('Search history logs...')}
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className={`w-full py-2 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-caramel focus:border-transparent text-sm ${isRtl ? 'pr-9 pl-4' : 'pl-9 pr-4'}`}
+            type="date"
+            value={filterDate}
+            onChange={(e) => setFilterDate(e.target.value)}
+            className="py-2 px-3 bg-white border border-gray-200 rounded-xl text-sm text-gray-700 shadow-sm min-w-[140px]"
+            title={isRtl ? 'تصفية حسب التاريخ' : 'Filter by date'}
           />
+
+          {filterDate !== new Date().toLocaleDateString('en-CA') && (
+            <button
+              type="button"
+              onClick={() => setFilterDate(new Date().toLocaleDateString('en-CA'))}
+              className="py-2 px-2.5 text-xs font-bold bg-mocha-50 text-mocha-800 hover:bg-mocha-100 rounded-xl border border-mocha-200 transition-colors whitespace-nowrap"
+            >
+              {isRtl ? 'اليوم' : 'Today'}
+            </button>
+          )}
+
+          {(filterDate || searchQuery) && (
+            <button
+              type="button"
+              onClick={() => {
+                setFilterDate('');
+                setSearchQuery('');
+              }}
+              className="py-2 px-2.5 text-xs font-bold bg-red-50 text-red-600 hover:bg-red-100 rounded-xl border border-red-200 transition-colors whitespace-nowrap"
+            >
+              {isRtl ? 'إعادة ضبط' : 'Reset'}
+            </button>
+          )}
         </div>
       </div>
 
