@@ -25,7 +25,10 @@ export const DURABLE_SETTING_KEYS = [
   'brewmaster_telegram_chat_id',
   'brewmaster_language',
   'pos_tables_list',
+  'removed_menu_categories',
+  'custom_menu_categories',
 ] as const;
+
 
 export type DurableSettingKey = (typeof DURABLE_SETTING_KEYS)[number];
 

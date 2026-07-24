@@ -6,8 +6,12 @@ import { MenuItem } from '../../types/menu';
 import { useLanguage } from '../../context/LanguageContext';
 import { inventoryService } from '../../services/inventoryService';
 import { InventoryItem } from '../../global';
+import { useEditingGuard } from '../../hooks/useEditingGuard';
+import { getIngredientBaseQty } from '../../utils/units';
+import { persistSetting } from '../../services/settingsCloudService';
 
 interface MenuModalProps {
+
   isOpen: boolean;
   onClose: () => void;
   onSave: (item: Omit<MenuItem, 'id'> | MenuItem, recipeIngredients: any[]) => void;
@@ -15,31 +19,9 @@ interface MenuModalProps {
   existingItems: MenuItem[];
 }
 
-function getIngredientBaseQty(qty: number, selectedUnit: string, baseUnit: string): number {
-  const sel = (selectedUnit || '').trim().toLowerCase();
-  const base = (baseUnit || '').trim().toLowerCase();
-
-  const isSelKg = sel === 'كجم' || sel === 'kg';
-  const isSelG = sel === 'جرام' || sel === 'g' || sel === 'جم';
-  const isBaseKg = base === 'كجم' || base === 'kg';
-  const isBaseG = base === 'جرام' || base === 'g' || base === 'جم';
-
-  if (isBaseKg && isSelG) return qty / 1000;
-  if (isBaseG && isSelKg) return qty * 1000;
-
-  const isSelL = sel === 'لتر' || sel === 'l';
-  const isSelMl = sel === 'مل' || sel === 'ml';
-  const isBaseL = base === 'لتر' || base === 'l';
-  const isBaseMl = base === 'مل' || base === 'ml';
-
-  if (isBaseL && isSelMl) return qty / 1000;
-  if (isBaseMl && isSelL) return qty * 1000;
-
-  return qty;
-}
-
 export function MenuModal({ isOpen, onClose, onSave, initialData, existingItems }: MenuModalProps) {
   const { t } = useLanguage();
+  const setEditing = useEditingGuard();
   const [activeTab, setActiveTab] = useState<'general' | 'recipe'>('general');
   const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([]);
   const [mappedIngredients, setMappedIngredients] = useState<Array<{ inventoryItemId: string; quantity: number; unit?: string }>>([]);
@@ -72,6 +54,13 @@ export function MenuModal({ isOpen, onClose, onSave, initialData, existingItems 
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  // While this modal is open, suppress background data refetches so typing is
+  // never wiped by a 15s refresh cycle. Cleared on close/unmount.
+  useEffect(() => {
+    if (isOpen) setEditing(true);
+    return () => setEditing(false);
+  }, [isOpen, setEditing]);
 
   useEffect(() => {
     const loadRecipeAndInventory = async () => {
@@ -132,6 +121,7 @@ export function MenuModal({ isOpen, onClose, onSave, initialData, existingItems 
     const updated = [...removedCategories, catValue];
     setRemovedCategories(updated);
     localStorage.setItem('removed_menu_categories', JSON.stringify(updated));
+    void persistSetting('removed_menu_categories', JSON.stringify(updated));
     // If the removed category was the selected one, reset to first available
     if (formData.category === catValue) {
       const remaining = availableCategories.filter(c => c.value !== catValue);
@@ -139,7 +129,13 @@ export function MenuModal({ isOpen, onClose, onSave, initialData, existingItems 
     }
   };
 
+
+  // Initialize form ONLY when the modal opens or the edited item changes.
+  // NOTE: availableCategories is intentionally excluded from deps — it is
+  // recomputed every time the parent re-renders (e.g. on the 15s background
+  // refresh). Including it here would wipe the user's in-progress typing.
   useEffect(() => {
+    if (!isOpen) return;
     if (initialData) {
       const parts = initialData.category.split('|');
       const menuCat = parts[0] || 'Hot Coffee';
@@ -177,7 +173,8 @@ export function MenuModal({ isOpen, onClose, onSave, initialData, existingItems 
         available: true,
       });
     }
-  }, [initialData, isOpen, availableCategories]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialData, isOpen]);
 
   const calculatedCost = useMemo(() => {
     return mappedIngredients.reduce((sum, ing) => {
