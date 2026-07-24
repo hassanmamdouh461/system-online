@@ -486,7 +486,7 @@ export function PaymentModal({
             ) : !showReceipt ? (
               <div className="space-y-6">
                 {linkedCustomer || customerPhone ? (
-                  <div className="flex items-center justify-between gap-2 bg-mocha-50 border border-mocha-100 rounded-xl px-3 py-2">
+                  <div className="flex items-center justify-between gap-2 bg-mocha-50 border border-mocha-100 rounded-xl px-3.5 py-2.5">
                     <div className="flex items-center gap-2 min-w-0">
                       <User size={16} className="text-mocha-700 shrink-0" />
                       <div className="min-w-0">
@@ -498,15 +498,9 @@ export function PaymentModal({
                         </p>
                       </div>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => setStep('customer')}
-                      className="text-[11px] font-bold text-mocha-700 hover:underline shrink-0"
-                    >
-                      {language === 'ar' ? 'تغيير' : 'Change'}
-                    </button>
                   </div>
                 ) : (
+
                   <div className="flex justify-end">
                     <button
                       type="button"
