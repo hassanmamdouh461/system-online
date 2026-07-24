@@ -55,7 +55,7 @@ export function printCustomerReceipt(order: Order, lang: 'en' | 'ar' = 'ar') {
   const grandTotal =
     typeof order.grandTotal === 'number'
       ? order.grandTotal
-      : Math.max(0, subtotal + tax - (order.pointsRedeemed || 0));
+      : Math.max(0, subtotal + tax);
 
   const title = isRtl ? 'فاتورة الدفع' : 'Payment Receipt';
   const tableLabel = isRtl ? 'الطاولة / نوع الطلب' : 'Table / Mode';
@@ -206,7 +206,7 @@ export function printCustomerReceipt(order: Order, lang: 'en' | 'ar' = 'ar') {
         ${order.companyName || (order.billedToType === 'company' && order.companyId) ? `
         <div class="info-row">
           <strong>${isRtl ? 'الشركة / الحساب' : 'Company / Account'}:</strong>
-          <span>${order.companyName || order.companyId}${order.billedToType === 'company' ? (isRtl ? ' (على الحساب)' : ' (on account)') : ''}</span>
+          <span>${order.companyName || order.companyId}${order.billedToType === 'company' && order.paymentStatus === 'OnAccount' ? (isRtl ? ' (على الحساب)' : ' (on account)') : ''}</span>
         </div>` : (order.paymentStatus === 'OnAccount' ? `
         <div class="info-row">
           <strong>${isRtl ? 'الحساب' : 'Account'}:</strong>

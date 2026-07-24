@@ -313,8 +313,10 @@ export function PaymentModal({
     printCustomerReceipt(
       {
         ...order,
-        customerPhone: customerPhone || order.customerPhone,
-        paymentStatus: order.paymentStatus === 'Unpaid' ? 'Paid' : order.paymentStatus,
+        customerPhone: customerPhone || linkedCustomer?.phone || order.customerPhone,
+        customerName: linkedCustomer?.name || order.customerName,
+        companyName: linkedCompany?.name || order.companyName,
+        paymentStatus: paymentMethod === 'OnAccount' ? 'OnAccount' : 'Paid',
         paymentMethod,
         grandTotal: total,
         taxRate,
