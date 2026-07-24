@@ -5,7 +5,7 @@ import {
   Coffee, Calendar, Download,
   CheckCircle2, Clock, XCircle, AlertCircle, Utensils,
   UserCheck, Award, Coins, Building2, ChevronDown, RefreshCw,
-  Signal, SignalHigh, WifiOff, Package, AlertTriangle, BarChart3, Languages, Users, Search, Settings, Send, Scale, TrendingDown
+  Signal, SignalHigh, WifiOff, Package, AlertTriangle, BarChart3, Languages, Users, Search, Settings, Send, Scale, TrendingDown, Wallet
 } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
 import { getTaxRate } from '../utils/settingsConfig';
@@ -19,7 +19,18 @@ import { isCloudConfigured, getWorkerUrl } from '../services/cloudConfig';
 import { RecipeIngredient } from '../global';
 import { lazy, Suspense } from 'react';
 import { LoadingScreen } from '../components/ui/LoadingScreen';
+import { getIngredientBaseQty } from '../utils/units';
 import { useToast } from '../components/ui/Toast';
+import { useOrders } from '../hooks/useOrders';
+import {
+  getCustomerAccountBalance,
+  getCompanyAccountBalance,
+  getCustomerOpenInvoices,
+  getCompanyOpenInvoices,
+} from '../utils/accountBalance';
+import { companiesService } from '../services/companiesService';
+import { formatOrderNumber } from '../utils/orderNumber';
+import { getOrderGrandTotal } from '../types/order';
 
 
 const SettingsPage = lazy(() => import('./Settings'));
@@ -43,7 +54,10 @@ interface D1OrderDoc {
   payment_method: string;
   items: string; // stringified JSON array of OrderItem
   tableId?: string; // Optional, fallback table
-  paymentStatus?: string; // Optional, Paid/Unpaid
+  paymentStatus?: string; // Optional, Paid/Unpaid/OnAccount
+  status?: string;
+  grandTotal?: number;
+  totalAmount?: number;
 }
 
 interface ChartPoint {
@@ -252,29 +266,29 @@ const colorConfig = {
 function StatCard({ label, value, icon: Icon, trend, color }: StatCardProps) {
   const colors = colorConfig[color] || colorConfig.orange;
   return (
-    <motion.div 
+    <motion.div
       whileHover={{ y: -4, scale: 1.01 }}
       whileTap={{ scale: 0.99 }}
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
-      className="bg-white/95 backdrop-blur-sm p-4 md:p-6 rounded-2xl shadow-sm hover:shadow-md border border-gray-200/50 relative overflow-hidden group transition-all"
+      className="bg-white/95 backdrop-blur-sm p-3 sm:p-4 md:p-6 rounded-xl sm:rounded-2xl shadow-sm hover:shadow-md border border-gray-200/50 relative overflow-hidden group transition-all"
     >
       <div className={`absolute inset-0 bg-gradient-to-br ${colors.gradient} opacity-0 group-hover:opacity-[0.03] transition-opacity duration-300`} />
       <div className="relative z-10">
-        <div className="flex justify-between items-start mb-4 gap-1">
-          <motion.div 
+        <div className="flex justify-between items-start mb-3 sm:mb-4 gap-1">
+          <motion.div
             whileHover={{ rotate: 15, scale: 1.05 }}
             transition={{ duration: 0.3 }}
-            className={`p-3 rounded-xl ${colors.iconBg} ${colors.iconText} shadow-sm border border-current/10 shrink-0`}
+            className={`p-2 sm:p-3 rounded-lg sm:rounded-xl ${colors.iconBg} ${colors.iconText} shadow-sm border border-current/10 shrink-0`}
           >
-            <Icon className="w-5 h-5 md:w-6 md:h-6" strokeWidth={2} />
+            <Icon className="w-4 h-4 sm:w-5 sm:h-5 md:w-6 md:h-6" strokeWidth={2} />
           </motion.div>
-          <span className="text-[10px] md:text-xs font-sans font-semibold text-green-600 bg-green-50 px-2.5 py-1 rounded-lg border border-green-100/50 shadow-sm text-right leading-tight max-w-[62%]">
+          <span className="text-[9px] sm:text-[10px] md:text-xs font-sans font-semibold text-green-600 bg-green-50 px-1.5 sm:px-2.5 py-0.5 sm:py-1 rounded-lg border border-green-100/50 shadow-sm text-right leading-tight max-w-[60%]">
             {trend}
           </span>
         </div>
-        <h3 className="text-gray-500 text-xs md:text-sm font-semibold mb-1 uppercase tracking-wide">{label}</h3>
-        <p className="text-2xl md:text-3xl font-bold text-gray-800">{value}</p>
+        <h3 className="text-gray-500 text-[10px] sm:text-xs md:text-sm font-semibold mb-1 uppercase tracking-wide line-clamp-2">{label}</h3>
+        <p className="text-base sm:text-xl md:text-2xl lg:text-3xl font-bold text-gray-800 leading-tight">{value}</p>
       </div>
       <div className={`absolute -right-4 -bottom-4 w-24 h-24 bg-gradient-to-br ${colors.gradient} rounded-full opacity-5 group-hover:opacity-10 transition-opacity duration-300 blur-2xl`} />
     </motion.div>
@@ -340,14 +354,17 @@ export default function ManagerDashboard() {
 
   // Unified Analytics & Inventory State
   const analytics = useAnalytics(dateRange);
+  const { orders: allRealOrders } = useOrders();
   const [liveInventory, setLiveInventory] = useState<any[]>([]);
   const [recipes, setRecipes] = useState<any[]>([]);
   const [menuItems, setMenuItems] = useState<any[]>([]);
+  const [companies, setCompanies] = useState<any[]>([]);
 
   useEffect(() => {
     inventoryService.getAll().then(setLiveInventory).catch(() => {});
     inventoryService.getMenuRecipes().then(res => { if (Array.isArray(res)) setRecipes(res); }).catch(() => {});
     menuService.getAll().then(setMenuItems).catch(() => {});
+    companiesService.getAll(undefined).then(setCompanies).catch(() => {});
   }, []);
 
   // Data Fetching State
@@ -596,6 +613,29 @@ export default function ManagerDashboard() {
         message += `\n`;
       }
 
+      // ── Outstanding Receivables section ──
+      if (receivablesData.grandTotal > 0) {
+        message += `💸 <b>المبالغ المستحقة (على الحساب):</b>\n`;
+        message += `• إجمالي المستحقات: <b>${receivablesData.grandTotal.toFixed(2)}</b> ج.م\n`;
+        if (receivablesData.companiesOwed.length > 0) {
+          message += `🏢 <b>ديون الشركات:</b>\n`;
+          receivablesData.companiesOwed.slice(0, 5).forEach(co => {
+            message += `• ${co.name}: <b>${co.balance.toFixed(2)}</b> ج.م (${co.invoiceCount} فاتورة)\n`;
+          });
+          message += `\n`;
+        }
+        if (receivablesData.customersOwed.length > 0) {
+          message += `👤 <b>ديون العملاء:</b>\n`;
+          receivablesData.customersOwed.slice(0, 5).forEach(c => {
+            message += `• ${c.name}: <b>${c.balance.toFixed(2)}</b> ج.م\n`;
+          });
+          if (receivablesData.customersOwed.length > 5) {
+            message += `• و ${receivablesData.customersOwed.length - 5} عميل آخر\n`;
+          }
+          message += `\n`;
+        }
+      }
+
       message += `✅ تم تصدير التقرير من لوحة الإشراف المركزية`;
 
     } else if (activeTab === 'inventory') {
@@ -746,13 +786,15 @@ export default function ManagerDashboard() {
     const menuTotalCostMap = new Map<string, number>();
     Object.entries(menuRecipeMap).forEach(([mId, ingList]) => {
       const totalCost = ingList.reduce((sum, ing) => {
-        const cost = getUnitCost(ing.inventoryItemId);
-        return sum + (ing.quantity * cost);
+        const invItem = resolveInvItem(ing.inventoryItemId);
+        const cost = invItem?.costPerUnit && invItem.costPerUnit > 0 ? invItem.costPerUnit : 1;
+        const baseQty = getIngredientBaseQty(ing.quantity, ing.unit || '', invItem?.unit || '');
+        return sum + (baseQty * cost);
       }, 0);
       menuTotalCostMap.set(mId, totalCost > 0 ? totalCost : 1);
     });
 
-    const invRecipesMap = new Map<string, { menuItemId: string; quantity: number }[]>();
+    const invRecipesMap = new Map<string, { menuItemId: string; quantity: number, unit?: string }[]>();
     recipes.forEach(r => {
       const invItem = resolveInvItem(r.inventoryItemId);
       const targetId = invItem ? invItem.id : r.inventoryItemId;
@@ -760,7 +802,8 @@ export default function ManagerDashboard() {
       if (!invRecipesMap.has(targetId)) invRecipesMap.set(targetId, []);
       invRecipesMap.get(targetId)!.push({
         menuItemId: String(r.menuItemId),
-        quantity: r.quantity
+        quantity: r.quantity,
+        unit: r.unit
       });
     });
 
@@ -769,6 +812,7 @@ export default function ManagerDashboard() {
       const itemUnitCost = item.costPerUnit && item.costPerUnit > 0 ? item.costPerUnit : 1;
 
       if (itemRecipes.length === 0) {
+        // No recipe linked — use a simple 2.5x markup as fallback estimate
         yields[item.id] = itemUnitCost * 2.5;
         return;
       }
@@ -779,13 +823,16 @@ export default function ManagerDashboard() {
       itemRecipes.forEach(rec => {
         const menuItem = menuMap.get(String(rec.menuItemId));
         const totalRecipeCost = menuTotalCostMap.get(String(rec.menuItemId)) || 1;
-        if (menuItem && rec.quantity > 0) {
-          const itemCostInRecipe = rec.quantity * itemUnitCost;
-          const costShareFraction = itemCostInRecipe / totalRecipeCost;
-          const allocatedRevenue = costShareFraction * menuItem.price;
-          const unitYield = allocatedRevenue / rec.quantity;
-          totalUnitYield += unitYield;
-          validCount++;
+        if (menuItem && menuItem.price > 0 && rec.quantity > 0) {
+          const baseQty = getIngredientBaseQty(rec.quantity, rec.unit || '', item.unit || '');
+          if (baseQty > 0) {
+            const itemCostInRecipe = baseQty * itemUnitCost;
+            const costShareFraction = itemCostInRecipe / totalRecipeCost;
+            const allocatedRevenue = menuItem.price * costShareFraction;
+            const unitYield = allocatedRevenue / baseQty;
+            totalUnitYield += unitYield;
+            validCount++;
+          }
         }
       });
 
@@ -845,7 +892,8 @@ export default function ManagerDashboard() {
     for (const r of recipes) {
       const invItem = activeInventory.find((i: any) => i.id === r.inventoryItemId);
       const itemCost = invItem ? invItem.costPerUnit : 0;
-      costMap[r.menuItemId] = (costMap[r.menuItemId] || 0) + (r.quantity * itemCost);
+      const baseQty = getIngredientBaseQty(r.quantity, r.unit || '', invItem?.unit || '');
+      costMap[r.menuItemId] = (costMap[r.menuItemId] || 0) + (baseQty * itemCost);
     }
     return costMap;
   }, [recipes, activeInventory]);
@@ -867,7 +915,91 @@ export default function ManagerDashboard() {
     return Math.max(0, revenue - tax - cogs);
   }, [analytics.totalRevenue, taxRate, cogs]);
 
-  // All 7 Stat Cards (Matching Reports page 100%)
+  const totalReceivables = useMemo(() => {
+    return orders
+      .filter(o => o.paymentStatus === 'OnAccount' && o.status !== 'Cancelled')
+      .filter(o => selectedBranch === 'all' || (((o as any).branchId || (o as any).branch_id || 'main_branch') === selectedBranch))
+      .reduce((sum, o) => {
+        const amt = typeof o.grandTotal === 'number' && o.grandTotal > 0 
+          ? o.grandTotal 
+          : typeof o.total_amount === 'number' && o.total_amount > 0
+            ? o.total_amount
+            : (o.totalAmount || 0) * (1 + taxRate);
+        return sum + amt;
+      }, 0);
+  }, [orders, taxRate, selectedBranch]);
+
+  // ── Receivables breakdown (canonical, using accountBalance utils) ──
+  const receivablesData = useMemo(() => {
+    let realOrders = allRealOrders || [];
+    // Filter by selected branch to match dashboard context
+    if (selectedBranch !== 'all') {
+      realOrders = realOrders.filter(o => (o.branchId || 'main_branch') === selectedBranch);
+    }
+
+    if (realOrders.length === 0 || customers.length === 0) {
+      return { customersOwed: [], companiesOwed: [], grandTotal: 0 };
+    }
+
+    // Customers with outstanding balance (Exclude those affiliated with a company to prevent double counting
+    // since their personal debts roll up into their company's balance via includeMemberPersonal=true)
+    const customersOwed = customers
+      .filter(c => !c.companyId)
+      .map(c => {
+        const balance = getCustomerAccountBalance(realOrders, c, taxRate);
+        const invoices = getCustomerOpenInvoices(realOrders, c);
+        return {
+          id: c.$id || c.id,
+          name: c.name,
+          phone: c.phone,
+          balance,
+          invoiceCount: invoices.length,
+          type: 'customer' as const,
+        };
+      })
+      .filter(c => c.balance > 0)
+      .sort((a, b) => b.balance - a.balance);
+
+    // Companies with outstanding balance
+    const companiesOwed = companies
+      .map(co => {
+        const members = customers.filter(m => m.companyId === co.id);
+        const balance = getCompanyAccountBalance(
+          realOrders,
+          co.id,
+          taxRate,
+          members.map(m => m.phone),
+          members.map(m => m.$id || m.id),
+          true
+        );
+        const invoices = getCompanyOpenInvoices(
+          realOrders,
+          co.id,
+          members.map(m => m.phone),
+          members.map(m => m.$id || m.id),
+          true
+        );
+        return {
+          id: co.id,
+          name: co.name,
+          phone: co.phone,
+          balance,
+          invoiceCount: invoices.length,
+          memberCount: members.length,
+          type: 'company' as const,
+        };
+      })
+      .filter(co => co.balance > 0)
+      .sort((a, b) => b.balance - a.balance);
+
+    const grandTotal =
+      customersOwed.reduce((s, c) => s + c.balance, 0) +
+      companiesOwed.reduce((s, c) => s + c.balance, 0);
+
+    return { customersOwed, companiesOwed, grandTotal };
+  }, [allRealOrders, customers, companies, taxRate, selectedBranch]);
+
+  // All 8 Stat Cards (Matching Reports page 100%)
   const statCardsRow1 = [
     {
       label: t('TOTAL REVENUE (INCL. TAX)'),
@@ -875,6 +1007,13 @@ export default function ManagerDashboard() {
       icon: DollarSign,
       trend: analytics.realRevenue > 0 ? `+${analytics.realRevenue.toFixed(2)} ${currencyStr} ${pLabel}` : t('Lifetime total'),
       color: 'green' as const,
+    },
+    {
+      label: language === 'ar' ? 'إجمالي المبالغ المستحقة' : 'Total Amounts Due',
+      value: `${totalReceivables.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currencyStr}`,
+      icon: Wallet,
+      trend: language === 'ar' ? 'إجمالي الآجل المستحق على العملاء والشركات' : 'Outstanding customer & company balances',
+      color: 'orange' as const,
     },
     {
       label: t('TOTAL ORDERS'),
@@ -953,10 +1092,10 @@ export default function ManagerDashboard() {
   }
 
   return (
-    <div className="space-y-4 md:space-y-8 text-gray-900 pb-16">
+    <div className="space-y-4 md:space-y-8 text-gray-900 pb-16 sm:pb-4">
       
       {/* ── Header Area with Live Status & Filters ─────────────────────────────────── */}
-      <div className="flex flex-col tablet:flex-row tablet:items-center xl:flex-row xl:items-center justify-between gap-4 bg-white/50 backdrop-blur-md p-4 rounded-2xl border border-gray-200/40 shadow-sm relative z-30">
+      <div className="flex flex-col tablet:flex-row tablet:items-center xl:flex-row xl:items-center justify-between gap-3 sm:gap-4 bg-white/50 backdrop-blur-md p-3 sm:p-4 rounded-2xl border border-gray-200/40 shadow-sm relative z-30">
         
         {/* Title and Cloud Sync Connection Badge */}
         <div className="space-y-1.5 flex-1 min-w-0">
@@ -1012,11 +1151,11 @@ export default function ManagerDashboard() {
         </div>
 
         {/* Filters Panel (Date Selector) */}
-        <div className="flex flex-wrap items-center gap-3 shrink-0">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3 shrink-0">
 
           {/* Date Range Dropdown */}
-          <div className="relative flex items-center bg-white border border-gray-250/70 rounded-xl shadow-sm pr-3">
-            <Calendar className="text-gray-400 w-4 h-4 ml-2 mr-2" />
+          <div className="relative flex items-center bg-white border border-gray-250/70 rounded-xl shadow-sm pr-2 sm:pr-3">
+            <Calendar className="text-gray-400 w-4 h-4 ml-2 mr-1.5 sm:mr-2 shrink-0" />
             <select
               value={dateRange}
               onChange={e => {
@@ -1024,7 +1163,7 @@ export default function ManagerDashboard() {
                 setDateRange(val);
                 localStorage.setItem('manager_date_range', val);
               }}
-              className="py-2.5 bg-transparent border-0 outline-none text-xs md:text-sm font-bold text-gray-700 cursor-pointer pr-8"
+              className="py-2 sm:py-2.5 bg-transparent border-0 outline-none text-[11px] sm:text-xs md:text-sm font-bold text-gray-700 cursor-pointer pr-6 sm:pr-8"
             >
               <option value="Today">{t('Today')}</option>
               <option value="This Week">{t('This Week')}</option>
@@ -1036,58 +1175,58 @@ export default function ManagerDashboard() {
           {/* Telegram Daily Report */}
           <button
             onClick={sendConsolidatedTelegramReport}
-            className="flex items-center gap-2 px-4 py-2.5 bg-sky-600 hover:bg-sky-700 text-white rounded-xl text-xs md:text-sm font-bold transition-all active:scale-95 shadow-sm"
+            className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 sm:py-2.5 bg-sky-600 hover:bg-sky-700 text-white rounded-xl text-[11px] sm:text-xs md:text-sm font-bold transition-all active:scale-95 shadow-sm"
             title={language === 'ar' ? 'إرسال تقرير اليوم لتليجرام' : 'Send Daily Report to Telegram'}
           >
-            <Send size={14} />
-            <span>{language === 'ar' ? 'تقرير التليجرام' : 'Telegram Report'}</span>
+            <Send size={14} className="shrink-0" />
+            <span className="whitespace-nowrap">{language === 'ar' ? 'تليجرام' : 'Telegram'}</span>
           </button>
 
           {/* Print Report */}
           <button
             onClick={() => window.print()}
-            className="flex items-center gap-2 px-4 py-2.5 bg-gray-900 hover:bg-black text-white rounded-xl text-xs md:text-sm font-bold transition-all active:scale-95 shadow-sm"
+            className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 sm:py-2.5 bg-gray-900 hover:bg-black text-white rounded-xl text-[11px] sm:text-xs md:text-sm font-bold transition-all active:scale-95 shadow-sm"
           >
-            <Download size={14} />
-            <span>{t('Export')}</span>
+            <Download size={14} className="shrink-0" />
+            <span className="whitespace-nowrap">{t('Export')}</span>
           </button>
         </div>
       </div>
 
       {/* ── Tab Switcher ──────────────────────────────────────────────────────── */}
-      <div className="flex items-center gap-2 bg-white/80 backdrop-blur-sm p-1.5 rounded-xl border border-gray-200/50 shadow-sm w-fit">
+      <div className="flex items-center gap-1.5 sm:gap-2 bg-white/80 backdrop-blur-sm p-1.5 rounded-xl border border-gray-200/50 shadow-sm w-full sm:w-fit max-w-full overflow-x-auto hide-scrollbar">
         <button
           onClick={() => setActiveTab('analytics')}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-xs md:text-sm font-bold transition-all ${
+          className={`flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-lg text-[11px] sm:text-xs md:text-sm font-bold transition-all whitespace-nowrap shrink-0 ${
             activeTab === 'analytics'
               ? 'bg-gray-900 text-white shadow-md'
               : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
           }`}
         >
-          <BarChart3 size={16} />
-          {language === 'ar' ? 'الإحصائيات والتحليلات' : 'Analytics & Insights'}
+          <BarChart3 size={15} className="shrink-0" />
+          <span className="truncate">{language === 'ar' ? 'الإحصائيات' : 'Analytics'}</span>
         </button>
         <button
           onClick={() => setActiveTab('menu')}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-xs md:text-sm font-bold transition-all ${
+          className={`flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-lg text-[11px] sm:text-xs md:text-sm font-bold transition-all whitespace-nowrap shrink-0 ${
             activeTab === 'menu'
               ? 'bg-gray-900 text-white shadow-md'
               : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
           }`}
         >
-          <Coffee size={16} />
-          {language === 'ar' ? 'إدارة القائمة' : 'Menu Management'}
+          <Coffee size={15} className="shrink-0" />
+          <span className="truncate">{language === 'ar' ? 'القائمة' : 'Menu'}</span>
         </button>
         <button
           onClick={() => setActiveTab('inventory')}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-xs md:text-sm font-bold transition-all relative ${
+          className={`flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-lg text-[11px] sm:text-xs md:text-sm font-bold transition-all relative whitespace-nowrap shrink-0 ${
             activeTab === 'inventory'
               ? 'bg-gray-900 text-white shadow-md'
               : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
           }`}
         >
-          <Package size={16} />
-          {language === 'ar' ? 'إدارة المخزون' : 'Inventory Management'}
+          <Package size={15} className="shrink-0" />
+          <span className="truncate">{language === 'ar' ? 'المخزون' : 'Inventory'}</span>
           {inventorySummary.lowStockCount > 0 && (
             <span className={`absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full text-[10px] font-black flex items-center justify-center ${
               activeTab === 'inventory' ? 'bg-red-500 text-white' : 'bg-red-500 text-white animate-pulse'
@@ -1098,25 +1237,25 @@ export default function ManagerDashboard() {
         </button>
         <button
           onClick={() => setActiveTab('customers')}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-xs md:text-sm font-bold transition-all ${
+          className={`flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-lg text-[11px] sm:text-xs md:text-sm font-bold transition-all whitespace-nowrap shrink-0 ${
             activeTab === 'customers'
               ? 'bg-gray-900 text-white shadow-md'
               : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
           }`}
         >
-          <Users size={16} />
-          {language === 'ar' ? 'العملاء والشركات' : 'Customers & Companies'}
+          <Users size={15} className="shrink-0" />
+          <span className="truncate">{language === 'ar' ? 'العملاء' : 'Customers'}</span>
         </button>
         <button
           onClick={() => setActiveTab('settings')}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-xs md:text-sm font-bold transition-all relative ${
+          className={`flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-lg text-[11px] sm:text-xs md:text-sm font-bold transition-all relative whitespace-nowrap shrink-0 ${
             activeTab === 'settings'
               ? 'bg-gray-900 text-white shadow-md'
               : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
           }`}
         >
-          <Settings size={16} />
-          {language === 'ar' ? 'الإعدادات' : 'Settings'}
+          <Settings size={15} className="shrink-0" />
+          <span className="truncate">{language === 'ar' ? 'الإعدادات' : 'Settings'}</span>
         </button>
       </div>
 
@@ -1144,20 +1283,20 @@ export default function ManagerDashboard() {
       {/* ══════════════════════════════════════════════════════════════════════ */}
       {activeTab === 'analytics' && (<>
 
-      {/* ── All 7 Stat Cards in 2 Rows (100% Identical to Reports Page) ───────────── */}
-      <div className="space-y-4 md:space-y-6">
-        {/* Row 1: 3 cards (Revenue, Orders, Menu Items) */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 md:gap-6">
+      {/* ── All 8 Stat Cards in 2 Rows (100% Identical to Reports Page) ───────────── */}
+      <div className="space-y-3 sm:space-y-4 md:space-y-6">
+        {/* Row 1: 4 cards (Revenue, Receivables/المبالغ المستحقة, Orders, Menu Items) */}
+        <div className="grid grid-cols-2 tablet:grid-cols-4 lg:grid-cols-4 gap-3 sm:gap-4 md:gap-6">
           {statCardsRow1.map((s, i) => <StatCard key={i} {...s} />)}
         </div>
         {/* Row 2: 4 cards (COGS, Net Profit, Stock Cost, Potential Profit) */}
-        <div className="grid grid-cols-2 tablet:grid-cols-4 lg:grid-cols-4 gap-4 md:gap-6">
+        <div className="grid grid-cols-2 tablet:grid-cols-4 lg:grid-cols-4 gap-3 sm:gap-4 md:gap-6">
           {statCardsRow2.map((s, i) => <StatCard key={i} {...s} />)}
         </div>
       </div>
 
       {/* ── Chart & Top Items Panels ─────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-1 tablet:grid-cols-3 lg:grid-cols-3 gap-6 md:gap-8">
+      <div className="grid grid-cols-1 tablet:grid-cols-3 lg:grid-cols-3 gap-4 sm:gap-6 md:gap-8">
         
         {/* Revenue Trend Chart */}
         <div className="lg:col-span-2 bg-white p-4 md:p-6 rounded-2xl shadow-sm border border-gray-150 flex flex-col justify-between">
@@ -1179,18 +1318,18 @@ export default function ManagerDashboard() {
             )}
           </div>
 
-          <div className="flex-1 flex items-end justify-between gap-2 h-64 pb-2 pt-6">
+          <div className="flex-1 flex items-end justify-between gap-1 sm:gap-2 h-56 sm:h-64 pb-2 pt-6">
             {processedData.chartData.map((data, idx) => (
-              <div key={idx} className="flex-1 flex flex-col items-center gap-2 group">
-                <div className="relative w-full h-52 flex items-end justify-center">
-                  
+              <div key={idx} className="flex-1 min-w-0 flex flex-col items-center gap-2 group">
+                <div className="relative w-full h-44 sm:h-52 flex items-end justify-center">
+
                   {/* Animated Bar */}
                   <motion.div
                     key={`${dateRange}-${selectedBranch}-bar-${idx}`}
                     initial={{ height: 0 }}
                     animate={{ height: `${(data.value / maxRevenueValue) * 85 + 5}%` }}
                     transition={{ duration: 0.7, ease: 'easeOut', delay: idx * 0.03 }}
-                    className="w-full max-w-[28px] md:max-w-[36px] rounded-t-lg transition-opacity group-hover:opacity-75 relative bg-gradient-to-t from-mocha-500 to-caramel shadow-sm"
+                    className="w-full max-w-[24px] sm:max-w-[28px] md:max-w-[36px] rounded-t-lg transition-opacity group-hover:opacity-75 relative bg-gradient-to-t from-mocha-500 to-caramel shadow-sm"
                   >
                     {/* Hover Tooltip */}
                     <div className="opacity-0 group-hover:opacity-100 absolute -top-12 left-1/2 -translate-x-1/2 bg-gray-900 text-white text-[10px] md:text-xs py-1.5 px-2 rounded-lg pointer-events-none transition-opacity whitespace-nowrap z-50 shadow-xl">
@@ -1199,7 +1338,7 @@ export default function ManagerDashboard() {
                     </div>
                   </motion.div>
                 </div>
-                <span className="text-[10px] md:text-xs font-bold text-gray-500 truncate max-w-[50px]">{data.label}</span>
+                <span className="text-[9px] sm:text-[10px] md:text-xs font-bold text-gray-500 truncate max-w-full w-full text-center">{data.label}</span>
               </div>
             ))}
           </div>
@@ -1263,7 +1402,7 @@ export default function ManagerDashboard() {
       </div>
 
       {/* ── Breakdown Panels ───────────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-1 tablet:grid-cols-3 lg:grid-cols-3 gap-6 md:gap-8">
+      <div className="grid grid-cols-1 tablet:grid-cols-3 lg:grid-cols-3 gap-4 sm:gap-6 md:gap-8">
         
         {/* Order Mode Breakdown (Dine-in vs Takeaway) */}
         <div className="bg-white p-4 md:p-6 rounded-2xl shadow-sm border border-gray-150">
@@ -1494,6 +1633,109 @@ export default function ManagerDashboard() {
           )}
         </div>
 
+      </div>
+
+      {/* ── Outstanding Receivables Report (المبالغ المستحقة) ──────────────────── */}
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-150 overflow-hidden">
+        <div className="px-3 sm:px-4 md:px-6 py-3 sm:py-4 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <h2 className="text-base md:text-lg font-extrabold text-gray-900 flex items-center gap-2">
+              <Wallet className="text-orange-500" size={20} />
+              {language === 'ar' ? 'المبالغ المستحقة (على الحساب)' : 'Outstanding Receivables'}
+            </h2>
+            <p className="text-xs text-gray-400 mt-0.5">
+              {language === 'ar'
+                ? 'ديون العملاء والشركات غير المسددة من فواتير على الحساب'
+                : 'Unpaid customer & company balances from on-account invoices'}
+            </p>
+          </div>
+          <div className="text-left sm:text-right">
+            <p className="text-[10px] text-gray-400 font-bold">
+              {language === 'ar' ? 'إجمالي المستحقات' : 'Total Receivable'}
+            </p>
+            <p className="text-xl md:text-2xl font-black text-orange-600">
+              {receivablesData.grandTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {currencyStr}
+            </p>
+          </div>
+        </div>
+
+        {receivablesData.grandTotal === 0 ? (
+          <div className="py-12 text-center">
+            <CheckCircle2 className="mx-auto text-green-500 mb-2" size={36} />
+            <p className="text-sm text-gray-400">
+              {language === 'ar' ? 'لا توجد مبالغ مستحقة 🎉' : 'No outstanding balances 🎉'}
+            </p>
+          </div>
+        ) : (
+          <div className="divide-y divide-gray-100">
+            {/* Companies section */}
+            {receivablesData.companiesOwed.length > 0 && (
+              <>
+                <div className="px-4 md:px-6 py-2.5 bg-purple-50/40">
+                  <p className="text-xs font-extrabold text-purple-700 flex items-center gap-1.5">
+                    <Building2 size={13} />
+                    {language === 'ar' ? 'الشركات' : 'Companies'} ({receivablesData.companiesOwed.length})
+                  </p>
+                </div>
+                {receivablesData.companiesOwed.map(co => (
+                  <div key={co.id} className="px-4 md:px-6 py-3 flex items-center justify-between gap-3 hover:bg-purple-50/20 transition-colors">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="p-2 rounded-xl bg-purple-100 text-purple-700 shrink-0">
+                        <Building2 size={16} />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-sm font-extrabold text-gray-900 truncate">{co.name}</p>
+                        <p className="text-[11px] text-gray-400">
+                          {co.invoiceCount} {language === 'ar' ? 'فاتورة' : 'invoices'}
+                          {co.memberCount > 0 && ` · ${co.memberCount} ${language === 'ar' ? 'عضو' : 'members'}`}
+                          {co.phone && ` · ${co.phone}`}
+                        </p>
+                      </div>
+                    </div>
+                    <p className="text-sm font-black text-red-600 shrink-0">
+                      {co.balance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {currencyStr}
+                    </p>
+                  </div>
+                ))}
+              </>
+            )}
+
+            {/* Customers section */}
+            {receivablesData.customersOwed.length > 0 && (
+              <>
+                <div className="px-4 md:px-6 py-2.5 bg-mocha-50/40">
+                  <p className="text-xs font-extrabold text-mocha-700 flex items-center gap-1.5">
+                    <Users size={13} />
+                    {language === 'ar' ? 'العملاء' : 'Customers'} ({receivablesData.customersOwed.length})
+                  </p>
+                </div>
+                {receivablesData.customersOwed.slice(0, 20).map(c => (
+                  <div key={c.id} className="px-4 md:px-6 py-3 flex items-center justify-between gap-3 hover:bg-mocha-50/20 transition-colors">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="p-2 rounded-xl bg-mocha-100 text-mocha-700 shrink-0">
+                        <UserCheck size={16} />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-sm font-extrabold text-gray-900 truncate">{c.name}</p>
+                        <p className="text-[11px] text-gray-400">
+                          {c.invoiceCount} {language === 'ar' ? 'فاتورة' : 'invoices'}{c.phone && ` · ${c.phone}`}
+                        </p>
+                      </div>
+                    </div>
+                    <p className="text-sm font-black text-red-600 shrink-0">
+                      {c.balance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {currencyStr}
+                    </p>
+                  </div>
+                ))}
+                {receivablesData.customersOwed.length > 20 && (
+                  <div className="px-4 md:px-6 py-2 text-center text-[11px] text-gray-400">
+                    +{receivablesData.customersOwed.length - 20} {language === 'ar' ? 'عميل آخر' : 'more customers'}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
       </div>
 
 

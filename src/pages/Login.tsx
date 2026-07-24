@@ -37,9 +37,13 @@ export default function Login() {
 
       let destination = '/orders';
       if (loggedUser.role === 'manager') {
-        destination = (fromPath && fromPath !== '/login' && fromPath !== '/manager-login') ? fromPath : '/manager-dashboard';
+        const managerOnlyRoutes = ['/manager', '/reports', '/inventory', '/menu'];
+        const isManagerOnly = fromPath && managerOnlyRoutes.some(r => fromPath.startsWith(r));
+        destination = isManagerOnly ? fromPath : '/manager-dashboard';
       } else {
-        destination = (fromPath && !fromPath.includes('manager') && fromPath !== '/login' && fromPath !== '/manager-login') ? fromPath : '/orders';
+        const managerOnlyRoutes = ['/manager', '/reports', '/inventory', '/menu'];
+        const isManagerOnly = fromPath && managerOnlyRoutes.some(r => fromPath.startsWith(r));
+        destination = (fromPath && fromPath !== '/login' && fromPath !== '/manager-login' && !isManagerOnly) ? fromPath : '/orders';
       }
 
       navigate(destination, { replace: true });

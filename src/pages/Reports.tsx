@@ -4,7 +4,7 @@ import {
   TrendingUp, DollarSign, ShoppingBag,
   Coffee, Calendar, Download,
   CheckCircle2, Clock, XCircle, AlertCircle, Utensils,
-  UserCheck, Award, Coins, TrendingDown, AlertTriangle, Scale
+  UserCheck, Award, Coins, TrendingDown, AlertTriangle, Scale, Wallet
 } from 'lucide-react';
 import { useAnalytics, AnalyticsPeriod } from '../hooks/useAnalytics';
 import { StatCard } from '../components/ui/StatCard';
@@ -17,6 +17,7 @@ import { inventoryService } from '../services/inventoryService';
 import { resolveInvItem } from '../utils/inventoryHelpers';
 import { menuService } from '../services/menuService';
 import { MenuItem } from '../types/menu';
+import { getIngredientBaseQty } from '../utils/units';
 
 // ─── Status display config (UI-only: icons & colours) ────────────────────────
 const STATUS_CONFIG: Array<{
@@ -88,13 +89,15 @@ export default function Reports() {
     const menuTotalCostMap = new Map<string, number>();
     Object.entries(menuRecipeMap).forEach(([mId, ingList]) => {
       const totalCost = ingList.reduce((sum, ing) => {
-        const cost = getUnitCost(ing.inventoryItemId);
-        return sum + (ing.quantity * cost);
+        const invItem = resolveInvItem(ing.inventoryItemId, inventory);
+        const cost = invItem ? Number(invItem.costPerUnit || 0) : 0;
+        const baseQty = getIngredientBaseQty(ing.quantity, ing.unit || '', invItem?.unit || '');
+        return sum + (baseQty * cost);
       }, 0);
       menuTotalCostMap.set(mId, totalCost > 0 ? totalCost : 1);
     });
 
-    const invRecipesMap = new Map<string, { menuItemId: string; quantity: number }[]>();
+    const invRecipesMap = new Map<string, { menuItemId: string; quantity: number, unit?: string }[]>();
     recipes.forEach(r => {
       const invItem = resolveInvItem(r.inventoryItemId, inventory);
       const targetId = invItem ? invItem.id : r.inventoryItemId;
@@ -102,7 +105,8 @@ export default function Reports() {
       if (!invRecipesMap.has(targetId)) invRecipesMap.set(targetId, []);
       invRecipesMap.get(targetId)!.push({
         menuItemId: String(r.menuItemId),
-        quantity: r.quantity
+        quantity: r.quantity,
+        unit: r.unit
       });
     });
 
@@ -122,12 +126,15 @@ export default function Reports() {
         const menuItem = menuMap.get(String(rec.menuItemId));
         const totalRecipeCost = menuTotalCostMap.get(String(rec.menuItemId)) || 1;
         if (menuItem && rec.quantity > 0) {
-          const itemCostInRecipe = rec.quantity * itemUnitCost;
-          const costShareFraction = itemCostInRecipe / totalRecipeCost;
-          const allocatedRevenue = costShareFraction * menuItem.price;
-          const unitYield = allocatedRevenue / rec.quantity;
-          totalUnitYield += unitYield;
-          validCount++;
+          const baseQty = getIngredientBaseQty(rec.quantity, rec.unit || '', item.unit || '');
+          if (baseQty > 0) {
+            const itemCostInRecipe = baseQty * itemUnitCost;
+            const costShareFraction = itemCostInRecipe / totalRecipeCost;
+            const allocatedRevenue = costShareFraction * menuItem.price;
+            const unitYield = allocatedRevenue / baseQty;
+            totalUnitYield += unitYield;
+            validCount++;
+          }
         }
       });
 
@@ -166,7 +173,8 @@ export default function Reports() {
     for (const r of recipes) {
       const invItem = inventory.find(i => i.id === r.inventoryItemId);
       const itemCost = invItem ? invItem.costPerUnit : 0;
-      costMap[r.menuItemId] = (costMap[r.menuItemId] || 0) + (r.quantity * itemCost);
+      const baseQty = getIngredientBaseQty(r.quantity, r.unit || '', invItem?.unit || '');
+      costMap[r.menuItemId] = (costMap[r.menuItemId] || 0) + (baseQty * itemCost);
     }
     return costMap;
   }, [recipes, inventory]);
@@ -251,10 +259,20 @@ export default function Reports() {
 
   const { chartData, topItems, recentTransactions } = analytics;
   const pLabel       = periodLabel(dateRange, t);
-  const maxSale      = Math.max(...chartData.map(d => d.value), 1);
-  const maxItemCount = Math.max(...topItems.map(i => i.count), 1);
-
   const currencyStr = language === 'ar' ? 'ج.م' : 'EGP';
+  const maxSale     = Math.max(1, ...(chartData || []).map(d => d.value));
+  const maxItemCount = Math.max(1, ...(topItems || []).map(i => i.count));
+
+  const totalReceivables = useMemo(() => {
+    return (analytics.periodOrders || [])
+      .filter(o => o.paymentStatus === 'OnAccount' && o.status !== 'Cancelled')
+      .reduce((sum, o) => {
+        const amt = typeof o.grandTotal === 'number' && o.grandTotal > 0
+          ? o.grandTotal
+          : (o.totalAmount || 0) * (1 + taxRate);
+        return sum + amt;
+      }, 0);
+  }, [analytics.periodOrders, taxRate]);
 
   // Stat cards — when dateRange = 'Today', these equal Dashboard's values exactly
   const statCards = [
@@ -264,6 +282,13 @@ export default function Reports() {
       icon: DollarSign,
       trend: analytics.realRevenue > 0 ? `+${analytics.realRevenue.toFixed(2)} ${currencyStr} ${pLabel}` : t('Lifetime total'),
       color: 'green',
+    },
+    {
+      label: language === 'ar' ? 'إجمالي المبالغ المستحقة' : 'Total Amounts Due',
+      value: `${totalReceivables.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currencyStr}`,
+      icon: Wallet,
+      trend: language === 'ar' ? 'مبالغ آجلة مستحقة على العملاء والشركات' : 'Pending customer & company balances',
+      color: 'orange',
     },
     {
       label: t('TOTAL ORDERS'),
@@ -315,7 +340,7 @@ export default function Reports() {
       </div>
 
       {/* ── Stat Cards (same StatCard component as Dashboard) ──────────────── */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 md:gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 md:gap-6">
         {statCards.map((s, i) => <StatCard key={i} {...s} />)}
       </div>
 
