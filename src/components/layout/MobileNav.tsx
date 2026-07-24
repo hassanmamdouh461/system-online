@@ -21,7 +21,6 @@ export function MobileNav() {
         { icon: ShoppingBag, label: t('Orders') || 'Orders', path: '/orders' },
         { icon: CreditCard, label: t('Payment') || 'Pay', path: '/payment' },
         { icon: Users, label: t('Customers'), path: '/customers' },
-        { icon: Home, label: t('Home') || 'Home', path: '/dashboard' },
         { icon: Settings, label: t('Settings'), path: '/settings' },
       ];
 
