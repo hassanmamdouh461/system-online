@@ -995,24 +995,36 @@ export default function Payment() {
 
       {/* ── Accounts tab: balance lookup + split layout ── */}
       {activeTab === 'accounts' && (
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-          {/* Left: holders list with balances */}
-          <div className="lg:col-span-4 space-y-3">
-            <div className="flex items-center justify-between">
-              <h2 className="text-sm font-extrabold text-gray-800">
-                {language === 'ar' ? 'الحسابات المدينة' : 'Account balances'}
-              </h2>
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+          {/* Right Column: Debtors / Account Holders Selection Panel */}
+          <div className="lg:col-span-4 bg-slate-50/80 p-4 rounded-3xl border border-slate-200/80 shadow-xs space-y-3">
+            {/* Panel Header */}
+            <div className="bg-slate-900 text-white p-3.5 rounded-2xl shadow-xs flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="p-1.5 bg-amber-500/20 text-amber-400 rounded-xl border border-amber-500/30">
+                  <User size={16} />
+                </div>
+                <div>
+                  <h2 className="text-xs font-black tracking-wide">
+                    {language === 'ar' ? 'الحسابات والمدينون' : 'Account Debtors'}
+                  </h2>
+                  <p className="text-[10px] text-slate-400 font-semibold">
+                    {language === 'ar' ? 'اختر حسناً لعرض فواتيره' : 'Click to focus account'}
+                  </p>
+                </div>
+              </div>
+
               {(searchTerm.trim() || focusedHolder) && (
-                <span className="text-xs font-black text-amber-800 bg-amber-50 border border-amber-200 px-2 py-1 rounded-lg">
-                  {language === 'ar' ? 'المطلوب:' : 'Due:'}{' '}
+                <span className="text-[11px] font-black text-rose-300 bg-rose-500/20 border border-rose-500/30 px-2.5 py-1 rounded-xl">
                   {(focusedHolder ? focusedHolder.balance : searchTotalBalance).toFixed(2)}{' '}
-                  {currency}
+                  <span className="text-[9px] font-bold">{currency}</span>
                 </span>
               )}
             </div>
 
+            {/* Debtors List */}
             {filteredHolders.length === 0 ? (
-              <div className="bg-white rounded-2xl border border-dashed border-gray-200 p-8 text-center text-gray-400 text-sm">
+              <div className="bg-white rounded-2xl border border-dashed border-slate-300 p-8 text-center text-slate-400 text-xs font-bold">
                 {searchTerm.trim()
                   ? language === 'ar'
                     ? 'لا يوجد حساب مطابق للبحث'
@@ -1022,22 +1034,22 @@ export default function Payment() {
                     : 'No open receivables'}
               </div>
             ) : (
-              <div className="space-y-2 max-h-[60vh] overflow-y-auto pr-1">
-                  {filteredHolders.map(h => {
+              <div className="space-y-2.5 max-h-[62vh] overflow-y-auto pr-0.5">
+                {filteredHolders.map(h => {
                   const active = focusedHolder?.key === h.key;
                   return (
                     <div
                       key={h.key}
                       className={clsx(
-                        'p-3.5 rounded-2xl border transition-all shadow-sm',
+                        'p-3.5 rounded-2xl border transition-all shadow-2xs cursor-pointer',
                         active
                           ? h.type === 'company'
-                            ? 'bg-purple-50 border-purple-300 ring-2 ring-purple-200'
-                            : 'bg-mocha-50 border-mocha-300 ring-2 ring-mocha-200'
-                          : 'bg-white border-gray-100 hover:border-gray-300'
+                            ? 'bg-purple-100/80 border-purple-400 ring-2 ring-purple-400/50 shadow-sm'
+                            : 'bg-amber-100/80 border-amber-400 ring-2 ring-amber-400/50 shadow-sm'
+                          : 'bg-white border-slate-200/90 hover:border-slate-300 hover:shadow-xs'
                       )}
                     >
-                      {/* Main clickable area */}
+                      {/* Clickable Area */}
                       <button
                         type="button"
                         onClick={() =>
@@ -1045,65 +1057,57 @@ export default function Payment() {
                         }
                         className="w-full text-right"
                       >
-                        <div className="flex items-start gap-3">
-                          <div
-                            className={clsx(
-                              'p-2 rounded-xl shrink-0',
-                              h.type === 'company'
-                                ? 'bg-purple-100 text-purple-700'
-                                : 'bg-mocha-100 text-mocha-700'
-                            )}
-                          >
-                            {h.type === 'company' ? (
-                              <Building2 size={18} />
-                            ) : (
-                              <User size={18} />
-                            )}
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-start justify-between gap-2">
-                              <div className="min-w-0">
-                                <p className="font-extrabold text-gray-900 truncate text-sm">
-                                  {h.name}
-                                </p>
-                                {h.phone && (
-                                  <p className="text-[11px] font-mono font-bold text-gray-500 mt-0.5" dir="ltr">
-                                    {h.phone}
-                                  </p>
-                                )}
-                                <p className="text-[10px] font-bold text-gray-400 mt-0.5">
-                                  {h.type === 'company'
-                                    ? language === 'ar'
-                                      ? 'شركة'
-                                      : 'Company'
-                                    : language === 'ar'
-                                      ? 'عميل'
-                                      : 'Customer'}
-                                  {' · '}
-                                  {h.invoiceCount}{' '}
-                                  {language === 'ar' ? 'فاتورة' : 'invoices'}
-                                </p>
-                              </div>
-                              <div className="text-left shrink-0">
-                                <p className="text-sm font-black text-red-600">
-                                  {h.balance.toFixed(2)}
-                                </p>
-                                <p className="text-[10px] text-gray-400">{currency}</p>
-                              </div>
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <div
+                              className={clsx(
+                                'w-9 h-9 rounded-xl flex items-center justify-center font-black text-xs shrink-0 shadow-2xs',
+                                h.type === 'company'
+                                  ? 'bg-purple-700 text-white'
+                                  : 'bg-mocha-700 text-white'
+                              )}
+                            >
+                              {h.type === 'company' ? (
+                                <Building2 size={16} />
+                              ) : (
+                                <User size={16} />
+                              )}
                             </div>
-                            <p className="text-[11px] text-gray-500 mt-1.5 font-semibold">
-                              {language === 'ar' ? 'الإجمالي المستحق' : 'Total due'}:{' '}
-                              <span className="text-red-700 font-black">{h.balance.toFixed(2)}</span>{' '}
-                              {currency} · {h.invoiceCount}{' '}
-                              {language === 'ar' ? 'فاتورة مفتوحة' : 'open invoices'}
-                            </p>
+                            <div className="min-w-0">
+                              <p className="font-extrabold text-slate-900 truncate text-xs">
+                                {h.name}
+                              </p>
+                              {h.phone && (
+                                <p className="text-[10px] font-mono font-bold text-slate-500 mt-0.5" dir="ltr">
+                                  {h.phone}
+                                </p>
+                              )}
+                            </div>
                           </div>
+
+                          <div className="text-right shrink-0">
+                            <span className="inline-flex items-center gap-1 text-xs font-black bg-rose-50 text-rose-700 border border-rose-200/90 px-2.5 py-1 rounded-xl shadow-2xs">
+                              <span>{h.balance.toFixed(2)}</span>
+                              <span className="text-[9px] font-bold">{currency}</span>
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center justify-between pt-2 mt-2 border-t border-slate-200/60 text-[10px] font-bold text-slate-400">
+                          <span>
+                            {h.type === 'company'
+                              ? language === 'ar' ? 'شركة' : 'Company'
+                              : language === 'ar' ? 'عميل' : 'Customer'}
+                          </span>
+                          <span>
+                            {h.invoiceCount} {language === 'ar' ? 'فاتورة مفتوحة' : 'open invoices'}
+                          </span>
                         </div>
                       </button>
 
                       {/* Company: print statement button */}
                       {h.type === 'company' && h.orders.length > 0 && (
-                        <div className="mt-2 pt-2 border-t border-purple-100">
+                        <div className="mt-2.5 pt-2 border-t border-purple-200/70">
                           <button
                             type="button"
                             onClick={e => {
@@ -1118,12 +1122,12 @@ export default function Payment() {
                                   resolveCustomerName(o) || o.customerPhone || '—',
                               });
                             }}
-                            className="w-full text-[11px] font-bold bg-purple-100 hover:bg-purple-200 text-purple-800 px-3 py-2 rounded-xl flex items-center justify-center gap-1.5 transition-colors"
+                            className="w-full text-[10px] font-bold bg-purple-200/60 hover:bg-purple-200 text-purple-950 px-2.5 py-1.5 rounded-xl flex items-center justify-center gap-1.5 transition-colors"
                           >
-                            <Printer size={13} />
+                            <Printer size={12} />
                             {language === 'ar'
-                              ? `طباعة كشف «${h.name}» (${h.orders.length} فاتورة · ${h.balance.toFixed(2)} ${currency})`
-                              : `Print statement (${h.orders.length} invoices · ${h.balance.toFixed(2)} ${currency})`}
+                              ? `طباعة كشف «${h.name}» (${h.orders.length} فاتورة)`
+                              : `Print statement (${h.orders.length} invoices)`}
                           </button>
                         </div>
                       )}
@@ -1134,60 +1138,58 @@ export default function Payment() {
             )}
           </div>
 
-          {/* Right: invoices for selection / all */}
-          <div className="lg:col-span-8 space-y-3">
-            <div className="flex items-center justify-between gap-2 flex-wrap">
-              <h2 className="text-sm font-extrabold text-gray-800">
-                {focusedHolder
-                  ? language === 'ar'
-                    ? `فواتير: ${focusedHolder.name}`
-                    : `Invoices: ${focusedHolder.name}`
-                  : language === 'ar'
-                    ? 'كل فواتير الحساب'
-                    : 'All account invoices'}
-              </h2>
+          {/* Left Column: Invoices Details & Settlement Panel */}
+          <div className="lg:col-span-8 bg-white p-4 sm:p-5 rounded-3xl border border-gray-200 shadow-xs space-y-4">
+            {/* Header Banner */}
+            <div className="bg-gradient-to-l from-mocha-800 to-coffee-dark text-white p-3.5 sm:p-4 rounded-2xl shadow-md flex items-center justify-between gap-3 flex-wrap">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-white/10 text-caramel rounded-xl backdrop-blur-xs">
+                  <CreditCard size={20} />
+                </div>
+                <div>
+                  <h2 className="text-sm font-extrabold text-white tracking-tight">
+                    {focusedHolder
+                      ? language === 'ar'
+                        ? `فواتير الحساب: ${focusedHolder.name}`
+                        : `Invoices: ${focusedHolder.name}`
+                      : language === 'ar'
+                        ? 'عرض كافة فواتير الحساب والآجل'
+                        : 'All Account Invoices'}
+                  </h2>
+                  <p className="text-[11px] text-white/70 font-medium mt-0.5">
+                    {focusedHolder
+                      ? language === 'ar'
+                        ? `تم تصفية الفواتير المفتوحة الخاصة بـ (${focusedHolder.name})`
+                        : `Showing open invoices for ${focusedHolder.name}`
+                      : language === 'ar'
+                        ? 'انقر على أي عميل يميناً للتصفية، أو اضغط تحصيل لسداد الفاتورة'
+                        : 'Click any debtor on the right to filter invoices'}
+                  </p>
+                </div>
+              </div>
+
               {focusedHolder && (
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-xs font-black bg-red-50 text-red-700 border border-red-100 px-3 py-1.5 rounded-xl">
-                    {language === 'ar' ? 'عليه' : 'Owes'} {focusedHolder.balance.toFixed(2)}{' '}
-                    {currency}
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-black bg-rose-500/30 text-rose-100 border border-rose-400/40 px-3 py-1.5 rounded-xl">
+                    {language === 'ar' ? 'إجمالي المطلوب:' : 'Due:'} {focusedHolder.balance.toFixed(2)} {currency}
                   </span>
-                  {focusedHolder.type === 'company' && focusedHolder.orders.length > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        printCompanyStatement({
-                          companyName: focusedHolder.name,
-                          companyPhone: focusedHolder.phone,
-                          orders: focusedHolder.orders,
-                          taxRate: fallbackTax,
-                          lang: language === 'ar' ? 'ar' : 'en',
-                          resolveCustomerLabel: o =>
-                            resolveCustomerName(o) || o.customerPhone || '—',
-                        });
-                      }}
-                      className="text-xs font-bold bg-purple-600 hover:bg-purple-700 text-white px-3 py-1.5 rounded-xl flex items-center gap-1.5"
-                    >
-                      <Printer size={14} />
-                      {language === 'ar' ? 'طباعة كشف الشركة' : 'Print company statement'}
-                    </button>
-                  )}
                   <button
                     type="button"
                     onClick={() => setSelectedHolderKey(null)}
-                    className="text-xs font-bold text-gray-500 hover:text-gray-800 underline"
+                    className="text-xs font-bold bg-white/20 hover:bg-white/30 text-white px-3 py-1.5 rounded-xl transition-colors"
                   >
-                    {language === 'ar' ? 'عرض الكل' : 'Show all'}
+                    {language === 'ar' ? 'إظهار الكل ✕' : 'Show All ✕'}
                   </button>
                 </div>
               )}
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {/* Invoices Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {filteredOrders.length > 0 ? (
                 filteredOrders.map(renderOrderCard)
               ) : (
-                <div className="col-span-full text-center py-16 text-gray-400">
+                <div className="col-span-full text-center py-20 text-gray-400 bg-gray-50/60 rounded-2xl border border-dashed border-gray-200">
                   <Calculator className="w-10 h-10 mx-auto mb-3 opacity-40" />
                   <p className="font-medium">
                     {language === 'ar' ? 'لا توجد فواتير على الحساب' : 'No account invoices'}
