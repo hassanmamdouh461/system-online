@@ -75,12 +75,20 @@ export async function buildSnapshotPayload(branchId?: string): Promise<SnapshotP
     ]);
   });
 
+  // NEVER persist soft-deleted menu items into the snapshot — otherwise a
+  // restoreFromSnapshotIfNeeded would resurrect exactly the items the user
+  // deleted. We keep their tombstone rows (so a restore still knows they're
+  // deleted) but they are filtered out of the live set everywhere.
+  const menuClean = (menu_items || []).filter(
+    (m: any) => m && !m.deletedAt
+  );
+
   return {
     version: 1,
     createdAt: new Date().toISOString(),
     branchId: branch,
     orders,
-    menu_items,
+    menu_items: menuClean,
     customers,
     companies,
     inventory,
@@ -164,62 +172,17 @@ export async function getLatestSnapshot(branchId?: string): Promise<SnapshotPayl
 /**
  * Restore snapshot into IndexedDB + localStorage when cloud collections look empty.
  */
-export async function restoreFromSnapshotIfNeeded(hydrateResult: {
+export async function restoreFromSnapshotIfNeeded(_hydrateResult: {
   orders: number;
   menu: number;
   customers: number;
   settings?: number;
 }): Promise<boolean> {
-  // Only restore if everything looks wiped
-  if (hydrateResult.orders > 0 || hydrateResult.menu > 0 || hydrateResult.customers > 0) {
-    return false;
-  }
-  const snap = await getLatestSnapshot();
-  if (!snap) return false;
-
-  try {
-    const { putMany, enqueueWrite } = await import('../repositories/indexeddb/db');
-    await enqueueWrite(async () => {
-      if (snap.orders?.length) await putMany('orders', snap.orders);
-      if (snap.menu_items?.length) await putMany('menu_items', snap.menu_items);
-      if (snap.customers?.length) await putMany('customers', snap.customers);
-      if (snap.companies?.length) await putMany('companies', snap.companies);
-      if (snap.inventory?.length) await putMany('inventory', snap.inventory);
-    });
-
-    if (snap.settings) {
-      for (const [k, v] of Object.entries(snap.settings)) {
-        try {
-          localStorage.setItem(k, v);
-        } catch {
-          // ignore
-        }
-      }
-    }
-    if (snap.recipes) {
-      try {
-        localStorage.setItem('web_menu_recipes_store', JSON.stringify(snap.recipes));
-      } catch {
-        // ignore
-      }
-    }
-    if (snap.inventory_transactions?.length) {
-      try {
-        localStorage.setItem(
-          'pos_inventory_transactions_web_store',
-          JSON.stringify(snap.inventory_transactions)
-        );
-      } catch {
-        // ignore
-      }
-    }
-    console.info('[snapshot] restored from backup', snap.createdAt);
-    return true;
-  } catch (e) {
-    console.warn('[snapshot] restore failed:', e);
-    return false;
-  }
+  // Do NOT automatically resurrect wiped databases from old snapshots.
+  // An empty database is valid when the user clears/resets their system.
+  return false;
 }
+
 
 export function startSnapshotScheduler() {
   if (typeof window === 'undefined') return;

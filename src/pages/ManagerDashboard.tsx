@@ -31,6 +31,8 @@ import {
 import { companiesService } from '../services/companiesService';
 import { formatOrderNumber } from '../utils/orderNumber';
 import { getOrderGrandTotal } from '../types/order';
+import { RevenueAreaChart } from '../components/ui/RevenueAreaChart';
+
 
 
 const SettingsPage = lazy(() => import('./Settings'));
@@ -705,27 +707,42 @@ export default function ManagerDashboard() {
 
   // ── Scoped Data Processing (Directly from analytics hook for 100% parity with Reports) ──
   const processedData = useMemo(() => {
+    // Canonical order total: prefer frozen grandTotal, else compute from totalAmount+tax-points
+    const orderTotal = (o: any) => getOrderGrandTotal(o, taxRate);
+
+    const cashAmount = analytics.completedPeriod
+      .filter(o => o.paymentMethod === 'Cash')
+      .reduce((s, o) => s + orderTotal(o), 0);
+    const cardAmount = analytics.completedPeriod
+      .filter(o => o.paymentMethod === 'Card')
+      .reduce((s, o) => s + orderTotal(o), 0);
+    const cashCardTotal = cashAmount + cardAmount;
+
     return {
       totalRevenue: analytics.totalRevenue,
       totalOrdersCount: analytics.totalOrders,
       avgOrderValue: analytics.avgOrderValue,
       chartData: analytics.chartData,
       topItems: analytics.topItems,
-      takeawayCount: analytics.periodOrders.filter(o => o.tableId === 'Takeaway').length,
-      dineInCount: analytics.periodOrders.filter(o => o.tableId !== 'Takeaway').length,
-      totalCount: analytics.totalOrders,
+      takeawayCount: analytics.completedPeriod.filter(o => o.tableId === 'Takeaway').length,
+      dineInCount: analytics.completedPeriod.filter(o => o.tableId !== 'Takeaway').length,
+      // Match Reports: paid = Paid only, open = Unpaid + OnAccount
       paidCount: analytics.completedPeriod.length,
-      unpaidCount: analytics.periodOrders.filter(o => o.paymentStatus === 'Unpaid').length,
+      unpaidCount: analytics.periodOrders.filter(
+        o => o.status !== 'Cancelled' && (o.paymentStatus === 'Unpaid' || o.paymentStatus === 'OnAccount')
+      ).length,
+      totalCount: analytics.completedPeriod.length,
       paidAmount: analytics.realRevenue,
-      unpaidAmount: analytics.periodOrders.filter(o => o.paymentStatus === 'Unpaid').reduce((s, o) => s + o.totalAmount * (1 + taxRate), 0),
-      cashAmount: analytics.completedPeriod.filter(o => o.paymentMethod === 'Cash').reduce((s, o) => s + o.totalAmount * (1 + taxRate), 0),
-      cardAmount: analytics.completedPeriod.filter(o => o.paymentMethod === 'Card').reduce((s, o) => s + o.totalAmount * (1 + taxRate), 0),
-      cashPercentage: analytics.totalRevenue > 0 ? Math.round((analytics.completedPeriod.filter(o => o.paymentMethod === 'Cash').reduce((s, o) => s + o.totalAmount * (1 + taxRate), 0) / analytics.totalRevenue) * 100) : 0,
-      cardPercentage: analytics.totalRevenue > 0 ? Math.round((analytics.completedPeriod.filter(o => o.paymentMethod === 'Card').reduce((s, o) => s + o.totalAmount * (1 + taxRate), 0) / analytics.totalRevenue) * 100) : 0,
+      unpaidAmount: analytics.periodOrders
+        .filter(o => o.status !== 'Cancelled' && (o.paymentStatus === 'Unpaid' || o.paymentStatus === 'OnAccount'))
+        .reduce((s, o) => s + orderTotal(o), 0),
+      cashAmount,
+      cardAmount,
+      // Percentage of settled (cash+card) revenue — excludes on-account so cash+card = 100%
+      cashPercentage: cashCardTotal > 0 ? Math.round((cashAmount / cashCardTotal) * 100) : 0,
+      cardPercentage: cashCardTotal > 0 ? Math.round((cardAmount / cashCardTotal) * 100) : 0,
       recentTransactions: analytics.recentTransactions,
-      loyaltyCount: customers.length,
-      loyaltyPoints: 0,
-      loyaltyValue: 0
+      customerCount: customers.length,
     };
   }, [analytics, taxRate, customers]);
 
@@ -915,89 +932,133 @@ export default function ManagerDashboard() {
     return Math.max(0, revenue - tax - cogs);
   }, [analytics.totalRevenue, taxRate, cogs]);
 
-  const totalReceivables = useMemo(() => {
-    return orders
-      .filter(o => o.paymentStatus === 'OnAccount' && o.status !== 'Cancelled')
-      .filter(o => selectedBranch === 'all' || (((o as any).branchId || (o as any).branch_id || 'main_branch') === selectedBranch))
-      .reduce((sum, o) => {
-        const amt = typeof o.grandTotal === 'number' && o.grandTotal > 0 
-          ? o.grandTotal 
-          : typeof o.total_amount === 'number' && o.total_amount > 0
-            ? o.total_amount
-            : (o.totalAmount || 0) * (1 + taxRate);
-        return sum + amt;
-      }, 0);
-  }, [orders, taxRate, selectedBranch]);
-
-  // ── Receivables breakdown (canonical, using accountBalance utils) ──
+  // ── Receivables breakdown (canonical, matching Payment.tsx exactly) ──
   const receivablesData = useMemo(() => {
     let realOrders = allRealOrders || [];
     // Filter by selected branch to match dashboard context
     if (selectedBranch !== 'all') {
-      realOrders = realOrders.filter(o => (o.branchId || 'main_branch') === selectedBranch);
+      realOrders = realOrders.filter(o => (((o as any).branchId || (o as any).branch_id || 'main_branch') === selectedBranch));
+    }
+    
+    const accountOrders = realOrders.filter(o => o.paymentStatus === 'OnAccount' && o.status !== 'Cancelled');
+
+    // Create lookup maps
+    const customerByPhone = new Map<string, any>();
+    for (const c of customers) {
+      const p = (c.phone || '').replace(/[\s\-()]/g, '').trim().toLowerCase();
+      if (p) customerByPhone.set(p, c);
+      if (c.id) customerByPhone.set(`id:${c.id}`, c);
     }
 
-    if (realOrders.length === 0 || customers.length === 0) {
-      return { customersOwed: [], companiesOwed: [], grandTotal: 0 };
+    const companyById = new Map<string, any>();
+    companies.forEach(c => companyById.set(c.id, c));
+
+    // Helper functions (same as Payment.tsx)
+    const normalize = (s: string) => s.replace(/[\s\-()]/g, '').trim().toLowerCase();
+    const realName = (name?: string | null) => {
+      const n = (name || '').trim();
+      if (!n) return undefined;
+      const lower = n.toLowerCase();
+      if (lower === 'عميل' || lower === 'customer' || lower === 'شركة' || lower === 'company' || n === '—') return undefined;
+      return n;
+    };
+    const resolveCustomerName = (o: any) => {
+      const fromOrder = realName(o.customerName);
+      if (fromOrder) return fromOrder;
+      if (o.customerId) {
+        const byId = customerByPhone.get(`id:${o.customerId}`);
+        const n = realName(byId?.name);
+        if (n) return n;
+      }
+      if (o.customerPhone) {
+        const byPhone = customerByPhone.get(normalize(o.customerPhone));
+        const n = realName(byPhone?.name);
+        if (n) return n;
+      }
+      return undefined;
+    };
+    const resolveCompanyId = (o: any) => {
+      if (o.billedToType === 'customer') return undefined;
+      if (o.companyId) return o.companyId;
+      return undefined;
+    };
+
+    const companiesMap = new Map<string, any>();
+    const customersMap = new Map<string, any>();
+    
+    let grandTotal = 0;
+
+    for (const o of accountOrders) {
+      // Calculate order total exactly like Payment.tsx (using getOrderGrandTotal logic)
+      const rate = typeof o.taxRate === 'number' && Number.isFinite(o.taxRate) ? o.taxRate : taxRate;
+      const tax = typeof o.taxAmount === 'number' && Number.isFinite(o.taxAmount) ? o.taxAmount : (o.totalAmount || 0) * rate;
+      let total = (o.totalAmount || 0) + tax;
+      if (typeof o.grandTotal === 'number' && Number.isFinite(o.grandTotal) && o.grandTotal > 0) {
+        total = o.grandTotal;
+      }
+      total = Math.max(0, Number.isFinite(total) ? total : 0);
+
+      grandTotal += total;
+
+      const coId = resolveCompanyId(o);
+      const custName = resolveCustomerName(o);
+
+      if (coId) {
+        const key = coId;
+        const existing = companiesMap.get(key);
+        if (existing) {
+          existing.balance += total;
+          existing.invoiceCount += 1;
+        } else {
+          const co = companyById.get(coId);
+          companiesMap.set(key, {
+            id: coId,
+            name: co ? co.name : (language === 'ar' ? 'شركة' : 'Company'),
+            phone: co?.phone,
+            balance: total,
+            invoiceCount: 1,
+            type: 'company'
+          });
+        }
+        continue;
+      }
+
+      // Customer
+      const phoneKey = o.customerPhone ? normalize(o.customerPhone) : '';
+      const idPart = o.customerId || phoneKey || o.id;
+      const key = idPart;
+      const existing = customersMap.get(key);
+      const displayName = custName || o.customerPhone?.trim() || (language === 'ar' ? 'عميل' : 'Customer');
+
+      if (existing) {
+        existing.balance += total;
+        existing.invoiceCount += 1;
+        if (!existing.phone && o.customerPhone) existing.phone = o.customerPhone;
+        if (custName) {
+          existing.name = custName;
+        } else if (o.customerPhone && (existing.name === 'عميل' || existing.name === 'Customer')) {
+          existing.name = o.customerPhone;
+        }
+      } else {
+        customersMap.set(key, {
+          id: key,
+          name: displayName,
+          phone: o.customerPhone,
+          balance: total,
+          invoiceCount: 1,
+          type: 'customer'
+        });
+      }
     }
 
-    // Customers with outstanding balance (Exclude those affiliated with a company to prevent double counting
-    // since their personal debts roll up into their company's balance via includeMemberPersonal=true)
-    const customersOwed = customers
-      .filter(c => !c.companyId)
-      .map(c => {
-        const balance = getCustomerAccountBalance(realOrders, c, taxRate);
-        const invoices = getCustomerOpenInvoices(realOrders, c);
-        return {
-          id: c.$id || c.id,
-          name: c.name,
-          phone: c.phone,
-          balance,
-          invoiceCount: invoices.length,
-          type: 'customer' as const,
-        };
-      })
-      .filter(c => c.balance > 0)
-      .sort((a, b) => b.balance - a.balance);
+    return {
+      customersOwed: Array.from(customersMap.values()).sort((a, b) => b.balance - a.balance),
+      companiesOwed: Array.from(companiesMap.values()).sort((a, b) => b.balance - a.balance),
+      grandTotal
+    };
+  }, [allRealOrders, customers, companies, taxRate, selectedBranch, language]);
 
-    // Companies with outstanding balance
-    const companiesOwed = companies
-      .map(co => {
-        const members = customers.filter(m => m.companyId === co.id);
-        const balance = getCompanyAccountBalance(
-          realOrders,
-          co.id,
-          taxRate,
-          members.map(m => m.phone),
-          members.map(m => m.$id || m.id),
-          true
-        );
-        const invoices = getCompanyOpenInvoices(
-          realOrders,
-          co.id,
-          members.map(m => m.phone),
-          members.map(m => m.$id || m.id),
-          true
-        );
-        return {
-          id: co.id,
-          name: co.name,
-          phone: co.phone,
-          balance,
-          invoiceCount: invoices.length,
-          memberCount: members.length,
-          type: 'company' as const,
-        };
-      })
-      .filter(co => co.balance > 0)
-      .sort((a, b) => b.balance - a.balance);
-
-    const grandTotal =
-      customersOwed.reduce((s, c) => s + c.balance, 0) +
-      companiesOwed.reduce((s, c) => s + c.balance, 0);
-
-    return { customersOwed, companiesOwed, grandTotal };
-  }, [allRealOrders, customers, companies, taxRate, selectedBranch]);
+  const totalReceivables = receivablesData.grandTotal;
 
   // All 8 Stat Cards (Matching Reports page 100%)
   const statCardsRow1 = [
@@ -1150,47 +1211,49 @@ export default function ManagerDashboard() {
           </p>
         </div>
 
-        {/* Filters Panel (Date Selector) */}
-        <div className="flex flex-wrap items-center gap-2 sm:gap-3 shrink-0">
+        {/* Filters Panel (Date Selector) - Only show on analytics tab */}
+        {activeTab === 'analytics' && (
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3 shrink-0">
 
-          {/* Date Range Dropdown */}
-          <div className="relative flex items-center bg-white border border-gray-250/70 rounded-xl shadow-sm pr-2 sm:pr-3">
-            <Calendar className="text-gray-400 w-4 h-4 ml-2 mr-1.5 sm:mr-2 shrink-0" />
-            <select
-              value={dateRange}
-              onChange={e => {
-                const val = e.target.value as AnalyticsPeriod;
-                setDateRange(val);
-                localStorage.setItem('manager_date_range', val);
-              }}
-              className="py-2 sm:py-2.5 bg-transparent border-0 outline-none text-[11px] sm:text-xs md:text-sm font-bold text-gray-700 cursor-pointer pr-6 sm:pr-8"
+            {/* Date Range Dropdown */}
+            <div className="relative flex items-center bg-white border border-gray-250/70 rounded-xl shadow-sm pr-2 sm:pr-3">
+              <Calendar className="text-gray-400 w-4 h-4 ml-2 mr-1.5 sm:mr-2 shrink-0" />
+              <select
+                value={dateRange}
+                onChange={e => {
+                  const val = e.target.value as AnalyticsPeriod;
+                  setDateRange(val);
+                  localStorage.setItem('manager_date_range', val);
+                }}
+                className="py-2 sm:py-2.5 bg-transparent border-0 outline-none text-[11px] sm:text-xs md:text-sm font-bold text-gray-700 cursor-pointer pr-6 sm:pr-8"
+              >
+                <option value="Today">{t('Today')}</option>
+                <option value="This Week">{t('This Week')}</option>
+                <option value="This Month">{t('This Month')}</option>
+                <option value="This Year">{t('This Year')}</option>
+              </select>
+            </div>
+
+            {/* Telegram Daily Report */}
+            <button
+              onClick={sendConsolidatedTelegramReport}
+              className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 sm:py-2.5 bg-sky-600 hover:bg-sky-700 text-white rounded-xl text-[11px] sm:text-xs md:text-sm font-bold transition-all active:scale-95 shadow-sm"
+              title={language === 'ar' ? 'إرسال تقرير اليوم لتليجرام' : 'Send Daily Report to Telegram'}
             >
-              <option value="Today">{t('Today')}</option>
-              <option value="This Week">{t('This Week')}</option>
-              <option value="This Month">{t('This Month')}</option>
-              <option value="This Year">{t('This Year')}</option>
-            </select>
+              <Send size={14} className="shrink-0" />
+              <span className="whitespace-nowrap">{language === 'ar' ? 'تليجرام' : 'Telegram'}</span>
+            </button>
+
+            {/* Print Report */}
+            <button
+              onClick={() => window.print()}
+              className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 sm:py-2.5 bg-gray-900 hover:bg-black text-white rounded-xl text-[11px] sm:text-xs md:text-sm font-bold transition-all active:scale-95 shadow-sm"
+            >
+              <Download size={14} className="shrink-0" />
+              <span className="whitespace-nowrap">{t('Export')}</span>
+            </button>
           </div>
-
-          {/* Telegram Daily Report */}
-          <button
-            onClick={sendConsolidatedTelegramReport}
-            className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 sm:py-2.5 bg-sky-600 hover:bg-sky-700 text-white rounded-xl text-[11px] sm:text-xs md:text-sm font-bold transition-all active:scale-95 shadow-sm"
-            title={language === 'ar' ? 'إرسال تقرير اليوم لتليجرام' : 'Send Daily Report to Telegram'}
-          >
-            <Send size={14} className="shrink-0" />
-            <span className="whitespace-nowrap">{language === 'ar' ? 'تليجرام' : 'Telegram'}</span>
-          </button>
-
-          {/* Print Report */}
-          <button
-            onClick={() => window.print()}
-            className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 sm:py-2.5 bg-gray-900 hover:bg-black text-white rounded-xl text-[11px] sm:text-xs md:text-sm font-bold transition-all active:scale-95 shadow-sm"
-          >
-            <Download size={14} className="shrink-0" />
-            <span className="whitespace-nowrap">{t('Export')}</span>
-          </button>
-        </div>
+        )}
       </div>
 
       {/* ── Tab Switcher ──────────────────────────────────────────────────────── */}
@@ -1318,40 +1381,25 @@ export default function ManagerDashboard() {
             )}
           </div>
 
-          <div className="flex-1 flex items-end justify-between gap-1 sm:gap-2 h-56 sm:h-64 pb-2 pt-6">
-            {processedData.chartData.map((data, idx) => (
-              <div key={idx} className="flex-1 min-w-0 flex flex-col items-center gap-2 group">
-                <div className="relative w-full h-44 sm:h-52 flex items-end justify-center">
-
-                  {/* Animated Bar */}
-                  <motion.div
-                    key={`${dateRange}-${selectedBranch}-bar-${idx}`}
-                    initial={{ height: 0 }}
-                    animate={{ height: `${(data.value / maxRevenueValue) * 85 + 5}%` }}
-                    transition={{ duration: 0.7, ease: 'easeOut', delay: idx * 0.03 }}
-                    className="w-full max-w-[24px] sm:max-w-[28px] md:max-w-[36px] rounded-t-lg transition-opacity group-hover:opacity-75 relative bg-gradient-to-t from-mocha-500 to-caramel shadow-sm"
-                  >
-                    {/* Hover Tooltip */}
-                    <div className="opacity-0 group-hover:opacity-100 absolute -top-12 left-1/2 -translate-x-1/2 bg-gray-900 text-white text-[10px] md:text-xs py-1.5 px-2 rounded-lg pointer-events-none transition-opacity whitespace-nowrap z-50 shadow-xl">
-                      {data.value.toFixed(2)} {currencyStr}
-                      {data.orders > 0 ? ` · ${data.orders} ${t('orders')}` : ''}
-                    </div>
-                  </motion.div>
-                </div>
-                <span className="text-[9px] sm:text-[10px] md:text-xs font-bold text-gray-500 truncate max-w-full w-full text-center">{data.label}</span>
-              </div>
-            ))}
+          <div className="flex-1 w-full pt-2">
+            <RevenueAreaChart
+              data={processedData.chartData}
+              currencyStr={currencyStr}
+              isRtl={language === 'ar'}
+              ordersText={t('orders')}
+            />
           </div>
 
           {/* Legend */}
-          <div className="flex items-center gap-4 mt-4 pt-4 border-t border-gray-100">
+          <div className="flex items-center gap-4 mt-2 pt-3 border-t border-gray-100">
             <div className="flex items-center gap-2">
-              <div className="w-3.5 h-3.5 rounded-md bg-gradient-to-t from-mocha-500 to-caramel" />
-              <span className="text-xs text-gray-500 font-semibold">
+              <div className="w-3.5 h-3.5 rounded-full bg-gradient-to-r from-amber-500 via-sky-500 to-blue-600 shadow-sm" />
+              <span className="text-xs text-gray-600 font-semibold">
                 {language === 'ar' ? 'إجمالي المبيعات المحققة' : 'Completed Sales Revenue'}
               </span>
             </div>
           </div>
+
         </div>
 
         {/* Top Selling Items (الأصناف الأكثر مبيعاً) */}
@@ -1622,7 +1670,7 @@ export default function ManagerDashboard() {
                     </div>
                     <div className="text-right shrink-0">
                       <p className="text-xs md:text-sm font-extrabold text-gray-900">
-                        {(Number(order.totalAmount) * (1 + taxRate)).toFixed(2)} {currencyStr}
+                        {getOrderGrandTotal(order, taxRate).toFixed(2)} {currencyStr}
                       </p>
                       <p className="text-[10px] text-gray-400 mt-0.5">{timeStr}</p>
                     </div>

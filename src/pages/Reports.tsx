@@ -7,6 +7,7 @@ import {
   UserCheck, Award, Coins, TrendingDown, AlertTriangle, Scale, Wallet
 } from 'lucide-react';
 import { useAnalytics, AnalyticsPeriod } from '../hooks/useAnalytics';
+import { useOrders } from '../hooks/useOrders';
 import { StatCard } from '../components/ui/StatCard';
 import { LoadingScreen } from '../components/ui/LoadingScreen';
 import { OrderStatus, getOrderGrandTotal } from '../types/order';
@@ -18,6 +19,8 @@ import { resolveInvItem } from '../utils/inventoryHelpers';
 import { menuService } from '../services/menuService';
 import { MenuItem } from '../types/menu';
 import { getIngredientBaseQty } from '../utils/units';
+import { RevenueAreaChart } from '../components/ui/RevenueAreaChart';
+
 
 // ─── Status display config (UI-only: icons & colours) ────────────────────────
 const STATUS_CONFIG: Array<{
@@ -44,6 +47,7 @@ function periodLabel(p: AnalyticsPeriod, t: (k: string) => string) {
 // ─── Component ────────────────────────────────────────────────────────────────
 export default function Reports() {
   const { t, isRtl, language } = useLanguage();
+  const { orders: allOrders } = useOrders();
   const [dateRange, setDateRange] = useState<AnalyticsPeriod>(() => {
     const saved = localStorage.getItem('reports_date_range');
     return (saved as AnalyticsPeriod) || 'This Week';
@@ -202,21 +206,28 @@ export default function Reports() {
   }, [inventory]);
 
   const invoiceStats = React.useMemo(() => {
-    const paidCount = analytics.periodOrders.filter(o => o.paymentStatus === 'Paid').length;
-    const openCount = analytics.periodOrders.filter(o => o.paymentStatus === 'Unpaid').length;
-    const paidAmount = analytics.periodOrders
+    // "Paid" = realized revenue (Paid only).
+    // "Open" = open bills (Unpaid + OnAccount). Cancelled/Refunded excluded from both.
+    const validOrders = analytics.periodOrders.filter(
+      o => o.status !== 'Cancelled' && o.paymentStatus !== 'Refunded'
+    );
+    const paidCount = validOrders.filter(
+      o => o.paymentStatus === 'Paid'
+    ).length;
+    const openCount = validOrders.filter(o => o.paymentStatus === 'Unpaid' || o.paymentStatus === 'OnAccount').length;
+    const paidAmount = validOrders
       .filter(o => o.paymentStatus === 'Paid')
-      .reduce((sum, o) => sum + o.totalAmount * (1 + taxRate), 0);
-    const openAmount = analytics.periodOrders
-      .filter(o => o.paymentStatus === 'Unpaid')
-      .reduce((sum, o) => sum + o.totalAmount * (1 + taxRate), 0);
+      .reduce((sum, o) => sum + getOrderGrandTotal(o, taxRate), 0);
+    const openAmount = validOrders
+      .filter(o => o.paymentStatus === 'Unpaid' || o.paymentStatus === 'OnAccount')
+      .reduce((sum, o) => sum + getOrderGrandTotal(o, taxRate), 0);
     const totalCount = paidCount + openCount;
     return { paidCount, openCount, paidAmount, openAmount, totalCount };
   }, [analytics.periodOrders, taxRate]);
 
   const paymentMethodStats = React.useMemo(() => {
     // Use canonical getOrderGrandTotal so totals match analytics revenue exactly
-    // (respects frozen grandTotal and pointsRedeemed discounts)
+    // (respects frozen grandTotal snapshot)
     const realCashAmount = analytics.completedPeriod
       .filter(o => o.paymentMethod === 'Cash')
       .reduce((sum, o) => sum + getOrderGrandTotal(o, taxRate), 0);
@@ -266,16 +277,13 @@ export default function Reports() {
   const maxSale     = Math.max(1, ...(chartData || []).map(d => d.value));
   const maxItemCount = Math.max(1, ...(topItems || []).map(i => i.count));
 
+  // Outstanding receivables: lifetime (all on-account invoices still open),
+  // matching ManagerDashboard's receivablesData semantics.
   const totalReceivables = useMemo(() => {
-    return (analytics.periodOrders || [])
+    return (allOrders || [])
       .filter(o => o.paymentStatus === 'OnAccount' && o.status !== 'Cancelled')
-      .reduce((sum, o) => {
-        const amt = typeof o.grandTotal === 'number' && o.grandTotal > 0
-          ? o.grandTotal
-          : (o.totalAmount || 0) * (1 + taxRate);
-        return sum + amt;
-      }, 0);
-  }, [analytics.periodOrders, taxRate]);
+      .reduce((sum, o) => sum + getOrderGrandTotal(o, taxRate), 0);
+  }, [allOrders, taxRate]);
 
   // Stat cards — when dateRange = 'Today', these equal Dashboard's values exactly
   const statCards = [
@@ -413,34 +421,22 @@ export default function Reports() {
               </span>
             )}
           </div>
-          <div className="flex-1 flex items-end justify-between gap-1 md:gap-2 h-52 md:h-64 pb-2">
-            {chartData.map((data, idx) => (
-              <div key={idx} className="flex-1 flex flex-col items-center gap-1.5 md:gap-2 group">
-                <div className="relative w-full h-44 md:h-52 flex items-end justify-center">
-                  <motion.div
-                    key={`${dateRange}-bar-${idx}`}
-                    initial={{ height: 0 }}
-                    animate={{ height: `${(data.value / maxSale) * 100}%` }}
-                    transition={{ duration: 0.7, ease: 'easeOut', delay: idx * 0.04 }}
-                    className="w-full max-w-[32px] md:max-w-[40px] rounded-t-lg transition-opacity group-hover:opacity-75 relative"
-                    style={{ background: data.realRevenue > 0 ? '#c8956c' : '#e8d5c4' }}
-                  >
-                    <div className="opacity-0 group-hover:opacity-100 absolute -top-11 left-1/2 -translate-x-1/2 bg-gray-900 text-white text-[11px] py-1 px-2 rounded pointer-events-none transition-opacity whitespace-nowrap z-10">
-                      {data.value.toFixed(2)} {currencyStr}{data.orders > 0 ? ` · ${data.orders} ${t('orders')}` : ''}
-                    </div>
-                  </motion.div>
-                </div>
-                <span className="text-[10px] md:text-xs font-medium text-gray-500">{t(data.label)}</span>
-              </div>
-            ))}
+          <div className="flex-1 w-full pt-2">
+            <RevenueAreaChart
+              data={chartData}
+              currencyStr={currencyStr}
+              isRtl={isRtl}
+              ordersText={t('orders')}
+            />
           </div>
           {/* Legend */}
           <div className="flex items-center gap-4 mt-3 md:mt-4 pt-3 border-t border-gray-100">
             <div className="flex items-center gap-1.5">
-              <div className="w-3 h-3 rounded-sm bg-caramel" />
-              <span className="text-xs text-gray-500">{t('Real orders')}</span>
+              <div className="w-3.5 h-3.5 rounded-full bg-gradient-to-r from-amber-500 via-sky-500 to-blue-600 shadow-sm" />
+              <span className="text-xs text-gray-500 font-semibold">{t('Real orders')}</span>
             </div>
           </div>
+
         </div>
 
         {/* Top Selling Items */}
@@ -686,7 +682,7 @@ export default function Reports() {
                       </div>
                     </div>
                     <div className="text-right shrink-0">
-                      <p className="text-xs md:text-sm font-bold text-gray-900">{(order.totalAmount * (1 + taxRate)).toFixed(2)} {language === 'ar' ? 'ج.م' : 'EGP'}</p>
+                      <p className="text-xs md:text-sm font-bold text-gray-900">{getOrderGrandTotal(order, taxRate).toFixed(2)} {language === 'ar' ? 'ج.م' : 'EGP'}</p>
                       <p className="text-[11px] text-gray-400">{timeStr}</p>
                     </div>
                   </motion.div>
