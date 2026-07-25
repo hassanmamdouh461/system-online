@@ -73,8 +73,9 @@ export default {
       const url = new URL(request.url);
       const pathParts = url.pathname.split("/").filter(Boolean);
 
-      // Extract Branch ID from header or query param
-      const requestBranchId = request.headers.get("X-Branch-ID") || url.searchParams.get("branch_id") || undefined;
+      // Single-branch system: X-Branch-ID is accepted from legacy clients but
+      // intentionally ignored — reads are not scoped and writes always use
+      // MAIN_BRANCH_ID.
 
       // 3. Handle /api/sync endpoint for SyncService background sync
       if (pathParts[0] === "api" && pathParts[1] === "sync" && request.method === "POST") {
@@ -110,16 +111,8 @@ export default {
           } else {
             const normalized = sanitizeAndNormalize(table, data);
             normalized.id = docId;
-            // Never stamp manager/all as a real branch_id on writes
-            if (
-              requestBranchId &&
-              !normalized.branch_id &&
-              requestBranchId !== "manager" &&
-              requestBranchId !== "all" &&
-              requestBranchId !== "*"
-            ) {
-              normalized.branch_id = requestBranchId;
-            }
+            // Single-branch system: always stamp the one branch id.
+            normalized.branch_id = MAIN_BRANCH_ID;
 
             const keys = Object.keys(normalized);
             if (keys.length === 0) {
@@ -146,7 +139,7 @@ export default {
             await env.DB.prepare(sql).bind(...values).run();
 
             if (table === "snapshots") {
-              await pruneSnapshots(env.DB, normalized.branch_id || requestBranchId || "default");
+              await pruneSnapshots(env.DB, MAIN_BRANCH_ID);
             }
           }
 
@@ -195,16 +188,10 @@ export default {
       const method = request.method;
 
       if (method === "GET") {
-        // Manager / all / empty → no branch isolation (central dashboard must see every branch)
-        const branchScope = resolveBranchScope(requestBranchId);
-
+        // Single-branch system: no branch filtering, every row belongs here.
         if (docId) {
-          let sql = `SELECT * FROM ${table} WHERE id = ?`;
+          const sql = `SELECT * FROM ${table} WHERE id = ?`;
           const params: any[] = [docId];
-          if (branchScope.mode === "aliases") {
-            sql += ` AND (${branchScope.sql})`;
-            params.push(...branchScope.params);
-          }
           const row = await env.DB.prepare(sql).bind(...params).first();
 
           if (!row) {
@@ -219,12 +206,8 @@ export default {
             headers: { "Content-Type": "application/json", ...corsHeaders }
           });
         } else {
-          let sql = `SELECT * FROM ${table}`;
+          const sql = `SELECT * FROM ${table}`;
           const params: any[] = [];
-          if (branchScope.mode === "aliases") {
-            sql += ` WHERE ${branchScope.sql}`;
-            params.push(...branchScope.params);
-          }
           const stmt = params.length > 0 ? env.DB.prepare(sql).bind(...params) : env.DB.prepare(sql);
           const { results } = await stmt.all();
           const documents = (results || []).map(row => denormalizeData(table, row));
@@ -243,15 +226,8 @@ export default {
 
         const data = sanitizeAndNormalize(table, rawData);
         data.id = documentId;
-        if (
-          requestBranchId &&
-          !data.branch_id &&
-          requestBranchId !== "manager" &&
-          requestBranchId !== "all" &&
-          requestBranchId !== "*"
-        ) {
-          data.branch_id = requestBranchId;
-        }
+        // Single-branch system: always stamp the one branch id.
+        data.branch_id = MAIN_BRANCH_ID;
 
         const keys = Object.keys(data);
         if (keys.length === 0) {
@@ -278,7 +254,7 @@ export default {
         await env.DB.prepare(sql).bind(...values).run();
 
         if (table === "snapshots") {
-          await pruneSnapshots(env.DB, data.branch_id || requestBranchId || "default");
+          await pruneSnapshots(env.DB, MAIN_BRANCH_ID);
         }
 
         const row = await env.DB.prepare(`SELECT * FROM ${table} WHERE id = ?`).bind(documentId).first();
@@ -359,36 +335,18 @@ export default {
 };
 
 /**
- * Branch isolation for multi-branch POS.
- * - manager / all / * → no filter (central dashboard)
- * - default / main_branch / branch_1 → treated as the same main branch aliases
- * - any other id → exact match + NULL + default + main_branch fallback for legacy rows
+ * Single-branch POS.
+ *
+ * This deployment serves exactly one branch, so there is no branch filtering
+ * to apply: every row in the database belongs to that branch. The X-Branch-ID
+ * header is still accepted for backwards compatibility with older clients, but
+ * it no longer narrows reads — a client that sends a stale id ('default',
+ * 'branch_1', 'manager', ...) sees the same single dataset as everyone else.
+ *
+ * MAIN_BRANCH_ID is what every write is stamped with, so the column converges
+ * on one value over time without needing a destructive schema migration.
  */
-function resolveBranchScope(requestBranchId: string | undefined): {
-  mode: "all" | "aliases";
-  sql: string;
-  params: string[];
-} {
-  const raw = (requestBranchId || "").trim();
-  if (!raw || raw === "manager" || raw === "all" || raw === "*") {
-    return { mode: "all", sql: "", params: [] };
-  }
-
-  const MAIN_ALIASES = new Set(["default", "main_branch", "branch_1"]);
-  if (MAIN_ALIASES.has(raw)) {
-    return {
-      mode: "aliases",
-      sql: `(branch_id IS NULL OR branch_id IN ('default', 'main_branch', 'branch_1', ?))`,
-      params: [raw],
-    };
-  }
-
-  return {
-    mode: "aliases",
-    sql: `(branch_id = ? OR branch_id IS NULL OR branch_id = 'default' OR branch_id = 'main_branch')`,
-    params: [raw],
-  };
-}
+const MAIN_BRANCH_ID = "main_branch";
 
 function getCorsHeaders(request: Request, env: Env) {
   // Fail-closed: if ALLOWED_ORIGINS is unset, return NO permissive CORS headers.
@@ -573,9 +531,7 @@ function normalizeData(table: string, data: any) {
 
   if (table === 'snapshots') {
     if ('branchId' in normalized) normalized.branch_id = normalized.branchId;
-    if (!normalized.branch_id || normalized.branch_id === 'manager' || normalized.branch_id === 'all' || normalized.branch_id === '*') {
-      normalized.branch_id = 'main_branch';
-    }
+    normalized.branch_id = MAIN_BRANCH_ID;
     if ('createdAt' in normalized) {
       normalized.created_at = normalized.createdAt;
       delete normalized.createdAt;
@@ -611,8 +567,8 @@ function denormalizeData(table: string, row: any) {
     doc.taxRate = n(row.taxRate ?? row.tax_rate);
     doc.taxAmount = n(row.taxAmount ?? row.tax_amount);
     doc.grandTotal = n(row.grandTotal ?? row.grand_total);
-    doc.branch_id = row.branch_id || row.branchId || 'main_branch';
-    doc.branchId = doc.branch_id;
+    doc.branch_id = MAIN_BRANCH_ID;
+    doc.branchId = MAIN_BRANCH_ID;
     doc.customerPhone = row.customerPhone || row.customer_phone || undefined;
     doc.customerId = row.customerId || row.customer_id || undefined;
     doc.customerName = row.customerName || row.customer_name || undefined;
@@ -630,8 +586,8 @@ function denormalizeData(table: string, row: any) {
   
   if (table === 'menu_items') {
     doc.available = Boolean(row.available);
-    doc.branchId = row.branch_id;
-    doc.branch_id = row.branch_id;
+    doc.branchId = MAIN_BRANCH_ID;
+    doc.branch_id = MAIN_BRANCH_ID;
     // Echo the soft-delete tombstone back to clients.
     doc.deleted_at = row.deleted_at || null;
     doc.deletedAt = doc.deleted_at;
@@ -642,8 +598,8 @@ function denormalizeData(table: string, row: any) {
   }
   
   if (table === 'customers') {
-    doc.branchId = row.branch_id;
-    doc.branch_id = row.branch_id;
+    doc.branchId = MAIN_BRANCH_ID;
+    doc.branch_id = MAIN_BRANCH_ID;
     doc.companyId = row.company_id;
     doc.company_id = row.company_id;
     if (typeof row.tags === 'string') {
@@ -656,8 +612,8 @@ function denormalizeData(table: string, row: any) {
   }
 
   if (table === 'companies') {
-    doc.branchId = row.branch_id;
-    doc.branch_id = row.branch_id;
+    doc.branchId = MAIN_BRANCH_ID;
+    doc.branch_id = MAIN_BRANCH_ID;
     if (typeof row.tags === 'string') {
       try { doc.tags = JSON.parse(row.tags); } catch { doc.tags = []; }
     } else {
@@ -669,8 +625,8 @@ function denormalizeData(table: string, row: any) {
   }
   
   if (table === 'inventory') {
-    doc.branchId = row.branch_id || row.branchId;
-    doc.branch_id = doc.branchId;
+    doc.branchId = MAIN_BRANCH_ID;
+    doc.branch_id = MAIN_BRANCH_ID;
     doc.stock = Number(row.stock) || 0;
     doc.minStock = Number(row.minStock) || 0;
     doc.costPerUnit = Number(row.costPerUnit) || 0;
@@ -679,16 +635,16 @@ function denormalizeData(table: string, row: any) {
   }
 
   if (table === 'settings') {
-    doc.branchId = row.branch_id || row.branchId || 'default';
-    doc.branch_id = doc.branchId;
+    doc.branchId = MAIN_BRANCH_ID;
+    doc.branch_id = MAIN_BRANCH_ID;
     doc.key = row.key;
     doc.value = row.value;
     doc.updatedAt = row.updated_at || row.updatedAt || updated;
   }
 
   if (table === 'recipes') {
-    doc.branchId = row.branch_id || row.branchId;
-    doc.branch_id = doc.branchId;
+    doc.branchId = MAIN_BRANCH_ID;
+    doc.branch_id = MAIN_BRANCH_ID;
     doc.menuItemId = row.menu_item_id || row.menuItemId;
     doc.menu_item_id = doc.menuItemId;
     doc.inventoryItemId = row.inventory_item_id || row.inventoryItemId;
@@ -699,8 +655,8 @@ function denormalizeData(table: string, row: any) {
   }
 
   if (table === 'inventory_transactions') {
-    doc.branchId = row.branch_id || row.branchId;
-    doc.branch_id = doc.branchId;
+    doc.branchId = MAIN_BRANCH_ID;
+    doc.branch_id = MAIN_BRANCH_ID;
     doc.itemId = row.item_id || row.itemId;
     doc.item_id = doc.itemId;
     doc.itemName = row.item_name || row.itemName;
@@ -715,8 +671,8 @@ function denormalizeData(table: string, row: any) {
   }
 
   if (table === 'snapshots') {
-    doc.branchId = row.branch_id || row.branchId;
-    doc.branch_id = doc.branchId;
+    doc.branchId = MAIN_BRANCH_ID;
+    doc.branch_id = MAIN_BRANCH_ID;
     doc.kind = row.kind || 'auto';
     doc.createdAt = row.created_at || row.createdAt || created;
     if (typeof row.payload === 'string') {

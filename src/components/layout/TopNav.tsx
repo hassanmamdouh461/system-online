@@ -90,11 +90,9 @@ export function TopNav() {
             <div className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-gray-50 border border-gray-200/40">
               <div className={clsx("text-left", isRtl && "text-right")}>
                 <p className="text-xs font-bold text-gray-800 leading-tight">
-                  {language === 'ar' && user?.id === 'branch_1' ? 'فرع المعادي' :
-                   language === 'ar' && user?.id === 'branch_2' ? 'فرع مصر الجديدة' :
-                   language === 'ar' && user?.id === 'branch_3' ? 'فرع الزمالك' :
-                   language === 'ar' && user?.role === 'manager' ? 'الإدارة العامة' :
-                   user?.name ?? 'Admin User'}
+                  {language === 'ar' && user?.role === 'manager'
+                    ? 'الإدارة العامة'
+                    : user?.name ?? 'Admin User'}
                 </p>
                 <p className="text-[10px] text-gray-400 font-semibold">
                   {user?.role === 'manager' ? (language === 'ar' ? 'المدير' : 'Manager') : (language === 'ar' ? 'الفرع' : 'Branch')}
