@@ -12,42 +12,27 @@ class OrderRepository {
   getOrders() {
     const sqlite = this.getDb();
     const rows = sqlite.prepare('SELECT * FROM orders ORDER BY CAST(orderNumber AS INTEGER) ASC').all();
-    return rows.map(row => {
-      let items = [];
-      try {
-        items = JSON.parse(row.items);
-      } catch (e) {
-        console.error('[OrderRepository] Failed to parse order items json:', e);
-      }
-      return {
-        id: row.id,
-        orderNumber: row.orderNumber,
-        tableId: row.tableId,
-        items,
-        status: row.status,
-        paymentStatus: row.paymentStatus,
-        paymentMethod: row.paymentMethod || undefined,
-        totalAmount: row.totalAmount,
-        createdAt: row.createdAt,
-        updatedAt: row.updated_at || undefined,
-        paidAt: row.paidAt || undefined,
-        customerPhone: row.customerPhone || undefined,
-        pointsEarned: row.pointsEarned || 0,
-        pointsRedeemed: row.pointsRedeemed || 0,
-        branchId: row.branch_id || undefined,
-        isSynced: Boolean(row.is_synced)
-      };
-    });
+    return rows.map(row => this._rowToOrder(row));
   }
 
   getOrder(id) {
     const sqlite = this.getDb();
     const row = sqlite.prepare('SELECT * FROM orders WHERE id = ?').get(id);
     if (!row) return null;
+    return this._rowToOrder(row);
+  }
+
+  // Centralized row -> order object mapper so every read returns the full
+  // field set (financial snapshot, customer/company billing, refund, tombstone).
+  // Callers (Manager dashboard, reports, sync) previously saw only a subset,
+  // which made Electron under-report tax/grandTotal and drop OnAccount billing.
+  _rowToOrder(row) {
     let items = [];
     try {
       items = JSON.parse(row.items);
-    } catch {}
+    } catch (e) {
+      console.error('[OrderRepository] Failed to parse order items json:', e);
+    }
     return {
       id: row.id,
       orderNumber: row.orderNumber,
@@ -57,12 +42,23 @@ class OrderRepository {
       paymentStatus: row.paymentStatus,
       paymentMethod: row.paymentMethod || undefined,
       totalAmount: row.totalAmount,
+      taxRate: row.taxRate === null || row.taxRate === undefined ? undefined : row.taxRate,
+      taxAmount: row.taxAmount === null || row.taxAmount === undefined ? undefined : row.taxAmount,
+      grandTotal: row.grandTotal === null || row.grandTotal === undefined ? undefined : row.grandTotal,
       createdAt: row.createdAt,
       updatedAt: row.updated_at || undefined,
       paidAt: row.paidAt || undefined,
       customerPhone: row.customerPhone || undefined,
+      customerId: row.customerId || undefined,
+      customerName: row.customerName || undefined,
+      companyId: row.companyId || undefined,
+      companyName: row.companyName || undefined,
+      billedToType: row.billedToType || undefined,
       pointsEarned: row.pointsEarned || 0,
       pointsRedeemed: row.pointsRedeemed || 0,
+      refundedAt: row.refundedAt || undefined,
+      refundReason: row.refundReason || undefined,
+      deletedAt: row.deletedAt || undefined,
       branchId: row.branch_id || undefined,
       isSynced: Boolean(row.is_synced)
     };
@@ -80,11 +76,21 @@ class OrderRepository {
     const countToday = sqlite.prepare(
       "SELECT COUNT(*) as count FROM orders WHERE date(createdAt) = ?"
     ).get(todayLocal).count;
-    const orderNumber = String(countToday + 1);
+    // Prefer a clean short ticket from the caller; otherwise count-based next.
+    const providedNum = String(order.orderNumber || '').trim();
+    const orderNumber = /^\d{1,5}$/.test(providedNum) ? providedNum : String(countToday + 1);
 
     sqlite.prepare(`
-      INSERT INTO orders (id, orderNumber, tableId, items, status, paymentStatus, paymentMethod, totalAmount, createdAt, paidAt, customerPhone, pointsEarned, pointsRedeemed, branch_id, is_synced, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
+      INSERT INTO orders (
+        id, orderNumber, tableId, items, status, paymentStatus, paymentMethod,
+        totalAmount, taxRate, taxAmount, grandTotal,
+        createdAt, paidAt,
+        customerPhone, customerId, customerName,
+        companyId, companyName, billedToType,
+        pointsEarned, pointsRedeemed, refundedAt, refundReason, deletedAt,
+        branch_id, is_synced, updated_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
     `).run(
       id,
       orderNumber,
@@ -94,11 +100,22 @@ class OrderRepository {
       order.paymentStatus || 'Unpaid',
       order.paymentMethod || null,
       order.totalAmount,
+      order.taxRate === undefined ? null : order.taxRate,
+      order.taxAmount === undefined ? null : order.taxAmount,
+      order.grandTotal === undefined ? null : order.grandTotal,
       createdAt,
       order.paidAt || null,
       order.customerPhone || null,
+      order.customerId || null,
+      order.customerName || null,
+      order.companyId || null,
+      order.companyName || null,
+      order.billedToType || null,
       order.pointsEarned || 0,
       order.pointsRedeemed || 0,
+      order.refundedAt || null,
+      order.refundReason || null,
+      order.deletedAt || null,
       branchId,
       now
     );
@@ -137,11 +154,22 @@ class OrderRepository {
     if (data.paymentStatus !== undefined) { fields.push('paymentStatus = ?'); values.push(data.paymentStatus); }
     if (data.paymentMethod !== undefined) { fields.push('paymentMethod = ?'); values.push(data.paymentMethod); }
     if (data.totalAmount !== undefined) { fields.push('totalAmount = ?'); values.push(data.totalAmount); }
+    if (data.taxRate !== undefined) { fields.push('taxRate = ?'); values.push(data.taxRate === null ? null : data.taxRate); }
+    if (data.taxAmount !== undefined) { fields.push('taxAmount = ?'); values.push(data.taxAmount === null ? null : data.taxAmount); }
+    if (data.grandTotal !== undefined) { fields.push('grandTotal = ?'); values.push(data.grandTotal === null ? null : data.grandTotal); }
     if (data.createdAt !== undefined) { fields.push('createdAt = ?'); values.push(data.createdAt); }
     if (data.paidAt !== undefined) { fields.push('paidAt = ?'); values.push(data.paidAt); }
     if (data.customerPhone !== undefined) { fields.push('customerPhone = ?'); values.push(data.customerPhone); }
+    if (data.customerId !== undefined) { fields.push('customerId = ?'); values.push(data.customerId); }
+    if (data.customerName !== undefined) { fields.push('customerName = ?'); values.push(data.customerName); }
+    if (data.companyId !== undefined) { fields.push('companyId = ?'); values.push(data.companyId); }
+    if (data.companyName !== undefined) { fields.push('companyName = ?'); values.push(data.companyName); }
+    if (data.billedToType !== undefined) { fields.push('billedToType = ?'); values.push(data.billedToType); }
     if (data.pointsEarned !== undefined) { fields.push('pointsEarned = ?'); values.push(data.pointsEarned); }
     if (data.pointsRedeemed !== undefined) { fields.push('pointsRedeemed = ?'); values.push(data.pointsRedeemed); }
+    if (data.refundedAt !== undefined) { fields.push('refundedAt = ?'); values.push(data.refundedAt); }
+    if (data.refundReason !== undefined) { fields.push('refundReason = ?'); values.push(data.refundReason); }
+    if (data.deletedAt !== undefined) { fields.push('deletedAt = ?'); values.push(data.deletedAt); }
     if (data.branchId !== undefined) { fields.push('branch_id = ?'); values.push(data.branchId); }
     
     // Always mark as unsynced and update timestamp on mutation
@@ -223,8 +251,16 @@ class OrderRepository {
     const runTransaction = sqlite.transaction((orders) => {
       sqlite.prepare('DELETE FROM orders').run();
       const insert = sqlite.prepare(`
-        INSERT INTO orders (id, orderNumber, tableId, items, status, paymentStatus, paymentMethod, totalAmount, createdAt, paidAt, customerPhone, pointsEarned, pointsRedeemed, branch_id, is_synced, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
+        INSERT INTO orders (
+          id, orderNumber, tableId, items, status, paymentStatus, paymentMethod,
+          totalAmount, taxRate, taxAmount, grandTotal,
+          createdAt, paidAt,
+          customerPhone, customerId, customerName,
+          companyId, companyName, billedToType,
+          pointsEarned, pointsRedeemed, refundedAt, refundReason, deletedAt,
+          branch_id, is_synced, updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
       `);
       
       const created = [];
@@ -240,11 +276,22 @@ class OrderRepository {
           order.paymentStatus || 'Unpaid',
           order.paymentMethod || null,
           order.totalAmount,
+          order.taxRate === undefined ? null : order.taxRate,
+          order.taxAmount === undefined ? null : order.taxAmount,
+          order.grandTotal === undefined ? null : order.grandTotal,
           createdAt,
           order.paidAt || null,
           order.customerPhone || null,
+          order.customerId || null,
+          order.customerName || null,
+          order.companyId || null,
+          order.companyName || null,
+          order.billedToType || null,
           order.pointsEarned || 0,
           order.pointsRedeemed || 0,
+          order.refundedAt || null,
+          order.refundReason || null,
+          order.deletedAt || null,
           branchId,
           now
         );
@@ -259,32 +306,7 @@ class OrderRepository {
   getUnsyncedOrders() {
     const sqlite = this.getDb();
     const rows = sqlite.prepare('SELECT * FROM orders WHERE is_synced = 0').all();
-    return rows.map(row => {
-      let items = [];
-      try {
-        items = JSON.parse(row.items);
-      } catch (e) {
-        console.error('[OrderRepository] Failed to parse order items json:', e);
-      }
-      return {
-        id: row.id,
-        orderNumber: row.orderNumber,
-        tableId: row.tableId,
-        items,
-        status: row.status,
-        paymentStatus: row.paymentStatus,
-        paymentMethod: row.paymentMethod || undefined,
-        totalAmount: row.totalAmount,
-        createdAt: row.createdAt,
-        updatedAt: row.updated_at || undefined,
-        paidAt: row.paidAt || undefined,
-        customerPhone: row.customerPhone || undefined,
-        pointsEarned: row.pointsEarned || 0,
-        pointsRedeemed: row.pointsRedeemed || 0,
-        branchId: row.branch_id || undefined,
-        isSynced: Boolean(row.is_synced)
-      };
-    });
+    return rows.map(row => this._rowToOrder(row));
   }
 
   markOrdersSynced(ids) {
@@ -304,51 +326,122 @@ class OrderRepository {
     const sqlite = this.getDb();
     const branchId = this.getBranchId();
 
+    // Insert/upsert with the FULL field set the worker persists.
+    // Previously this hardcoded status='Ready', paymentStatus='Paid',
+    // tableId='Takeaway', paidAt=createdAt and renumbered every order 1..N,
+    // which (a) counted unpaid / refunded / cancelled orders as collected
+    // revenue and (b) wiped the real kitchen status and payment timestamp.
+    // Now every field is taken from the cloud row, defaulting only when the
+    // cloud value is genuinely missing — and paymentStatus defaults to
+    // 'Unpaid' (the safe, non-revenue default) instead of 'Paid'.
     const insert = sqlite.prepare(`
-      INSERT INTO orders (id, orderNumber, tableId, items, status, paymentStatus, paymentMethod, totalAmount, createdAt, paidAt, branch_id, is_synced, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
+      INSERT INTO orders (
+        id, orderNumber, tableId, items, status, paymentStatus, paymentMethod,
+        totalAmount, taxRate, taxAmount, grandTotal,
+        createdAt, updatedAt, paidAt,
+        customerPhone, customerId, customerName,
+        companyId, companyName, billedToType,
+        pointsEarned, pointsRedeemed, refundedAt, refundReason, deletedAt,
+        branch_id, is_synced
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
       ON CONFLICT(id) DO UPDATE SET
+        orderNumber = excluded.orderNumber,
+        tableId = excluded.tableId,
         status = excluded.status,
         paymentStatus = excluded.paymentStatus,
         paymentMethod = excluded.paymentMethod,
         totalAmount = excluded.totalAmount,
+        taxRate = excluded.taxRate,
+        taxAmount = excluded.taxAmount,
+        grandTotal = excluded.grandTotal,
         items = excluded.items,
+        paidAt = excluded.paidAt,
+        customerPhone = excluded.customerPhone,
+        customerId = excluded.customerId,
+        customerName = excluded.customerName,
+        companyId = excluded.companyId,
+        companyName = excluded.companyName,
+        billedToType = excluded.billedToType,
+        pointsEarned = excluded.pointsEarned,
+        pointsRedeemed = excluded.pointsRedeemed,
+        refundedAt = excluded.refundedAt,
+        refundReason = excluded.refundReason,
+        deletedAt = excluded.deletedAt,
         branch_id = excluded.branch_id,
         updated_at = excluded.updated_at
     `);
 
-    const runTx = sqlite.transaction((orders) => {
-      // Sort orders by $createdAt ascending to assign sequential order numbers
-      orders.sort((a, b) => new Date(a.$createdAt).getTime() - new Date(b.$createdAt).getTime());
+    // Keep a local payment win: if the local row is Paid more recently than the
+    // cloud row (cashier just settled it here), do not let a stale cloud pull
+    // downgrade it back to Unpaid/OnAccount and lose the revenue record.
+    const getLocalPaid = sqlite.prepare('SELECT paidAt, paymentStatus, updatedAt FROM orders WHERE id = ?');
 
-      let i = 1;
+    const runTx = sqlite.transaction((orders) => {
       for (const order of orders) {
         // Single-branch system: every pulled order belongs to this branch.
-        // The previous branch_id comparison silently dropped orders whose id
-        // did not match (e.g. rows stamped 'default' vs 'main_branch'), which
-        // made cloud orders vanish on pull.
         const orderBranchId = branchId;
 
         const id = order.$id;
+        if (!id) continue;
         const createdAt = order.$createdAt;
-        const updatedAt = order.$updatedAt;
-        const totalAmount = Number(order.total_amount) || 0;
-        const paymentMethod = order.payment_method || 'Cash';
-        const items = order.items; // JSON string
+        const updatedAt = order.$updatedAt || createdAt;
 
-        const orderNumber = String(i++);
+        // Preserve the real orderNumber from the cloud; only fall back to a
+        // per-pull sequence when the cloud value is empty/junk (never invent
+        // numbers from the document id, which is a timestamp).
+        const rawNum = String(order.orderNumber || '').trim();
+        const orderNumber = /^\d{1,5}$/.test(rawNum) ? rawNum : '';
+
+        const local = getLocalPaid.get(id);
+        const localPaidMs = local && local.paidAt ? new Date(local.paidAt).getTime() : 0;
+        const remotePaidMs = order.paidAt ? new Date(order.paidAt).getTime() : 0;
+        const localWinsPayment =
+          local &&
+          local.paymentStatus === 'Paid' &&
+          Number.isFinite(localPaidMs) &&
+          (!order.paidAt || (Number.isFinite(remotePaidMs) && localPaidMs > remotePaidMs));
+
+        const paymentStatus = localWinsPayment
+          ? 'Paid'
+          : (order.paymentStatus || 'Unpaid');
+        const paidAt = localWinsPayment ? local.paidAt : (order.paidAt || null);
+        const paymentMethod = localWinsPayment
+          ? (local.paymentStatus === 'Paid' ? (order.paymentMethod || 'Cash') : (order.paymentMethod || 'Cash'))
+          : (order.paymentMethod || 'Cash');
+
+        let items = order.items;
+        if (items && typeof items !== 'string') {
+          try { items = JSON.stringify(items); } catch (_) { items = '[]'; }
+        }
+        if (!items) items = '[]';
 
         insert.run(
           id,
-          orderNumber,
-          'Takeaway', // default
+          orderNumber || null,
+          order.tableId || 'Takeaway',
           items,
-          'Ready', // status
-          'Paid', // paymentStatus
+          order.status || 'New',
+          paymentStatus,
           paymentMethod,
-          totalAmount,
+          Number(order.totalAmount) || 0,
+          order.taxRate === undefined ? null : order.taxRate,
+          order.taxAmount === undefined ? null : order.taxAmount,
+          order.grandTotal === undefined ? null : order.grandTotal,
           createdAt,
-          createdAt, // paidAt
+          updatedAt,
+          paidAt,
+          order.customerPhone || null,
+          order.customerId || null,
+          order.customerName || null,
+          order.companyId || null,
+          order.companyName || null,
+          order.billedToType || null,
+          order.pointsEarned === undefined ? 0 : Number(order.pointsEarned) || 0,
+          order.pointsRedeemed === undefined ? 0 : Number(order.pointsRedeemed) || 0,
+          order.refundedAt || null,
+          order.refundReason || null,
+          order.deletedAt || null,
           orderBranchId,
           updatedAt
         );
@@ -361,12 +454,19 @@ class OrderRepository {
   getDailyReportStats() {
     const sqlite = this.getDb();
     
-    // Query basic daily summary in local timezone
+    // Query basic daily summary in local timezone.
+    // Revenue uses grandTotal when present (frozen tax snapshot — accurate),
+    // otherwise totalAmount + taxAmount, so tax is never lost on older rows.
+    // totalUnpaid now also covers OnAccount (charge-to-ledger) receivables,
+    // not just open Unpaid bills.
     const summary = sqlite.prepare(`
       SELECT 
         COUNT(*) as totalOrders,
-        SUM(CASE WHEN paymentStatus = 'Paid' THEN totalAmount ELSE 0 END) as totalRevenue,
-        SUM(CASE WHEN paymentStatus = 'Unpaid' THEN totalAmount ELSE 0 END) as totalUnpaid,
+        SUM(CASE WHEN paymentStatus = 'Paid' THEN
+          CASE WHEN grandTotal IS NOT NULL AND grandTotal > 0 THEN grandTotal
+               ELSE totalAmount + COALESCE(taxAmount, 0) END
+          ELSE 0 END) as totalRevenue,
+        SUM(CASE WHEN paymentStatus IN ('Unpaid','OnAccount') THEN totalAmount ELSE 0 END) as totalUnpaid,
         SUM(CASE WHEN paymentMethod = 'Cash' AND paymentStatus = 'Paid' THEN totalAmount ELSE 0 END) as cashRevenue,
         SUM(CASE WHEN paymentMethod = 'Card' AND paymentStatus = 'Paid' THEN totalAmount ELSE 0 END) as cardRevenue
       FROM orders 

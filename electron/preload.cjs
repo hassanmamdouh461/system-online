@@ -22,6 +22,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   saveCustomer: (customer) => ipcRenderer.invoke('db:save-customer', customer),
   deleteCustomer: (id) => ipcRenderer.invoke('db:delete-customer', id),
 
+  // Companies
+  getCompanies: () => ipcRenderer.invoke('db:get-companies'),
+  getCompanyById: (id) => ipcRenderer.invoke('db:get-company-by-id', id),
+  saveCompany: (company) => ipcRenderer.invoke('db:save-company', company),
+  deleteCompany: (id) => ipcRenderer.invoke('db:delete-company', id),
+
   getSettings: () => ipcRenderer.invoke('db:get-settings'),
   saveSetting: (key, value) => ipcRenderer.invoke('db:save-setting', key, value),
   deleteSetting: (key) => ipcRenderer.invoke('db:delete-setting', key),

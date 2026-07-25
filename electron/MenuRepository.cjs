@@ -9,10 +9,11 @@ class MenuRepository {
     return database.getBranchId();
   }
 
-  getMenu() {
-    const sqlite = this.getDb();
-    const rows = sqlite.prepare('SELECT * FROM menu').all();
-    return rows.map(row => ({
+  // Centralized row -> menu item mapper. Includes the soft-delete tombstone
+  // (deleted_at) so cloud-deleted items stay hidden on Electron instead of
+  // being re-pulled as live, matching the web client behaviour.
+  _rowToMenuItem(row) {
+    return {
       id: row.id,
       name: row.name,
       description: row.description,
@@ -22,9 +23,17 @@ class MenuRepository {
       available: Boolean(row.available),
       createdAt: row.created_at || undefined,
       updatedAt: row.updated_at || undefined,
+      deletedAt: row.deleted_at || undefined,
       branchId: row.branch_id || undefined,
       isSynced: Boolean(row.is_synced)
-    }));
+    };
+  }
+
+  getMenu() {
+    const sqlite = this.getDb();
+    // Single-branch system: all menu belongs to this branch.
+    const rows = sqlite.prepare('SELECT * FROM menu').all();
+    return rows.map(row => this._rowToMenuItem(row));
   }
 
   createMenuItem(item) {
@@ -63,6 +72,7 @@ class MenuRepository {
     if (data.image !== undefined) { fields.push('image = ?'); values.push(data.image); }
     if (data.available !== undefined) { fields.push('available = ?'); values.push(data.available ? 1 : 0); }
     if (data.branchId !== undefined) { fields.push('branch_id = ?'); values.push(data.branchId); }
+    if (data.deletedAt !== undefined) { fields.push('deleted_at = ?'); values.push(data.deletedAt || null); }
     
     // Always mark as unsynced and update timestamp on mutation
     const now = new Date().toISOString();
@@ -83,24 +93,24 @@ class MenuRepository {
     const sqlite = this.getDb();
     const row = sqlite.prepare('SELECT * FROM menu WHERE id = ?').get(id);
     if (!row) return null;
-    return {
-      id: row.id,
-      name: row.name,
-      description: row.description,
-      price: row.price,
-      category: row.category,
-      image: row.image,
-      available: Boolean(row.available),
-      createdAt: row.created_at || undefined,
-      updatedAt: row.updated_at || undefined,
-      branchId: row.branch_id || undefined,
-      isSynced: Boolean(row.is_synced)
-    };
+    return this._rowToMenuItem(row);
   }
 
   deleteMenuItem(id) {
     const sqlite = this.getDb();
-    sqlite.prepare('DELETE FROM menu WHERE id = ?').run(id);
+    // Soft-delete: write a tombstone (deleted_at) instead of a hard DELETE,
+    // so a later cloud pull cannot resurrect the item. This matches the web
+    // client and the worker, which keep deleted_at to propagate deletions.
+    const now = new Date().toISOString();
+    const existing = sqlite.prepare('SELECT * FROM menu WHERE id = ?').get(id);
+    if (existing) {
+      sqlite.prepare(`
+        UPDATE menu SET deleted_at = ?, updated_at = ?, is_synced = 0 WHERE id = ?
+      `).run(now, now, id);
+    } else {
+      // No local row to tombstone — fall back to a hard delete is pointless,
+      // just record nothing. The cloud delete below handles the server side.
+    }
     
     // Try to delete from Cloudflare D1 database immediately
     try {
@@ -151,19 +161,7 @@ class MenuRepository {
   getUnsyncedMenu() {
     const sqlite = this.getDb();
     const rows = sqlite.prepare('SELECT * FROM menu WHERE is_synced = 0').all();
-    return rows.map(row => ({
-      id: row.id,
-      name: row.name,
-      description: row.description,
-      price: row.price,
-      category: row.category,
-      image: row.image,
-      available: Boolean(row.available),
-      createdAt: row.created_at || undefined,
-      updatedAt: row.updated_at || undefined,
-      branchId: row.branch_id || undefined,
-      isSynced: Boolean(row.is_synced)
-    }));
+    return rows.map(row => this._rowToMenuItem(row));
   }
 
   markMenuSynced(ids) {

@@ -76,19 +76,12 @@ function fetchWorker(urlPath, payload = null, method = 'POST') {
       headers['Authorization'] = `Bearer ${API_KEY}`;
       headers['X-API-Key'] = API_KEY;
     }
-    // Prefer branch_id from settings; fallback main_branch
-    let branchHeader = 'main_branch';
-    try {
-      const settings = database.getSettings();
-      if (settings['branch_id']) branchHeader = settings['branch_id'];
-      else if (settings['brewmaster_branch_config']) {
-        try {
-          const bc = JSON.parse(settings['brewmaster_branch_config']);
-          if (bc.branchId) branchHeader = bc.branchId;
-        } catch (_) {}
-      }
-    } catch (_) {}
-    headers['X-Branch-ID'] = branchHeader;
+    // Single-branch system: this installation serves exactly one branch, so
+    // every request is stamped with MAIN_BRANCH_ID. Reading a branch id from
+    // settings (e.g. a stale 'default' / 'branch_1' written by an older build)
+    // would send the wrong header and re-introduce the multi-branch filtering
+    // the worker now ignores anyway — the header must always be the one branch.
+    headers['X-Branch-ID'] = 'main_branch';
 
     const options = {
       hostname: targetUrl.hostname,
@@ -186,20 +179,47 @@ async function pushInventory(items) {
   return { success: true };
 }
 
+function mapOrderDoc(doc) {
+  // Map a D1 order row into the shape the Electron layer writes/stores.
+  // Previously this dropped status, paymentStatus, paidAt, customer/company
+  // billing, tax/grandTotal, refund and tombstone fields — so every pulled
+  // order looked Paid/Ready with no real financial data, which inflated
+  // revenue and wiped the kitchen status. Keep every field the worker knows.
+  return {
+    $id: doc.$id || doc.id,
+    $createdAt: doc.$createdAt || doc.createdAt || doc.created_at,
+    $updatedAt: doc.$updatedAt || doc.updatedAt || doc.updated_at || doc.createdAt,
+    orderNumber: doc.orderNumber || doc.order_number,
+    tableId: doc.tableId,
+    status: doc.status,
+    paymentStatus: doc.paymentStatus,
+    paymentMethod: doc.paymentMethod || doc.payment_method || 'Cash',
+    totalAmount: Number(doc.totalAmount || doc.total_amount || 0),
+    taxRate: doc.taxRate === null || doc.taxRate === undefined ? undefined : Number(doc.taxRate),
+    taxAmount: doc.taxAmount === null || doc.taxAmount === undefined ? undefined : Number(doc.taxAmount),
+    grandTotal: doc.grandTotal === null || doc.grandTotal === undefined ? undefined : Number(doc.grandTotal),
+    paidAt: doc.paidAt || doc.paid_at || undefined,
+    customerPhone: doc.customerPhone || doc.customer_phone || undefined,
+    customerId: doc.customerId || doc.customer_id || undefined,
+    customerName: doc.customerName || doc.customer_name || undefined,
+    companyId: doc.companyId || doc.company_id || undefined,
+    companyName: doc.companyName || doc.company_name || undefined,
+    billedToType: doc.billedToType || doc.billed_to_type || undefined,
+    pointsEarned: doc.pointsEarned === null || doc.pointsEarned === undefined ? undefined : Number(doc.pointsEarned),
+    pointsRedeemed: doc.pointsRedeemed === null || doc.pointsRedeemed === undefined ? undefined : Number(doc.pointsRedeemed),
+    refundedAt: doc.refundedAt || doc.refunded_at || undefined,
+    refundReason: doc.refundReason || doc.refund_reason || undefined,
+    deletedAt: doc.deletedAt || doc.deleted_at || undefined,
+    items: doc.items,
+    branch_id: doc.branch_id || doc.branchId
+  };
+}
+
 async function pullOrders() {
   console.log('[D1 Sync API] Pulling orders from D1...');
   const res = await fetchWorker('/v1/databases/default/collections/orders/documents', null, 'GET');
   const documents = res.documents || [];
-
-  return documents.map(doc => ({
-    $id: doc.$id || doc.id,
-    $createdAt: doc.$createdAt || doc.createdAt,
-    $updatedAt: doc.$updatedAt || doc.createdAt,
-    total_amount: Number(doc.totalAmount || doc.total_amount || 0),
-    payment_method: doc.paymentMethod || doc.payment_method || 'Cash',
-    items: doc.items,
-    branch_id: doc.branch_id || doc.branchId
-  }));
+  return documents.map(mapOrderDoc);
 }
 
 async function deleteMenuItem(id) {
@@ -219,16 +239,7 @@ async function getManagerOrders() {
   console.log('[D1 Sync API] Manager fetching all orders...');
   const res = await fetchWorker('/v1/databases/default/collections/orders/documents', null, 'GET');
   const documents = res.documents || [];
-
-  return documents.map(doc => ({
-    $id: doc.$id || doc.id,
-    $createdAt: doc.$createdAt || doc.createdAt,
-    $updatedAt: doc.$updatedAt || doc.createdAt,
-    total_amount: Number(doc.totalAmount || doc.total_amount || 0),
-    payment_method: doc.paymentMethod || doc.payment_method || 'Cash',
-    items: doc.items,
-    branch_id: doc.branch_id || doc.branchId
-  }));
+  return documents.map(mapOrderDoc);
 }
 
 async function getManagerCustomers() {
@@ -236,15 +247,24 @@ async function getManagerCustomers() {
   const res = await fetchWorker('/v1/databases/default/collections/customers/documents', null, 'GET');
   const documents = res.documents || [];
 
-  return documents.map(doc => ({
-    $id: doc.$id || doc.id,
-    $createdAt: doc.$createdAt || doc.createdAt,
-    $updatedAt: doc.$updatedAt || doc.createdAt,
-    name: doc.name,
-    phone: doc.phone,
-    points: Number(doc.points || 0),
-    branchId: doc.branch_id || doc.branchId
-  }));
+  return documents.map(doc => {
+    let tags = doc.tags;
+    if (typeof tags === 'string') {
+      try { tags = JSON.parse(tags || '[]'); } catch (_) { tags = []; }
+    }
+    return {
+      $id: doc.$id || doc.id,
+      $createdAt: doc.$createdAt || doc.createdAt || doc.created_at,
+      $updatedAt: doc.$updatedAt || doc.updatedAt || doc.updated_at || doc.createdAt,
+      name: doc.name,
+      phone: doc.phone,
+      points: Number(doc.points || 0),
+      companyId: doc.companyId || doc.company_id || undefined,
+      tags: Array.isArray(tags) ? tags : [],
+      notes: doc.notes || undefined,
+      branchId: doc.branch_id || doc.branchId
+    };
+  });
 }
 
 async function getManagerInventory() {
@@ -263,12 +283,82 @@ async function getManagerInventory() {
   }));
 }
 
+async function pushCompanies(companies) {
+  if (!companies || companies.length === 0) return { success: true };
+  console.log(`[D1 Sync API] Pushing ${companies.length} companies...`);
+  for (const c of companies) {
+    // tags must be a JSON string for the worker's ALLOWED_COLUMNS / normalize.
+    const payload = { ...c };
+    if (Array.isArray(payload.tags)) payload.tags = JSON.stringify(payload.tags);
+    await fetchWorker('/api/sync', {
+      type: 'company',
+      action: 'create',
+      data: payload
+    }, 'POST');
+  }
+  return { success: true };
+}
+
+async function pullCompanies() {
+  console.log('[D1 Sync API] Pulling companies from D1...');
+  try {
+    const res = await fetchWorker('/v1/databases/default/collections/companies/documents', null, 'GET');
+    const documents = res.documents || [];
+    return documents.map(doc => {
+      let tags = doc.tags;
+      if (typeof tags === 'string') {
+        try { tags = JSON.parse(tags || '[]'); } catch (_) { tags = []; }
+      }
+      return {
+        id: doc.$id || doc.id,
+        name: doc.name || 'شركة',
+        tags: Array.isArray(tags) ? tags : [],
+        phone: doc.phone || undefined,
+        notes: doc.notes || undefined,
+        branchId: doc.branch_id || doc.branchId,
+        createdAt: doc.$createdAt || doc.createdAt || doc.created_at || new Date().toISOString(),
+        updatedAt: doc.$updatedAt || doc.updatedAt || doc.updated_at
+      };
+    });
+  } catch (err) {
+    console.warn('[D1 Sync API] pullCompanies failed:', err.message);
+    return [];
+  }
+}
+
+async function pushInventoryTransactions(txs) {
+  if (!txs || txs.length === 0) return { success: true };
+  console.log(`[D1 Sync API] Pushing ${txs.length} inventory transactions...`);
+  for (const tx of txs) {
+    await fetchWorker('/api/sync', {
+      type: 'inventory_transactions',
+      action: 'create',
+      data: {
+        id: tx.id,
+        itemId: tx.itemId,
+        itemName: tx.itemName,
+        type: tx.type,
+        quantity: tx.quantity,
+        unit: tx.unit || '',
+        referenceId: tx.referenceId,
+        notes: tx.notes,
+        branchId: tx.branchId,
+        createdAt: tx.createdAt
+      }
+    }, 'POST');
+  }
+  return { success: true };
+}
+
 module.exports = {
   pushMenuItems,
   pushOrders,
   pushCustomers,
   pushInventory,
+  pushCompanies,
+  pushInventoryTransactions,
   pullOrders,
+  pullCompanies,
   deleteMenuItem,
   getManagerOrders,
   getManagerCustomers,

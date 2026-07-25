@@ -358,6 +358,35 @@ class InventoryRepository {
       }
     })();
   }
+
+  getUnsyncedTransactions() {
+    const sqlite = this.getDb();
+    const rows = sqlite
+      .prepare('SELECT t.*, i.name as itemName, i.unit as itemUnit FROM inventory_transactions t LEFT JOIN inventory i ON t.itemId = i.id WHERE t.is_synced = 0')
+      .all();
+    return rows.map(row => ({
+      id: row.id,
+      itemId: row.itemId,
+      itemName: row.itemName || row.itemUnit ? row.itemName : undefined,
+      type: row.type,
+      quantity: row.quantity,
+      unit: row.itemUnit,
+      referenceId: row.referenceId || undefined,
+      createdAt: row.createdAt,
+      branchId: row.branch_id || undefined,
+      isSynced: Boolean(row.is_synced),
+      notes: row.notes || undefined
+    }));
+  }
+
+  markTransactionsSynced(ids) {
+    if (!ids || ids.length === 0) return;
+    const sqlite = this.getDb();
+    const stmt = sqlite.prepare('UPDATE inventory_transactions SET is_synced = 1 WHERE id = ?');
+    sqlite.transaction(() => {
+      for (const id of ids) stmt.run(id);
+    })();
+  }
 }
 
 module.exports = new InventoryRepository();

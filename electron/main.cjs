@@ -9,6 +9,7 @@ const orderRepository = require('./OrderRepository.cjs');
 const menuRepository = require('./MenuRepository.cjs');
 const customerRepository = require('./CustomerRepository.cjs');
 const inventoryRepository = require('./InventoryRepository.cjs');
+const companyRepository = require('./CompanyRepository.cjs');
 const d1Sync = require('./d1SyncService.cjs');
 const telegramService = require('./telegramService.cjs');
 
@@ -78,6 +79,12 @@ app.whenReady().then(() => {
   ipcMain.handle('db:get-customer-by-phone', (event, phone) => customerRepository.getCustomerByPhone(phone));
   ipcMain.handle('db:save-customer', (event, customer) => customerRepository.saveCustomer(customer));
   ipcMain.handle('db:delete-customer', (event, id) => customerRepository.deleteCustomer(id));
+
+  // Company handlers — companies round-trip through Electron (previously missing).
+  ipcMain.handle('db:get-companies', () => companyRepository.getCompanies());
+  ipcMain.handle('db:get-company-by-id', (event, id) => companyRepository.getCompanyById(id));
+  ipcMain.handle('db:save-company', (event, company) => companyRepository.saveCompany(company));
+  ipcMain.handle('db:delete-company', (event, id) => companyRepository.deleteCompany(id));
   
   // Manager Dashboard cloud fetch handlers
   ipcMain.handle('db:get-manager-orders', () => d1Sync.getManagerOrders());

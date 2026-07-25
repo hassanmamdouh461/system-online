@@ -138,6 +138,13 @@ declare global {
       saveCustomer: (customer: Partial<Customer> & { phone: string }) => Promise<Customer>;
       deleteCustomer: (id: string) => Promise<void>;
 
+      // Companies — available on Electron so company profiles + OnAccount
+      // ledgers round-trip through the desktop SQLite store.
+      getCompanies: () => Promise<Company[]>;
+      getCompanyById: (id: string) => Promise<Company | null>;
+      saveCompany: (company: Partial<Company> & { name: string }) => Promise<Company>;
+      deleteCompany: (id: string) => Promise<void>;
+
       getSettings: () => Promise<Record<string, string>>;
       saveSetting: (key: string, value: string) => Promise<void>;
       deleteSetting: (key: string) => Promise<void>;

@@ -66,6 +66,18 @@ interface D1OrderDoc {
   totalAmount?: number;
 }
 
+interface ChartPoint {
+  label: string;
+  value: number;
+  orders: number;
+}
+
+interface TopItem {
+  name: string;
+  count: number;
+  revenue: number;
+}
+
 // ─── Date Period Config ────────────────────────────────────────────────────────
 // AnalyticsPeriod is imported from useAnalytics (single source of truth)
 
@@ -184,6 +196,38 @@ function StatCard({ label, value, icon: Icon, trend, color }: StatCardProps) {
   );
 }
 
+const INITIAL_STOCKS: Record<string, number> = {
+  'inv-beans': 50.0,
+  'inv-milk': 100.0,
+  'inv-sugar': 50.0,
+  'inv-caramel': 20.0,
+  'inv-vanilla': 20.0,
+  'inv-cups': 1000.0,
+  'inv-beef': 200.0,
+  'inv-buns': 200.0,
+  'inv-cheese': 300.0,
+  'inv-fries': 100.0,
+  'inv-chicken': 80.0,
+  'inv-bread': 500.0,
+  'inv-lettuce': 30.0,
+  'inv-tomato': 40.0,
+  'inv-mayo': 15.0,
+  'inv-croissant': 150.0,
+  'inv-turkey': 200.0,
+  'inv-mozzarella': 25.0,
+  'inv-flour': 50.0,
+  'inv-chocolate': 30.0,
+  'inv-tea': 15.0,
+  'inv-peach': 10.0,
+  'inv-mint': 5.0,
+  'inv-lemon': 500.0,
+  'inv-soda': 120.0,
+  'inv-passion': 10.0,
+  'inv-oreo': 800.0,
+  'inv-strawberry': 20.0,
+  'inv-mango': 25.0,
+  'inv-icecream': 40.0,
+};
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 export default function ManagerDashboard() {
@@ -482,13 +526,6 @@ export default function ManagerDashboard() {
       alert(`${language === 'ar' ? 'فشل الإرسال: ' : 'Send failed: '}${err.message || 'خطأ غير معروف'}`);
     }
   };
-
-  // Close dropdown on outside click
-  useEffect(() => {
-    const handleClose = () => setIsBranchDropdownOpen(false);
-    window.addEventListener('click', handleClose);
-    return () => window.removeEventListener('click', handleClose);
-  }, []);
 
   // ── Scoped Data Processing (Directly from analytics hook for 100% parity with Reports) ──
   const processedData = useMemo(() => {

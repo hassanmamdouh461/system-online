@@ -66,6 +66,23 @@ function initDatabase() {
     )
   `).run();
 
+  // Create companies table — mirrors the D1 schema so company profiles and
+  // their OnAccount ledgers round-trip through Electron. Previously Electron
+  // had no companies table at all, so company-billed orders lost their link.
+  db.prepare(`
+    CREATE TABLE IF NOT EXISTS companies (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      tags TEXT,
+      phone TEXT,
+      notes TEXT,
+      createdAt TEXT NOT NULL,
+      branch_id TEXT DEFAULT NULL,
+      is_synced INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT
+    )
+  `).run();
+
   // Create settings table for persistence of localStorage settings
   db.prepare(`
     CREATE TABLE IF NOT EXISTS settings (
@@ -136,6 +153,34 @@ function initDatabase() {
   try {
     db.prepare('ALTER TABLE orders ADD COLUMN pointsRedeemed REAL DEFAULT 0').run();
   } catch (e) {}
+
+  // ─── Order financial + billing snapshot columns ─────────────────────────────
+  // These mirror the D1 schema (schema.sql / schema-migrate-v2.sql + v4) so the
+  // Electron local DB can store the same data the web client and worker already
+  // persist. Without them, pulled orders lose tax/grandTotal and OnAccount
+  // company/customer billing, which understates or mis-states revenue in reports.
+  try { db.prepare('ALTER TABLE orders ADD COLUMN taxRate REAL').run(); } catch (e) {}
+  try { db.prepare('ALTER TABLE orders ADD COLUMN taxAmount REAL').run(); } catch (e) {}
+  try { db.prepare('ALTER TABLE orders ADD COLUMN grandTotal REAL').run(); } catch (e) {}
+  try { db.prepare('ALTER TABLE orders ADD COLUMN customerId TEXT').run(); } catch (e) {}
+  try { db.prepare('ALTER TABLE orders ADD COLUMN customerName TEXT').run(); } catch (e) {}
+  try { db.prepare('ALTER TABLE orders ADD COLUMN companyId TEXT').run(); } catch (e) {}
+  try { db.prepare('ALTER TABLE orders ADD COLUMN companyName TEXT').run(); } catch (e) {}
+  try { db.prepare('ALTER TABLE orders ADD COLUMN billedToType TEXT').run(); } catch (e) {}
+  try { db.prepare('ALTER TABLE orders ADD COLUMN refundedAt TEXT').run(); } catch (e) {}
+  try { db.prepare('ALTER TABLE orders ADD COLUMN refundReason TEXT').run(); } catch (e) {}
+  // Soft-delete tombstone so cloud-deleted orders are not resurrected on pull.
+  try { db.prepare('ALTER TABLE orders ADD COLUMN deletedAt TEXT').run(); } catch (e) {}
+
+  // ─── Customer company/tags/notes columns ───────────────────────────────────
+  // Mirror D1 schema so customer affiliation and tags survive sync.
+  try { db.prepare('ALTER TABLE customers ADD COLUMN company_id TEXT').run(); } catch (e) {}
+  try { db.prepare('ALTER TABLE customers ADD COLUMN tags TEXT').run(); } catch (e) {}
+  try { db.prepare('ALTER TABLE customers ADD COLUMN notes TEXT').run(); } catch (e) {}
+
+  // ─── Menu soft-delete tombstone ────────────────────────────────────────────
+  // Lets a cloud-deleted menu item stay hidden instead of being re-pulled as live.
+  try { db.prepare('ALTER TABLE menu ADD COLUMN deleted_at TEXT').run(); } catch (e) {}
 
   // ═══════════════════════════════════════════════════════════════════════════
   // Phase 1 Migration: Add branch_id, is_synced, created_at, updated_at
@@ -343,16 +388,24 @@ function getSyncStats() {
     const ordersCount = sqlite.prepare('SELECT COUNT(*) as count FROM orders WHERE is_synced = 0').get().count;
     const customersCount = sqlite.prepare('SELECT COUNT(*) as count FROM customers WHERE is_synced = 0').get().count;
     const inventoryCount = sqlite.prepare('SELECT COUNT(*) as count FROM inventory WHERE is_synced = 0').get().count;
+    // Companies + inventory transactions now participate in sync (previously
+    // they were invisible to the pending counter, so the SyncStatus badge lied).
+    let companiesCount = 0;
+    let txCount = 0;
+    try { companiesCount = sqlite.prepare('SELECT COUNT(*) as count FROM companies WHERE is_synced = 0').get().count; } catch (_) {}
+    try { txCount = sqlite.prepare('SELECT COUNT(*) as count FROM inventory_transactions WHERE is_synced = 0').get().count; } catch (_) {}
     return {
       pendingMenu: menuCount,
       pendingOrders: ordersCount,
       pendingCustomers: customersCount,
       pendingInventory: inventoryCount,
-      totalPending: menuCount + ordersCount + customersCount + inventoryCount
+      pendingCompanies: companiesCount,
+      pendingTransactions: txCount,
+      totalPending: menuCount + ordersCount + customersCount + inventoryCount + companiesCount + txCount
     };
   } catch (e) {
     console.error('[database] Failed to get sync stats:', e);
-    return { pendingMenu: 0, pendingOrders: 0, pendingCustomers: 0, pendingInventory: 0, totalPending: 0 };
+    return { pendingMenu: 0, pendingOrders: 0, pendingCustomers: 0, pendingInventory: 0, pendingCompanies: 0, pendingTransactions: 0, totalPending: 0 };
   }
 }
 

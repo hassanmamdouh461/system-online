@@ -152,6 +152,19 @@ class SyncEngine {
           tempOrderRepository.upsertPulledOrders(pulledOrders);
           console.log(`[syncEngine] Successfully integrated ${pulledOrders.length} remote orders into local database.`);
         }
+
+        // Pull companies so company profiles + OnAccount ledgers survive a
+        // browser/desktop wipe (previously Electron never pulled companies).
+        try {
+          const pulledCompanies = await d1Sync.pullCompanies();
+          if (pulledCompanies && pulledCompanies.length > 0) {
+            const companyRepository = require('./CompanyRepository.cjs');
+            companyRepository.upsertPulledCompanies(pulledCompanies);
+            console.log(`[syncEngine] Integrated ${pulledCompanies.length} remote companies.`);
+          }
+        } catch (coErr) {
+          console.warn('[syncEngine] Company pull skipped:', coErr.message);
+        }
       } catch (pullError) {
         console.error('[syncEngine] Failed to pull remote orders:', pullError.message);
       }
@@ -216,8 +229,34 @@ class SyncEngine {
           inventoryRepository.markInventorySynced(inventoryIds);
           console.log(`[syncEngine] Marked ${inventoryIds.length} inventory items as synced in local DB.`);
         }
+
+        // Sync inventory transactions (stock movements) — previously these were
+        // never pushed from Electron, so the cloud COGS/audit trail was missing
+        // every desktop-side stock change.
+        const unsyncedTxs = inventoryRepository.getUnsyncedTransactions();
+        if (unsyncedTxs.length > 0) {
+          await d1Sync.pushInventoryTransactions(unsyncedTxs);
+          const txIds = unsyncedTxs.map(t => t.id);
+          inventoryRepository.markTransactionsSynced(txIds);
+          console.log(`[syncEngine] Marked ${txIds.length} inventory transactions as synced.`);
+        }
       } catch (invError) {
         console.warn('[syncEngine] Inventory sync bypassed:', invError.message);
+      }
+
+      // Sync Companies (gracefully wrapped — the companies collection may be
+      // empty on fresh deployments).
+      try {
+        const companyRepository = require('./CompanyRepository.cjs');
+        const unsyncedCompanies = companyRepository.getUnsyncedCompanies();
+        if (unsyncedCompanies.length > 0) {
+          await d1Sync.pushCompanies(unsyncedCompanies);
+          const coIds = unsyncedCompanies.map(c => c.id);
+          companyRepository.markCompaniesSynced(coIds);
+          console.log(`[syncEngine] Marked ${coIds.length} companies as synced.`);
+        }
+      } catch (coError) {
+        console.warn('[syncEngine] Company sync bypassed:', coError.message);
       }
 
       // 6. Update success status
