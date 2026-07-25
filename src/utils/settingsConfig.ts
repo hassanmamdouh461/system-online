@@ -1,3 +1,5 @@
+import { MAIN_BRANCH_ID } from '../services/cloudConfig';
+
 // Keys for localStorage
 const LS_TAX_RATE_KEY = 'brewmaster_tax_rate';
 const LS_ADMIN_CREDS_KEY = 'brewmaster_admin_creds_v2';
@@ -50,7 +52,7 @@ export interface TelegramConfig {
 }
 
 const DEFAULT_BRANCH_CONFIG: BranchConfig = {
-  branchId: 'main_branch',
+  branchId: MAIN_BRANCH_ID,
   branchName: 'Main Branch',
   email: 'admin@branch.local',
   password: '',
@@ -301,14 +303,9 @@ export function getBranchConfig(): BranchConfig {
   if (saved) {
     try {
       const parsed = JSON.parse(saved);
-      const rawId = parsed.branchId || DEFAULT_BRANCH_CONFIG.branchId;
-      // Normalize legacy aliases so cloud reads match cashier writes
-      const branchId =
-        !rawId || rawId === 'default' || rawId === 'branch_1'
-          ? 'main_branch'
-          : rawId;
       return {
-        branchId,
+        // Single-branch system: the stored id is always the one branch.
+        branchId: MAIN_BRANCH_ID,
         branchName: parsed.branchName || DEFAULT_BRANCH_CONFIG.branchName,
         email: parsed.email || DEFAULT_BRANCH_CONFIG.email,
         password: parsed.password || DEFAULT_BRANCH_CONFIG.password,
@@ -319,7 +316,8 @@ export function getBranchConfig(): BranchConfig {
 }
 
 export function setBranchConfig(config: BranchConfig): void {
-  const payload = JSON.stringify(config);
+  // Single-branch system: the branch id is fixed and cannot be reassigned.
+  const payload = JSON.stringify({ ...config, branchId: MAIN_BRANCH_ID });
   localStorage.setItem(LS_BRANCH_CONFIG_KEY, payload);
   cloudPersist(LS_BRANCH_CONFIG_KEY, payload);
 }

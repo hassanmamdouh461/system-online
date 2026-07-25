@@ -85,45 +85,31 @@ export function setWorkerUrl(url: string): void {
 }
 
 /**
+ * This POS runs as a SINGLE branch installation.
+ *
+ * Every record — regardless of which device or role wrote it — belongs to the
+ * one and only branch. `MAIN_BRANCH_ID` is the single source of truth; the
+ * legacy ids ('default', 'branch_1', 'branch_2', 'branch_3', 'manager', 'all')
+ * only survive as inputs to normalizeBranchId() so historical rows still map
+ * onto the single branch.
+ */
+export const MAIN_BRANCH_ID = 'main_branch';
+
+/**
  * Branch header for cloud requests.
- * Manager sessions must send "manager" so the worker returns ALL branches.
- * Cashier / default config normalize to main_branch (D1 source of truth).
+ * Single-branch system: always the one branch, for every role and device.
  */
 export function getBranchIdHeader(): string {
-  if (typeof window === 'undefined') return 'main_branch';
-  try {
-    // Prefer live auth session (manager vs cashier)
-    const sessionRaw =
-      localStorage.getItem('auth_session_system_online') ||
-      sessionStorage.getItem('auth_session_system_online');
-    if (sessionRaw) {
-      const session = JSON.parse(sessionRaw);
-      const bid = session?.branch?.branchId || session?.user?.role;
-      if (bid === 'manager' || session?.user?.role === 'manager') return 'manager';
-      if (bid && bid !== 'all') {
-        return normalizeBranchId(String(bid));
-      }
-    }
-
-    const standalone = localStorage.getItem('branch_id');
-    if (standalone) return normalizeBranchId(standalone);
-
-    const raw = localStorage.getItem('brewmaster_branch_config');
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (parsed?.branchId) return normalizeBranchId(String(parsed.branchId));
-    }
-  } catch {
-    // ignore
-  }
-  return 'main_branch';
+  return MAIN_BRANCH_ID;
 }
 
-/** Map legacy aliases so default/branch_1 write & read as main_branch family */
-export function normalizeBranchId(branchId: string): string {
-  const b = String(branchId || '').trim();
-  if (!b || b === 'default' || b === 'branch_1' || b === 'manager' || b === 'all' || b === '*') return 'main_branch';
-  return b;
+/**
+ * Collapse any historical branch id onto the single branch.
+ * Kept as a function (rather than inlined) so legacy rows read from D1 or
+ * IndexedDB are folded into the single branch instead of being filtered out.
+ */
+export function normalizeBranchId(_branchId?: string): string {
+  return MAIN_BRANCH_ID;
 }
 
 export function isCloudConfigured(): boolean {
@@ -214,14 +200,9 @@ export async function cloudUpsert(
 ): Promise<boolean> {
   if (!id) return false;
   const payload: Record<string, any> = { ...data, id };
-  const bid = payload.branchId || payload.branch_id;
-  if (collection === 'snapshots') {
-    payload.branch_id = normalizeBranchId(bid || getBranchIdHeader());
-    payload.branchId = payload.branch_id;
-  } else if (bid === 'manager' || bid === 'all' || bid === '*') {
-    delete payload.branchId;
-    delete payload.branch_id;
-  }
+  // Single-branch system: every row is stamped with the one branch id.
+  payload.branch_id = MAIN_BRANCH_ID;
+  payload.branchId = MAIN_BRANCH_ID;
   try {
     const res = await cloudFetch(
       `/v1/databases/default/collections/${collection}/documents`,
