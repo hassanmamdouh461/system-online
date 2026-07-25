@@ -1,7 +1,6 @@
 import { Customer } from '../types/customer';
 import { customerRepository } from '../repositories';
-
-const WORKER_URL = (import.meta.env.VITE_CLOUDFLARE_WORKER_URL || '').replace(/\/$/, '');
+import { cloudGetCollection, isCloudConfigured } from './cloudConfig';
 
 function normalizePhone(phone: string): string {
   return phone.replace(/[\s\-()]/g, '').trim();
@@ -55,17 +54,16 @@ export const customersService = {
     }
 
     // 2) Server (Cloudflare D1 via Worker REST)
-    if (WORKER_URL && typeof navigator !== 'undefined' && navigator.onLine) {
+    // Uses cloudGetCollection() rather than a hand-rolled fetch: the previous
+    // call hit /databases/main/ (every other call uses /databases/default/) and
+    // sent no auth headers, so this lookup always failed and silently reported
+    // the customer as not found.
+    if (isCloudConfigured() && typeof navigator !== 'undefined' && navigator.onLine) {
       try {
-        const res = await fetch(
-          `${WORKER_URL}/v1/databases/main/collections/customers/documents`,
-          { headers: { Accept: 'application/json' } }
-        );
-        if (res.ok) {
-          const body = await res.json();
-          const docs: any[] = Array.isArray(body?.documents) ? body.documents : [];
+        const docs = await cloudGetCollection('customers');
+        if (docs) {
           const match = docs.find(
-            (d) => normalizePhone(String(d.phone || '')) === normalized
+            (d: any) => normalizePhone(String(d.phone || '')) === normalized
           );
           if (match) {
             const remote: Customer = {

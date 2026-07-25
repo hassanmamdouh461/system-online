@@ -561,7 +561,10 @@ function denormalizeData(table: string, row: any) {
     doc.total_amount = doc.totalAmount;
     doc.paymentMethod = row.paymentMethod || row.payment_method || 'Cash';
     doc.payment_method = doc.paymentMethod;
-    doc.paymentStatus = row.paymentStatus || 'Paid';
+    // Unpaid is the safe default and matches the schema (DEFAULT 'Unpaid').
+    // Defaulting to 'Paid' counted any row with a missing/empty payment status
+    // as collected revenue, inflating sales reports.
+    doc.paymentStatus = row.paymentStatus || 'Unpaid';
     // Keep nullish tax fields as null — never Number(null) => 0 (breaks revenue after restore)
     const n = (v: any) => (v === null || v === undefined || v === '' ? null : (Number.isFinite(Number(v)) ? Number(v) : null));
     doc.taxRate = n(row.taxRate ?? row.tax_rate);
