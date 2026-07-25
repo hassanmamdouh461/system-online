@@ -170,38 +170,59 @@ function initDatabase() {
     console.error('[database] Failed to backfill sync timestamps:', e);
   }
 
-  // Migration: Update existing mock/legacy orders to Dine-in/Takeaway and reset them as new orders today
+  // Migration: convert legacy mock orders ("Table N") to Dine-in/Takeaway.
+  //
+  // This migration is DESTRUCTIVE and previously ran on every single boot with
+  // no version guard. Worse, it selected ALL orders rather than the legacy ones,
+  // so a single order named e.g. "Table 5" caused every order in the database —
+  // including real paid ones — to be reset to New/Unpaid with paidAt and
+  // paymentMethod wiped. It is now (a) guarded by a one-time flag in settings
+  // and (b) scoped to only the legacy rows it is meant to touch.
   try {
-    const legacyCount = db.prepare("SELECT COUNT(*) as count FROM orders WHERE tableId LIKE 'Table %'").get().count;
-    if (legacyCount > 0) {
-      console.log('[database] Migrating legacy orders to Dine-in/Takeaway and resetting status...');
-      const rows = db.prepare("SELECT * FROM orders ORDER BY createdAt ASC").all();
-      
-      const updateStmt = db.prepare(`
-        UPDATE orders 
-        SET orderNumber = ?, tableId = ?, status = 'New', paymentStatus = 'Unpaid', paymentMethod = NULL, paidAt = NULL, createdAt = ? 
-        WHERE id = ?
-      `);
-      
-      const runTx = db.transaction(() => {
-        let i = 1;
-        const now = new Date();
-        for (const row of rows) {
-          const tableId = (i % 2 === 1) ? 'Dine-in' : 'Takeaway';
-          const orderTime = new Date(now.getTime() - 1000 * 60 * (rows.length - i) * 3).toISOString();
-          updateStmt.run(String(i), tableId, orderTime, row.id);
-          i++;
-        }
-      });
-      runTx();
+    const alreadyRun = db
+      .prepare("SELECT value FROM settings WHERE key = 'migration_legacy_orders_done'")
+      .get();
+
+    if (!alreadyRun) {
+      const rows = db
+        .prepare("SELECT * FROM orders WHERE tableId LIKE 'Table %' ORDER BY createdAt ASC")
+        .all();
+
+      if (rows.length > 0) {
+        console.log(`[database] Migrating ${rows.length} legacy order(s) to Dine-in/Takeaway...`);
+
+        // Only the table label is rewritten. Payment state is real financial
+        // data and is never touched by a migration.
+        const updateStmt = db.prepare('UPDATE orders SET tableId = ? WHERE id = ?');
+
+        const runTx = db.transaction(() => {
+          let i = 1;
+          for (const row of rows) {
+            updateStmt.run(i % 2 === 1 ? 'Dine-in' : 'Takeaway', row.id);
+            i++;
+          }
+        });
+        runTx();
+      }
+
+      db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)')
+        .run('migration_legacy_orders_done', new Date().toISOString());
     }
   } catch (e) {
     console.error('[database] Failed to run legacy orders migration:', e);
   }
 
-  // Migration: Smart re-categorize all menu items to MenuCategory|PrepDestination format
-  // This uses item names to determine the correct menu category for QR menu display
+  // Migration: re-categorize menu items to MenuCategory|PrepDestination format.
+  //
+  // Guarded by a one-time flag: this infers categories from item names, so
+  // running it on every boot silently reverted any category the owner had
+  // corrected by hand.
   try {
+    const menuMigrationDone = db
+      .prepare("SELECT value FROM settings WHERE key = 'migration_menu_categories_done'")
+      .get();
+
+    if (!menuMigrationDone) {
     const allItems = db.prepare('SELECT id, name, category FROM menu').all();
     const updateStmt = db.prepare('UPDATE menu SET category = ? WHERE id = ?');
     
@@ -262,7 +283,11 @@ function initDatabase() {
       }
     })();
     
+    db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)')
+      .run('migration_menu_categories_done', new Date().toISOString());
+
     console.log('[database] Successfully migrated menu categories to MenuCategory|PrepDestination format');
+    }
   } catch (e) {
     console.error('[database] Failed to run menu categories migration:', e);
   }
