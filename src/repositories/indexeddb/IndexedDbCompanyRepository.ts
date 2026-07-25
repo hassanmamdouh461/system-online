@@ -12,19 +12,25 @@ export class IndexedDbCompanyRepository implements ICompanyRepository {
       try {
         const remoteDocs = await cloudGetCollection('companies');
         if (remoteDocs && remoteDocs.length > 0) {
+          // Pending tombstones: any not-yet-synced queue row carrying a
+          // deletedAt (the new tombstone path) or a legacy action:'delete'.
           const pendingDeletes = new Set<string>();
           await withDB(async (db) => {
             const queue = await db.getAll('sync_queue');
             for (const item of queue) {
-              if (item.type === 'company' && item.action === 'delete' && item.synced === 0) {
-                const qid = item.data?.id || item.data?.documentId;
-                if (qid) pendingDeletes.add(qid);
+              if (item.type !== 'company' || item.synced === 1) continue;
+              const qid = item.data?.id || item.data?.documentId;
+              if (!qid) continue;
+              if (item.data?.deletedAt || item.action === 'delete') {
+                pendingDeletes.add(qid);
               }
             }
           });
 
           await enqueueWrite(async () => {
             await withDB(async (db) => {
+              const existing = await db.getAll('companies');
+              const byId = new Map(existing.map((c) => [c.id, c]));
               const tx = db.transaction('companies', 'readwrite');
               for (const doc of remoteDocs) {
                 const docId = String(doc.id || doc.$id);
@@ -38,7 +44,7 @@ export class IndexedDbCompanyRepository implements ICompanyRepository {
                     tags = [];
                   }
                 }
-                await tx.store.put({
+                const remote: Company = {
                   id: docId,
                   name: doc.name || 'شركة',
                   tags: Array.isArray(tags) ? tags : [],
@@ -47,7 +53,37 @@ export class IndexedDbCompanyRepository implements ICompanyRepository {
                   branchId: doc.branch_id || doc.branchId,
                   createdAt: doc.createdAt || doc.created_at || new Date().toISOString(),
                   updatedAt: doc.updatedAt || doc.updated_at || new Date().toISOString(),
-                });
+                  deletedAt: doc.deleted_at || doc.deletedAt || undefined,
+                };
+                const local = byId.get(docId);
+                // Resolve the soft-delete tombstone: newer deletedAt wins so a
+                // delete on any device is not resurrected by a stale copy.
+                const localDeletedAt = local?.deletedAt;
+                const remoteDeletedAt = remote.deletedAt;
+                const effectiveDeletedAt =
+                  !localDeletedAt
+                    ? remoteDeletedAt
+                    : !remoteDeletedAt
+                      ? localDeletedAt
+                      : new Date(localDeletedAt).getTime() >= new Date(remoteDeletedAt).getTime()
+                        ? localDeletedAt
+                        : remoteDeletedAt;
+                const merged: Company = local
+                  ? {
+                      ...local,
+                      ...remote,
+                      id: docId,
+                      name: remote.name?.trim() || local.name,
+                      phone: remote.phone || local.phone,
+                      notes: remote.notes || local.notes,
+                      tags:
+                        Array.isArray(remote.tags) && remote.tags.length > 0
+                          ? remote.tags
+                          : local.tags,
+                      deletedAt: effectiveDeletedAt || undefined,
+                    }
+                  : remote;
+                await tx.store.put(merged);
               }
               await tx.done;
             });
@@ -59,14 +95,19 @@ export class IndexedDbCompanyRepository implements ICompanyRepository {
       }
     }
 
+    // Always hide soft-deleted companies from consumers.
+    const live = (localCompanies as Company[]).filter((c) => !c.deletedAt);
     // Single-branch system: no branch filtering.
-    return localCompanies;
+    return live;
   }
 
   async getById(id: string): Promise<Company | null> {
     return withDB(async (db) => {
       const company = await db.get('companies', id);
-      return company || null;
+      if (!company) return null;
+      // A soft-deleted company must not be returned to callers.
+      if (company.deletedAt) return null;
+      return company;
     });
   }
 
@@ -89,6 +130,13 @@ export class IndexedDbCompanyRepository implements ICompanyRepository {
           branchId: branchId || companyData.branchId || existing?.branchId,
           createdAt: existing?.createdAt || now,
           updatedAt: now,
+          // Preserve an existing tombstone across saves so a cache write cannot
+          // resurrect a soft-deleted company. Only an explicit deletedAt in the
+          // payload clears it.
+          deletedAt:
+            companyData.deletedAt !== undefined
+              ? companyData.deletedAt
+              : existing?.deletedAt,
           isSynced: false,
         };
 
@@ -116,28 +164,48 @@ export class IndexedDbCompanyRepository implements ICompanyRepository {
   }
 
   async delete(id: string): Promise<void> {
-    await enqueueWrite(async () => {
-      await withDB(async (db) => {
+    const tombstone: Company = await enqueueWrite(async () => {
+      return withDB(async (db) => {
         const now = new Date().toISOString();
-        await db.delete('companies', id);
+        const existing = (await db.get('companies', id)) as Company | undefined;
+        // Soft-delete: write a tombstone row instead of hard-deleting, so a
+        // later cloud pull / hydrate cannot resurrect the company (and the
+        // OnAccount receivables attached to it). Carrying the NOT NULL name
+        // keeps the worker upsert from 500'ing.
+        const ts: Company = {
+          ...(existing || ({
+            id,
+            name: 'deleted',
+            tags: [],
+            createdAt: now,
+          } as Company)),
+          id,
+          deletedAt: now,
+          updatedAt: now,
+        };
+        await db.put('companies', ts);
         try {
           await db.put('sync_queue', {
             id: `sync_co_del_${id}_${Date.now()}`,
             type: 'company',
-            action: 'delete',
-            data: { id },
+            action: 'update',
+            data: ts,
             timestamp: now,
             synced: 0,
           });
         } catch {
           // ignore
         }
+        return ts;
       });
     });
 
+    // Push the tombstone to the cloud so it persists in D1 and every device
+    // learns the company was deleted. Do NOT hard-delete afterwards: that
+    // would wipe the very tombstone we just wrote (same fix as inventory).
     try {
-      const { cloudDeleteDocument, ackSyncQueueForEntity } = await import('../../services/cloudConfig');
-      const ok = await cloudDeleteDocument('companies', id);
+      const { cloudUpsert, ackSyncQueueForEntity } = await import('../../services/cloudConfig');
+      const ok = await cloudUpsert('companies', id, tombstone);
       if (ok) {
         await ackSyncQueueForEntity(id);
       } else {

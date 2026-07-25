@@ -43,8 +43,8 @@ const ALLOWED_COLUMNS: Record<string, Set<string>> = {
     "customerPhone", "customerId", "customerName", "companyId", "companyName", "billedToType",
     "pointsEarned", "pointsRedeemed", "refundedAt", "refundReason", "deletedAt", "branch_id"
   ]),
-  customers: new Set(["id", "name", "phone", "points", "company_id", "tags", "notes", "createdAt", "updated_at", "branch_id"]),
-  companies: new Set(["id", "name", "tags", "phone", "notes", "createdAt", "updated_at", "branch_id"]),
+  customers: new Set(["id", "name", "phone", "points", "company_id", "tags", "notes", "createdAt", "updated_at", "branch_id", "deleted_at"]),
+  companies: new Set(["id", "name", "tags", "phone", "notes", "createdAt", "updated_at", "branch_id", "deleted_at"]),
   inventory: new Set(["id", "name", "unit", "stock", "minStock", "costPerUnit", "branch_id", "created_at", "updated_at", "deleted_at"]),
   settings: new Set(["id", "key", "value", "branch_id", "updated_at"]),
   recipes: new Set(["id", "menu_item_id", "inventory_item_id", "quantity", "unit", "branch_id", "updated_at"]),
@@ -510,6 +510,11 @@ function normalizeData(table: string, data: any) {
       normalized.updated_at = normalized.updatedAt;
       delete normalized.updatedAt;
     }
+    // Soft-delete tombstone (matches menu_items/inventory).
+    if ('deletedAt' in normalized) {
+      normalized.deleted_at = normalized.deletedAt || null;
+      delete normalized.deletedAt;
+    }
     delete normalized.branchId;
     delete normalized.companyId;
     delete normalized.isSynced;
@@ -523,6 +528,11 @@ function normalizeData(table: string, data: any) {
     if ('updatedAt' in normalized) {
       normalized.updated_at = normalized.updatedAt;
       delete normalized.updatedAt;
+    }
+    // Soft-delete tombstone (matches menu_items/inventory).
+    if ('deletedAt' in normalized) {
+      normalized.deleted_at = normalized.deletedAt || null;
+      delete normalized.deletedAt;
     }
     delete normalized.branchId;
     delete normalized.isSynced;
@@ -675,6 +685,9 @@ function denormalizeData(table: string, row: any) {
     }
     doc.notes = row.notes;
     doc.updatedAt = row.updated_at || row.updatedAt;
+    // Echo the soft-delete tombstone back to clients.
+    doc.deleted_at = row.deleted_at || null;
+    doc.deletedAt = doc.deleted_at;
   }
 
   if (table === 'companies') {
@@ -688,6 +701,9 @@ function denormalizeData(table: string, row: any) {
     doc.notes = row.notes;
     doc.phone = row.phone;
     doc.updatedAt = row.updated_at || row.updatedAt;
+    // Echo the soft-delete tombstone back to clients.
+    doc.deleted_at = row.deleted_at || null;
+    doc.deletedAt = doc.deleted_at;
   }
   
   if (table === 'inventory') {

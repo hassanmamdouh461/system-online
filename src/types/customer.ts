@@ -10,6 +10,9 @@ export interface Customer {
   notes?: string;
   createdAt: string;
   updatedAt?: string;
+  /** Soft-delete tombstone — set when a customer is "deleted" so cloud hydrate
+   *  cannot resurrect it (matches menu_items / inventory / orders). */
+  deletedAt?: string;
   /** Multi-branch sync fields */
   branchId?: string;
   isSynced?: boolean;

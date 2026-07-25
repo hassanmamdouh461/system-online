@@ -62,8 +62,13 @@ export const customersService = {
       try {
         const docs = await cloudGetCollection('customers');
         if (docs) {
+          // Skip soft-deleted customers: a tombstoned row must not be returned
+          // as a live account (it would accumulate points / receivables again).
           const match = docs.find(
-            (d: any) => normalizePhone(String(d.phone || '')) === normalized
+            (d: any) => {
+              if (d.deleted_at || d.deletedAt) return false;
+              return normalizePhone(String(d.phone || '')) === normalized;
+            }
           );
           if (match) {
             const remote: Customer = {

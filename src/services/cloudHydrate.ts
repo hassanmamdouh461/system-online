@@ -107,6 +107,7 @@ function mapCustomer(doc: any): Customer | null {
     branchId: doc.branch_id || doc.branchId,
     createdAt: doc.createdAt || doc.$createdAt || new Date().toISOString(),
     updatedAt: doc.updatedAt || doc.updated_at || new Date().toISOString(),
+    deletedAt: doc.deleted_at || doc.deletedAt || undefined,
   };
 }
 
@@ -128,6 +129,7 @@ function mapCompany(doc: any): Company {
     branchId: doc.branch_id || doc.branchId,
     createdAt: doc.createdAt || doc.created_at || new Date().toISOString(),
     updatedAt: doc.updatedAt || doc.updated_at || new Date().toISOString(),
+    deletedAt: doc.deleted_at || doc.deletedAt || undefined,
   };
 }
 
@@ -397,6 +399,16 @@ export async function hydrateFromCloud(force = false): Promise<HydrateResult> {
                         ? remote.tags
                         : local.tags,
                     notes: remote.notes || local.notes,
+                    // Resolve the soft-delete tombstone: newer deletedAt wins so
+                    // a delete on any device is not resurrected by a stale copy.
+                    deletedAt:
+                      !local.deletedAt
+                        ? remote.deletedAt
+                        : !remote.deletedAt
+                          ? local.deletedAt
+                          : new Date(local.deletedAt).getTime() >= new Date(remote.deletedAt).getTime()
+                            ? local.deletedAt
+                            : remote.deletedAt,
                   }
                 : remote;
               try {
@@ -430,6 +442,15 @@ export async function hydrateFromCloud(force = false): Promise<HydrateResult> {
                       Array.isArray(remote.tags) && remote.tags.length > 0
                         ? remote.tags
                         : local.tags,
+                    // Resolve the soft-delete tombstone: newer deletedAt wins.
+                    deletedAt:
+                      !local.deletedAt
+                        ? remote.deletedAt
+                        : !remote.deletedAt
+                          ? local.deletedAt
+                          : new Date(local.deletedAt).getTime() >= new Date(remote.deletedAt).getTime()
+                            ? local.deletedAt
+                            : remote.deletedAt,
                   }
                 : remote;
               try {

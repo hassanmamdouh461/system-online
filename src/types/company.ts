@@ -7,6 +7,9 @@ export interface Company {
   notes?: string;
   createdAt: string;
   updatedAt?: string;
+  /** Soft-delete tombstone — set when a company is "deleted" so cloud hydrate
+   *  cannot resurrect it (matches menu_items / inventory / orders). */
+  deletedAt?: string;
   branchId?: string;
   isSynced?: boolean;
 }

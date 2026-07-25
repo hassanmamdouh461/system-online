@@ -31,11 +31,24 @@ function mapRemoteCustomer(doc: any): Customer | null {
     branchId: doc.branch_id || doc.branchId,
     createdAt: doc.createdAt || doc.$createdAt || new Date().toISOString(),
     updatedAt: doc.updatedAt || doc.updated_at || new Date().toISOString(),
+    deletedAt: doc.deleted_at || doc.deletedAt || undefined,
   };
 }
 
 function mergeCustomer(local: Customer | undefined, remote: Customer): Customer {
   if (!local) return remote;
+  // Resolve the soft-delete tombstone: whichever side has a NEWER deletedAt wins
+  // so a delete on any device is not resurrected by a stale copy on another.
+  const localDeletedAt = local.deletedAt;
+  const remoteDeletedAt = remote.deletedAt;
+  const effectiveDeletedAt =
+    !localDeletedAt
+      ? remoteDeletedAt
+      : !remoteDeletedAt
+        ? localDeletedAt
+        : new Date(localDeletedAt).getTime() >= new Date(remoteDeletedAt).getTime()
+          ? localDeletedAt
+          : remoteDeletedAt;
   return {
     ...local,
     ...remote,
@@ -56,6 +69,7 @@ function mergeCustomer(local: Customer | undefined, remote: Customer): Customer 
       Array.isArray(remote.tags) && remote.tags.length > 0 ? remote.tags : local.tags || [],
     notes: remote.notes || local.notes,
     createdAt: local.createdAt || remote.createdAt,
+    deletedAt: effectiveDeletedAt || undefined,
   };
 }
 
@@ -67,13 +81,17 @@ export class IndexedDbCustomerRepository implements ICustomerRepository {
       try {
         const remoteDocs = await cloudGetCollection('customers');
         if (remoteDocs && remoteDocs.length > 0) {
+          // Pending tombstones: any not-yet-synced queue row carrying a
+          // deletedAt (the new tombstone path) or a legacy action:'delete'.
           const pendingDeletes = new Set<string>();
           await withDB(async (db) => {
             const queue = await db.getAll('sync_queue');
             for (const item of queue) {
-              if (item.type === 'customer' && item.action === 'delete' && item.synced === 0) {
-                const qid = item.data?.id || item.data?.documentId;
-                if (qid) pendingDeletes.add(qid);
+              if (item.type !== 'customer' || item.synced === 1) continue;
+              const qid = item.data?.id || item.data?.documentId;
+              if (!qid) continue;
+              if (item.data?.deletedAt || item.action === 'delete') {
+                pendingDeletes.add(qid);
               }
             }
           });
@@ -108,8 +126,10 @@ export class IndexedDbCustomerRepository implements ICustomerRepository {
       }
     }
 
+    // Always hide soft-deleted customers from consumers.
+    const live = (localCustomers as Customer[]).filter((c) => !c.deletedAt);
     // Single-branch system: no branch filtering.
-    return localCustomers;
+    return live;
   }
 
   async getByPhone(phone: string, _branchId?: string): Promise<Customer | null> {
@@ -129,6 +149,9 @@ export class IndexedDbCustomerRepository implements ICustomerRepository {
         });
       }
       if (!customer) return null;
+      // A soft-deleted customer must not be returned to callers (it would be
+      // treated as a live account and accumulate points / receivables again).
+      if (customer.deletedAt) return null;
       // Single-branch system: no branch filtering on phone lookup.
       return customer;
     });
@@ -187,6 +210,15 @@ export class IndexedDbCustomerRepository implements ICustomerRepository {
           branchId: branchId || customerData.branchId || existing?.branchId,
           createdAt: existing?.createdAt || now,
           updatedAt: now,
+          // Preserve an existing tombstone across saves so a lookupByPhone
+          // cache write (which does not carry deletedAt) cannot resurrect a
+          // soft-deleted customer. Only an explicit deletedAt in the payload
+          // (clearing it) revives the row — currently no caller does that, so a
+          // deleted customer stays deleted until re-created with a different id.
+          deletedAt:
+            customerData.deletedAt !== undefined
+              ? customerData.deletedAt
+              : existing?.deletedAt,
           isSynced: false,
         };
 
@@ -216,28 +248,50 @@ export class IndexedDbCustomerRepository implements ICustomerRepository {
   }
 
   async delete(id: string): Promise<void> {
-    await enqueueWrite(async () => {
-      await withDB(async (db) => {
+    const tombstone: Customer = await enqueueWrite(async () => {
+      return withDB(async (db) => {
         const now = new Date().toISOString();
-        await db.delete('customers', id);
+        const existing = (await db.get('customers', id)) as Customer | undefined;
+        // Soft-delete: write a tombstone row instead of hard-deleting, so a
+        // later cloud pull / hydrate cannot resurrect the customer (matches
+        // orders / menu_items / inventory). Carrying the NOT NULL phone keeps
+        // the worker upsert from 500'ing.
+        const ts: Customer = {
+          ...(existing || ({
+            id,
+            name: 'deleted',
+            phone: `__deleted_${id}`,
+            points: 0,
+            tags: [],
+            createdAt: now,
+          } as Customer)),
+          id,
+          deletedAt: now,
+          updatedAt: now,
+        };
+        await db.put('customers', ts);
         try {
           await db.put('sync_queue', {
             id: `sync_cust_del_${id}_${Date.now()}`,
             type: 'customer',
-            action: 'delete',
-            data: { id },
+            action: 'update',
+            data: ts,
             timestamp: now,
             synced: 0,
           });
         } catch {
           // ignore
         }
+        return ts;
       });
     });
 
+    // Push the tombstone to the cloud so it persists in D1 and every device
+    // learns the customer was deleted. Do NOT hard-delete afterwards: that
+    // would wipe the very tombstone we just wrote (same fix as inventory).
     try {
-      const { cloudDeleteDocument, ackSyncQueueForEntity } = await import('../../services/cloudConfig');
-      const ok = await cloudDeleteDocument('customers', id);
+      const { cloudUpsert, ackSyncQueueForEntity } = await import('../../services/cloudConfig');
+      const ok = await cloudUpsert('customers', id, tombstone);
       if (ok) {
         await ackSyncQueueForEntity(id);
       } else {
