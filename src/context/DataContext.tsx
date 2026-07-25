@@ -6,6 +6,7 @@ import { useAuth } from './AuthContext';
 import { inventoryService } from '../services/inventoryService';
 import { getIngredientBaseQty } from '../utils/units';
 import { syncService } from '../services/syncService';
+import { BRANCH_ID } from '../services/cloudConfig';
 import { useToast } from '../components/ui/Toast';
 
 
@@ -97,7 +98,9 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     try {
       setMenuLoading(true);
       setMenuError(null);
-      const targetBranch = (branch?.branchId === 'manager' || branch?.branchId === 'all') ? undefined : branch?.branchId;
+      // Single-branch system: no branch scoping — cashier and manager read the
+      // exact same data set.
+      const targetBranch = undefined;
       const data = await menuRepository.getAll(targetBranch);
       setMenuItems(data);
     } catch (err) {
@@ -116,7 +119,9 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     try {
       setOrdersLoading(true);
       setOrdersError(null);
-      const targetBranch = (branch?.branchId === 'manager' || branch?.branchId === 'all') ? undefined : branch?.branchId;
+      // Single-branch system: no branch scoping — cashier and manager read the
+      // exact same data set.
+      const targetBranch = undefined;
       // Load (with cloud merge) first, THEN renumber so junk from cloud is cleaned.
       // After renumber, re-read LOCAL only — another cloud merge would re-inject 1000-series.
       let data = await orderRepository.getAll(targetBranch);
@@ -179,7 +184,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 
   const addItem = useCallback(async (item: Omit<MenuItem, 'id'>) => {
     try {
-      const newItem = await menuRepository.create(item, branch?.branchId);
+      const newItem = await menuRepository.create(item, BRANCH_ID);
       setMenuItems(prev => [newItem, ...prev]);
       return newItem;
     } catch (err) {
@@ -264,7 +269,7 @@ async function applyOrderInventory(
 
   const addOrder = useCallback(async (order: Omit<Order, 'id'>): Promise<Order | null> => {
     try {
-      const newOrder = await orderRepository.create(order, branch?.branchId || 'main_branch');
+      const newOrder = await orderRepository.create(order, BRANCH_ID);
       setOrdersList(prev => [newOrder, ...prev]);
 
       if (newOrder) {
@@ -354,6 +359,9 @@ async function applyOrderInventory(
     } catch (invErr) {
       console.error('[DataContext] Failed to restore inventory on refund:', existing.id, invErr);
     }
+    // Push immediately: a refund lowers revenue, and until it syncs the manager
+    // dashboard on another device still counts this order as collected.
+    void syncService.syncPendingData();
   }, []);
 
   const updateOrder = useCallback(async (id: string, data: Partial<Omit<Order, 'id'>>) => {
@@ -379,6 +387,7 @@ async function applyOrderInventory(
           console.error('[DataContext] Failed to restore inventory on order update:', existing.id, invErr);
         }
       }
+      void syncService.syncPendingData();
     } catch (err) {
       console.error('[DataContext] Failed to update order in repository:', err);
       throw err;
@@ -406,6 +415,9 @@ async function applyOrderInventory(
           console.error('[DataContext] Failed to restore inventory on physical order deletion:', existing.id, invErr);
         }
       }
+      // Propagate the deletion now, otherwise another device re-uploads its
+      // stale copy on the next sync and the order reappears.
+      void syncService.syncPendingData();
     } catch (err) {
       console.error('[DataContext] Failed to delete order in repository:', err);
       toast.error(err instanceof Error ? err.message : String(err));

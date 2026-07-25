@@ -11,10 +11,9 @@ class InventoryRepository {
 
   // ─── Inventory Items CRUD ───────────────────────────────────────────────────
   
-  getInventory(branchId) {
+  getInventory(_branchId) {
     const sqlite = this.getDb();
-    const activeBranch = branchId || this.getBranchId();
-    // Get all items.
+    // Single-branch system: all inventory belongs to this one store.
     const rows = sqlite.prepare('SELECT * FROM inventory').all();
     return rows.map(row => ({
       id: row.id,
@@ -342,7 +341,7 @@ class InventoryRepository {
       stock: row.stock,
       minStock: row.minStock,
       costPerUnit: row.costPerUnit,
-      branch_id: row.branch_id || 'branch_1',
+      branch_id: row.branch_id || this.getBranchId(),
       is_synced: row.is_synced,
       created_at: row.created_at,
       updated_at: row.updated_at

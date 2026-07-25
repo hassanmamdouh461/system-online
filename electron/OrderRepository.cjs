@@ -323,12 +323,8 @@ class OrderRepository {
 
       let i = 1;
       for (const order of orders) {
-        const orderBranchId = order.branch_id || 'default';
-        // Filter by branch_id if we are logged in as a specific branch (manager sees all)
-        if (branchId !== 'manager' && orderBranchId !== branchId) {
-          continue;
-        }
-
+        // Single-branch system: no branch filtering — every cloud order belongs
+        // to this store, including legacy rows stamped 'default' / NULL.
         const id = order.$id;
         const createdAt = order.$createdAt;
         const updatedAt = order.$updatedAt;
@@ -336,20 +332,28 @@ class OrderRepository {
         const paymentMethod = order.payment_method || 'Cash';
         const items = order.items; // JSON string
 
-        const orderNumber = String(i++);
+        // Preserve the REAL state from the cloud. This used to hardcode
+        // status='Ready' and paymentStatus='Paid' for every pulled order, which
+        // silently marked unpaid/cancelled orders as collected revenue and
+        // stamped a paidAt on orders that were never paid.
+        const status = order.status || 'New';
+        const paymentStatus = order.paymentStatus || 'Unpaid';
+        const paidAt = order.paidAt || (paymentStatus === 'Paid' ? createdAt : null);
+        const tableId = order.tableId || 'Takeaway';
+        const orderNumber = String(order.orderNumber || i++);
 
         insert.run(
           id,
           orderNumber,
-          'Takeaway', // default
+          tableId,
           items,
-          'Ready', // status
-          'Paid', // paymentStatus
+          status,
+          paymentStatus,
           paymentMethod,
           totalAmount,
           createdAt,
-          createdAt, // paidAt
-          orderBranchId,
+          paidAt,
+          branchId,
           updatedAt
         );
       }

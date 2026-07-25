@@ -46,19 +46,22 @@ if (!WORKER_URL) {
   } catch (e) {}
 }
 
-if (!WORKER_URL) {
-  WORKER_URL = "https://system-online-backend.YOUR_SUBDOMAIN.workers.dev";
+// No placeholder fallback: fabricating a fake "YOUR_SUBDOMAIN" host only made
+// every request fail with a confusing DNS error and printed a bogus URL to the
+// logs on each boot. If it is unset, cloud sync is simply disabled.
+if (WORKER_URL) {
+  console.log('[D1 Sync API] Configured Worker URL:', WORKER_URL);
+} else {
+  console.warn('[D1 Sync API] No Worker URL configured — cloud sync is disabled.');
 }
-
-console.log('[D1 Sync API] Configured Worker URL:', WORKER_URL);
 
 /**
  * Custom fetch implementation using standard Node.js https module
  */
 function fetchWorker(urlPath, payload = null, method = 'POST') {
   return new Promise((resolve, reject) => {
-    if (!WORKER_URL || WORKER_URL.includes('YOUR_SUBDOMAIN')) {
-      return reject(new Error('Cloudflare Worker URL is not properly configured'));
+    if (!WORKER_URL) {
+      return reject(new Error('Cloudflare Worker URL is not configured'));
     }
 
     const baseUrl = WORKER_URL.endsWith('/') ? WORKER_URL.slice(0, -1) : WORKER_URL;
@@ -74,19 +77,8 @@ function fetchWorker(urlPath, payload = null, method = 'POST') {
       headers['Authorization'] = `Bearer ${API_KEY}`;
       headers['X-API-Key'] = API_KEY;
     }
-    // Prefer branch_id from settings; fallback main_branch
-    let branchHeader = 'main_branch';
-    try {
-      const settings = database.getSettings();
-      if (settings['branch_id']) branchHeader = settings['branch_id'];
-      else if (settings['brewmaster_branch_config']) {
-        try {
-          const bc = JSON.parse(settings['brewmaster_branch_config']);
-          if (bc.branchId) branchHeader = bc.branchId;
-        } catch (_) {}
-      }
-    } catch (_) {}
-    headers['X-Branch-ID'] = branchHeader;
+    // Single-branch system: always the one constant.
+    headers['X-Branch-ID'] = database.getBranchId();
 
     const options = {
       hostname: targetUrl.hostname,

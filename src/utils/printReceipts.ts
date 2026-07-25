@@ -686,7 +686,10 @@ export function printCustomerStatement(opts: {
 
   const open = orders
     .filter(o => o.paymentStatus === 'OnAccount' && o.status !== 'Cancelled')
-    .sort((a, b) => new Date(a.createdAt).getTime() - new Date(a.createdAt).getTime());
+    // NOTE: compare a vs b. This used to subtract `a` from itself, so the
+    // comparator always returned 0 and customer statements printed unsorted —
+    // useless for settling a dispute.
+    .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 
   const total = open.reduce((s, o) => s + getOrderGrandTotal(o, fallbackTax), 0);
 

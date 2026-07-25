@@ -4,15 +4,13 @@ const { app } = require('electron');
 
 let db;
 
-// ─── Helper: get current branch ID from settings (default: 'default') ────────
+// ─── SINGLE-BRANCH SYSTEM ─────────────────────────────────────────────────────
+// One store: cashier side + manager dashboard over the same data. The branch_id
+// column is retained for schema/back-compat only and is always this constant.
+const BRANCH_ID = 'main_branch';
+
 function getBranchId() {
-  try {
-    const sqlite = getDb();
-    const row = sqlite.prepare("SELECT value FROM settings WHERE key = 'branch_id'").get();
-    return row ? row.value : 'default';
-  } catch (e) {
-    return 'default';
-  }
+  return BRANCH_ID;
 }
 
 function initDatabase() {
@@ -170,39 +168,64 @@ function initDatabase() {
     console.error('[database] Failed to backfill sync timestamps:', e);
   }
 
-  // Migration: Update existing mock/legacy orders to Dine-in/Takeaway and reset them as new orders today
+  // ── Migration: normalize legacy seeded orders ("Table 1", "Table 2", ...) ──
+  //
+  // DANGER — this migration used to be a data-loss bug and is kept here only in
+  // a strictly contained form. The original version:
+  //   1. had NO version guard, so it re-ran on EVERY app boot, and
+  //   2. selected `SELECT * FROM orders` with no WHERE clause, so once a single
+  //      row looked legacy it rewrote EVERY order in the database —
+  //      status='New', paymentStatus='Unpaid', paymentMethod=NULL, paidAt=NULL
+  //      and a fresh createdAt.
+  // A real order named "Table 5" was enough to wipe the paid state of the entire
+  // order history, every single boot.
+  //
+  // Now: runs at most once (recorded in settings), and only ever touches the
+  // legacy rows themselves. Payment fields are never reset.
   try {
-    const legacyCount = db.prepare("SELECT COUNT(*) as count FROM orders WHERE tableId LIKE 'Table %'").get().count;
-    if (legacyCount > 0) {
-      console.log('[database] Migrating legacy orders to Dine-in/Takeaway and resetting status...');
-      const rows = db.prepare("SELECT * FROM orders ORDER BY createdAt ASC").all();
-      
-      const updateStmt = db.prepare(`
-        UPDATE orders 
-        SET orderNumber = ?, tableId = ?, status = 'New', paymentStatus = 'Unpaid', paymentMethod = NULL, paidAt = NULL, createdAt = ? 
-        WHERE id = ?
-      `);
-      
-      const runTx = db.transaction(() => {
-        let i = 1;
-        const now = new Date();
-        for (const row of rows) {
-          const tableId = (i % 2 === 1) ? 'Dine-in' : 'Takeaway';
-          const orderTime = new Date(now.getTime() - 1000 * 60 * (rows.length - i) * 3).toISOString();
-          updateStmt.run(String(i), tableId, orderTime, row.id);
-          i++;
-        }
-      });
-      runTx();
+    const done = db
+      .prepare("SELECT value FROM settings WHERE key = 'migration_legacy_orders_done'")
+      .get();
+
+    if (!done) {
+      const legacyRows = db
+        .prepare("SELECT id, tableId FROM orders WHERE tableId LIKE 'Table %'")
+        .all();
+
+      if (legacyRows.length > 0) {
+        console.log(`[database] Normalizing ${legacyRows.length} legacy order(s) — payment state preserved.`);
+
+        // Only rewrite tableId, and only for the legacy rows. Financial columns
+        // (status, paymentStatus, paymentMethod, paidAt) and createdAt are left
+        // exactly as they are.
+        const updateStmt = db.prepare('UPDATE orders SET tableId = ? WHERE id = ?');
+        db.transaction(() => {
+          let i = 1;
+          for (const row of legacyRows) {
+            updateStmt.run(i % 2 === 1 ? 'Dine-in' : 'Takeaway', row.id);
+            i++;
+          }
+        })();
+      }
+
+      // Record completion even when nothing matched, so this never runs again.
+      db.prepare(
+        "INSERT OR REPLACE INTO settings (key, value) VALUES ('migration_legacy_orders_done', ?)"
+      ).run(new Date().toISOString());
+      console.log('[database] Legacy orders migration marked complete.');
     }
   } catch (e) {
     console.error('[database] Failed to run legacy orders migration:', e);
   }
 
-  // Migration: Smart re-categorize all menu items to MenuCategory|PrepDestination format
-  // This uses item names to determine the correct menu category for QR menu display
+  // ── Migration: menu categories → "MenuCategory|PrepDestination" ──
+  // Guarded so it runs once instead of rewriting every menu row on every boot.
+  // (Owner edits to an item's category were being reverted by this on restart.)
   try {
-    const allItems = db.prepare('SELECT id, name, category FROM menu').all();
+    const catDone = db
+      .prepare("SELECT value FROM settings WHERE key = 'migration_menu_categories_done'")
+      .get();
+    const allItems = catDone ? [] : db.prepare('SELECT id, name, category FROM menu').all();
     const updateStmt = db.prepare('UPDATE menu SET category = ? WHERE id = ?');
     
     db.transaction(() => {
@@ -261,8 +284,13 @@ function initDatabase() {
         }
       }
     })();
-    
-    console.log('[database] Successfully migrated menu categories to MenuCategory|PrepDestination format');
+
+    if (!catDone) {
+      db.prepare(
+        "INSERT OR REPLACE INTO settings (key, value) VALUES ('migration_menu_categories_done', ?)"
+      ).run(new Date().toISOString());
+      console.log('[database] Migrated menu categories to MenuCategory|PrepDestination format');
+    }
   } catch (e) {
     console.error('[database] Failed to run menu categories migration:', e);
   }
