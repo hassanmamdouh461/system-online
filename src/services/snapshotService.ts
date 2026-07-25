@@ -1,13 +1,12 @@
 /**
  * Full-system snapshot backup to Cloudflare D1.
- * Runs every 2 hours + on demand. Keeps last 10 per branch on the worker.
+ * Runs every 2 hours + on demand. Keeps the last 10 on the worker.
  */
 import {
+  BRANCH_ID,
   cloudGetCollection,
   cloudUpsert,
-  getBranchIdHeader,
   isCloudConfigured,
-  normalizeBranchId,
 } from './cloudConfig';
 import { withDB } from '../repositories/indexeddb/db';
 import { DURABLE_SETTING_KEYS } from './settingsCloudService';
@@ -64,8 +63,9 @@ function collectTransactions(): any[] {
   }
 }
 
-export async function buildSnapshotPayload(branchId?: string): Promise<SnapshotPayload> {
-  const branch = normalizeBranchId(branchId || getBranchIdHeader() || 'main_branch');
+export async function buildSnapshotPayload(_branchId?: string): Promise<SnapshotPayload> {
+  // Single-branch system: always the one constant.
+  const branch = BRANCH_ID;
   const [orders, menu_items, customers, companies, inventory] = await withDB(async (db) => {
     return Promise.all([
       db.getAll('orders'),
@@ -148,17 +148,15 @@ export async function createSnapshot(
   }
 }
 
-export async function getLatestSnapshot(branchId?: string): Promise<SnapshotPayload | null> {
+export async function getLatestSnapshot(_branchId?: string): Promise<SnapshotPayload | null> {
   if (!isCloudConfigured()) return null;
   try {
     const docs = await cloudGetCollection('snapshots');
     if (!docs || !docs.length) return null;
-    const branch = branchId || getBranchIdHeader() || 'main_branch';
+    // Single-branch system: every snapshot belongs to this store, so take the
+    // newest one without any branch filtering.
     const filtered = docs
-      .filter((d) => {
-        const b = d.branch_id || d.branchId || 'default';
-        return b === branch || b === 'main_branch' || b === 'default';
-      })
+      .slice()
       .sort(
         (a, b) =>
           new Date(b.createdAt || b.created_at || 0).getTime() -

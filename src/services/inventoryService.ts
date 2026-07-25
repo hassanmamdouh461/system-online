@@ -397,6 +397,53 @@ export const inventoryService = {
     }
   },
 
+  /**
+   * Write a new stock value for one item.
+   *
+   * Internal helper for deductStock / restoreStock. It deliberately does NOT
+   * call enqueueWrite itself — those callers already hold the write slot, and
+   * re-entering it would deadlock. Everything else (sync queue row, cloud push)
+   * mirrors `update`.
+   */
+  async updateStockRaw(id: string, newStock: number): Promise<void> {
+    if (typeof window !== 'undefined' && window.electronAPI?.updateInventoryItem) {
+      await window.electronAPI.updateInventoryItem(id, { stock: newStock });
+      return;
+    }
+
+    const next = await withDB(async (db) => {
+      const existing = (await db.get('inventory', id)) as InventoryItem | undefined;
+      if (!existing) return undefined;
+      const now = new Date().toISOString();
+      const updated: InventoryItem = { ...existing, stock: newStock, updatedAt: now };
+      await db.put('inventory', updated);
+      try {
+        await db.put('sync_queue', {
+          id: `sync_inv_${id}_${Date.now()}`,
+          type: 'inventory',
+          action: 'update',
+          data: updated,
+          timestamp: now,
+          synced: 0,
+        });
+      } catch (e) {
+        console.warn('[inventory] sync_queue failed:', e);
+      }
+      return updated;
+    });
+
+    if (!next) return;
+
+    try {
+      const { cloudUpsert, ackSyncQueueForEntity } = await import('./cloudConfig');
+      const ok = await cloudUpsert('inventory', next.id, next);
+      if (ok) await ackSyncQueueForEntity(next.id);
+      else void syncService.syncPendingData();
+    } catch {
+      void syncService.syncPendingData();
+    }
+  },
+
   async delete(id: string): Promise<void> {
     try {
       if (typeof window !== 'undefined' && window.electronAPI?.deleteInventoryItem) {
@@ -473,11 +520,22 @@ export const inventoryService = {
 
   async deductStock(itemId: string, quantityDeducted: number, notes?: string, referenceId?: string): Promise<void> {
     try {
-      const target = await this.getByIdLocal(itemId);
-      if (target) {
-        const newStock = Math.max(0, target.stock - quantityDeducted);
-        await this.update(target.id, { stock: newStock });
+      // Read + write must happen inside ONE serialized slot.
+      //
+      // This used to read the row, compute `stock - qty`, then write it back as
+      // two separate awaited steps. Two sales ringing up the same item at the
+      // same time both read the same starting stock, so one deduction was lost
+      // (classic lost update) and the shop's stock drifted upward forever.
+      // `enqueueWrite` serializes against every other inventory write.
+      const target = await enqueueWrite(async () => {
+        const current = await this.getByIdLocal(itemId);
+        if (!current) return undefined;
+        const newStock = Math.max(0, current.stock - quantityDeducted);
+        await this.updateStockRaw(current.id, newStock);
+        return current;
+      });
 
+      if (target) {
         await this.createTransaction({
           itemId: target.id,
           itemName: target.name,
@@ -498,11 +556,15 @@ export const inventoryService = {
   async restoreStock(itemId: string, quantityRestored: number, notes?: string, referenceId?: string): Promise<void> {
     try {
       if (quantityRestored <= 0) return;
-      const target = await this.getByIdLocal(itemId);
-      if (target) {
-        const newStock = target.stock + quantityRestored;
-        await this.update(target.id, { stock: newStock });
+      // Same lost-update hazard as deductStock — serialize read+write together.
+      const target = await enqueueWrite(async () => {
+        const current = await this.getByIdLocal(itemId);
+        if (!current) return undefined;
+        await this.updateStockRaw(current.id, current.stock + quantityRestored);
+        return current;
+      });
 
+      if (target) {
         await this.createTransaction({
           itemId: target.id,
           itemName: target.name,

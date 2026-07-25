@@ -41,8 +41,29 @@ const ALLOWED_COLUMNS: Record<string, Set<string>> = {
   snapshots: new Set(["id", "branch_id", "payload", "created_at", "kind"])
 };
 
-const MAX_SNAPSHOTS_PER_BRANCH = 10;
+const MAX_SNAPSHOTS = 10;
 
+/**
+ * SINGLE-BRANCH SYSTEM.
+ * This product is one store: one cashier side + one manager dashboard reading the
+ * same data. There is no multi-branch mode and no branch scoping anywhere.
+ *
+ * The branch_id column is retained purely for schema/back-compat with existing
+ * rows and is always stamped with this one constant on write. Reads are NEVER
+ * filtered by it, so legacy rows written as 'default' / 'branch_1' / NULL all
+ * remain visible instead of silently disappearing.
+ */
+const BRANCH_ID = "main_branch";
+
+/** Reject absurd payloads before parsing (D1 row + CPU protection). */
+const MAX_BODY_BYTES = 512 * 1024;
+
+/** Default page size for collection reads; prevents unbounded table scans. */
+const DEFAULT_PAGE_LIMIT = 500;
+const MAX_PAGE_LIMIT = 1000;
+
+/** Thrown by the validator so callers can answer 400 instead of 500. */
+class ValidationError extends Error {}
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -56,8 +77,20 @@ export default {
       });
     }
 
-    // 2. Optional API Key Verification
-    if (env.API_KEY) {
+    // 2. Mandatory API Key verification — FAIL CLOSED.
+    // If the API_KEY secret was never set, refuse to serve rather than exposing
+    // the whole database to the internet unauthenticated.
+    if (!env.API_KEY) {
+      console.error("[worker] API_KEY secret is not configured — refusing all requests.");
+      return new Response(
+        JSON.stringify({
+          error: "Service Unavailable",
+          message: "Server is not configured for authenticated access."
+        }),
+        { status: 503, headers: { "Content-Type": "application/json", ...corsHeaders } }
+      );
+    }
+    {
       const authHeader = request.headers.get("Authorization");
       const apiKeyHeader = request.headers.get("X-API-Key");
       const token = authHeader ? authHeader.replace(/^Bearer\s+/i, "") : apiKeyHeader;
@@ -69,12 +102,20 @@ export default {
       }
     }
 
+    // 3. Reject oversized bodies before reading them.
+    if (request.method === "POST" || request.method === "PATCH" || request.method === "PUT") {
+      const declaredLen = Number(request.headers.get("content-length") || 0);
+      if (declaredLen > MAX_BODY_BYTES) {
+        return new Response(JSON.stringify({ error: "Payload Too Large", message: "Request body exceeds limit" }), {
+          status: 413,
+          headers: { "Content-Type": "application/json", ...corsHeaders }
+        });
+      }
+    }
+
     try {
       const url = new URL(request.url);
       const pathParts = url.pathname.split("/").filter(Boolean);
-
-      // Extract Branch ID from header or query param
-      const requestBranchId = request.headers.get("X-Branch-ID") || url.searchParams.get("branch_id") || undefined;
 
       // 3. Handle /api/sync endpoint for SyncService background sync
       if (pathParts[0] === "api" && pathParts[1] === "sync" && request.method === "POST") {
@@ -110,15 +151,9 @@ export default {
           } else {
             const normalized = sanitizeAndNormalize(table, data);
             normalized.id = docId;
-            // Never stamp manager/all as a real branch_id on writes
-            if (
-              requestBranchId &&
-              !normalized.branch_id &&
-              requestBranchId !== "manager" &&
-              requestBranchId !== "all" &&
-              requestBranchId !== "*"
-            ) {
-              normalized.branch_id = requestBranchId;
+            // Single-branch: always the one constant, never a client-supplied value.
+            if ("branch_id" in normalized || ALLOWED_COLUMNS[table]?.has("branch_id")) {
+              normalized.branch_id = BRANCH_ID;
             }
 
             const keys = Object.keys(normalized);
@@ -146,7 +181,7 @@ export default {
             await env.DB.prepare(sql).bind(...values).run();
 
             if (table === "snapshots") {
-              await pruneSnapshots(env.DB, normalized.branch_id || requestBranchId || "default");
+              await pruneSnapshots(env.DB);
             }
           }
 
@@ -155,8 +190,17 @@ export default {
             headers: { "Content-Type": "application/json", ...corsHeaders }
           });
         } catch (syncErr: any) {
+          // Validation problems are the client's fault → 400 with the field name.
+          if (syncErr instanceof ValidationError) {
+            return new Response(JSON.stringify({ error: "Bad Request", message: syncErr.message }), {
+              status: 400,
+              headers: { "Content-Type": "application/json", ...corsHeaders }
+            });
+          }
+          // Everything else: log internally, return a generic message. Raw SQLite
+          // errors leak table/column/constraint names to the caller.
           console.error('[Worker /api/sync Error]:', syncErr);
-          return new Response(JSON.stringify({ error: "Sync Error", message: syncErr.message }), {
+          return new Response(JSON.stringify({ error: "Sync Error", message: "Failed to sync record" }), {
             status: 500,
             headers: { "Content-Type": "application/json", ...corsHeaders }
           });
@@ -195,17 +239,10 @@ export default {
       const method = request.method;
 
       if (method === "GET") {
-        // Manager / all / empty → no branch isolation (central dashboard must see every branch)
-        const branchScope = resolveBranchScope(requestBranchId);
-
+        // Single-branch system: reads are never filtered by branch_id, so legacy
+        // rows stamped 'default' / 'branch_1' / NULL stay visible.
         if (docId) {
-          let sql = `SELECT * FROM ${table} WHERE id = ?`;
-          const params: any[] = [docId];
-          if (branchScope.mode === "aliases") {
-            sql += ` AND (${branchScope.sql})`;
-            params.push(...branchScope.params);
-          }
-          const row = await env.DB.prepare(sql).bind(...params).first();
+          const row = await env.DB.prepare(`SELECT * FROM ${table} WHERE id = ?`).bind(docId).first();
 
           if (!row) {
             return new Response(JSON.stringify({ message: "Document not found" }), {
@@ -219,20 +256,52 @@ export default {
             headers: { "Content-Type": "application/json", ...corsHeaders }
           });
         } else {
+          // Pagination + optional incremental sync. Both are opt-in via query
+          // params, so existing clients that send neither keep working — they
+          // just get a bounded page instead of the entire table.
+          const rawLimit = Number(url.searchParams.get("limit"));
+          const limit = Number.isFinite(rawLimit) && rawLimit > 0
+            ? Math.min(Math.floor(rawLimit), MAX_PAGE_LIMIT)
+            : DEFAULT_PAGE_LIMIT;
+
+          const rawOffset = Number(url.searchParams.get("offset"));
+          const offset = Number.isFinite(rawOffset) && rawOffset > 0 ? Math.floor(rawOffset) : 0;
+
+          const since = url.searchParams.get("since");
+
           let sql = `SELECT * FROM ${table}`;
           const params: any[] = [];
-          if (branchScope.mode === "aliases") {
-            sql += ` WHERE ${branchScope.sql}`;
-            params.push(...branchScope.params);
-          }
-          const stmt = params.length > 0 ? env.DB.prepare(sql).bind(...params) : env.DB.prepare(sql);
-          const { results } = await stmt.all();
-          const documents = (results || []).map(row => denormalizeData(table, row));
 
-          return new Response(JSON.stringify({ documents }), {
-            status: 200,
-            headers: { "Content-Type": "application/json", ...corsHeaders }
-          });
+          // Only apply ?since= when the table actually has the column we'd compare.
+          const updatedCol = getUpdatedAtColumn(table);
+          if (since && updatedCol) {
+            if (Number.isNaN(Date.parse(since))) {
+              return new Response(JSON.stringify({ error: "Bad Request", message: "Invalid 'since' timestamp" }), {
+                status: 400,
+                headers: { "Content-Type": "application/json", ...corsHeaders }
+              });
+            }
+            sql += ` WHERE ${updatedCol} > ?`;
+            params.push(since);
+          }
+
+          sql += ` ORDER BY rowid LIMIT ? OFFSET ?`;
+          params.push(limit, offset);
+
+          const { results } = await env.DB.prepare(sql).bind(...params).all();
+          const rows = results || [];
+          const documents = rows.map(row => denormalizeData(table, row));
+
+          return new Response(
+            JSON.stringify({
+              documents,
+              // Pagination metadata; ignored by older clients.
+              limit,
+              offset,
+              hasMore: rows.length === limit
+            }),
+            { status: 200, headers: { "Content-Type": "application/json", ...corsHeaders } }
+          );
         }
       }
 
@@ -243,14 +312,9 @@ export default {
 
         const data = sanitizeAndNormalize(table, rawData);
         data.id = documentId;
-        if (
-          requestBranchId &&
-          !data.branch_id &&
-          requestBranchId !== "manager" &&
-          requestBranchId !== "all" &&
-          requestBranchId !== "*"
-        ) {
-          data.branch_id = requestBranchId;
+        // Single-branch: always the one constant, never a client-supplied value.
+        if ("branch_id" in data || ALLOWED_COLUMNS[table]?.has("branch_id")) {
+          data.branch_id = BRANCH_ID;
         }
 
         const keys = Object.keys(data);
@@ -278,7 +342,7 @@ export default {
         await env.DB.prepare(sql).bind(...values).run();
 
         if (table === "snapshots") {
-          await pruneSnapshots(env.DB, data.branch_id || requestBranchId || "default");
+          await pruneSnapshots(env.DB);
         }
 
         const row = await env.DB.prepare(`SELECT * FROM ${table} WHERE id = ?`).bind(documentId).first();
@@ -299,6 +363,8 @@ export default {
         const body: any = await request.json();
         const rawData = body.data || {};
         const data = sanitizeAndNormalize(table, rawData);
+        // Single-branch: branch_id is server-owned and never patchable by a client.
+        delete data.branch_id;
 
         const keys = Object.keys(data);
         if (keys.length === 0) {
@@ -350,7 +416,17 @@ export default {
       });
 
     } catch (err: any) {
-      return new Response(JSON.stringify({ error: "Internal Server Error", message: err.message }), {
+      // Client-side validation failures get a precise 400; everything else is
+      // logged internally and answered generically so SQLite internals (table,
+      // column and constraint names) never reach the caller.
+      if (err instanceof ValidationError) {
+        return new Response(JSON.stringify({ error: "Bad Request", message: err.message }), {
+          status: 400,
+          headers: { "Content-Type": "application/json", ...corsHeaders }
+        });
+      }
+      console.error("[worker] unhandled error:", err);
+      return new Response(JSON.stringify({ error: "Internal Server Error", message: "Request failed" }), {
         status: 500,
         headers: { "Content-Type": "application/json", ...corsHeaders }
       });
@@ -358,36 +434,24 @@ export default {
   }
 };
 
-/**
- * Branch isolation for multi-branch POS.
- * - manager / all / * → no filter (central dashboard)
- * - default / main_branch / branch_1 → treated as the same main branch aliases
- * - any other id → exact match + NULL + default + main_branch fallback for legacy rows
- */
-function resolveBranchScope(requestBranchId: string | undefined): {
-  mode: "all" | "aliases";
-  sql: string;
-  params: string[];
-} {
-  const raw = (requestBranchId || "").trim();
-  if (!raw || raw === "manager" || raw === "all" || raw === "*") {
-    return { mode: "all", sql: "", params: [] };
+/** Which column (if any) `?since=` should compare against for a table. */
+function getUpdatedAtColumn(table: string): string | null {
+  switch (table) {
+    case "orders":
+      return "updatedAt";
+    case "menu_items":
+    case "customers":
+    case "companies":
+    case "inventory":
+    case "settings":
+    case "recipes":
+      return "updated_at";
+    case "inventory_transactions":
+    case "snapshots":
+      return "created_at";
+    default:
+      return null;
   }
-
-  const MAIN_ALIASES = new Set(["default", "main_branch", "branch_1"]);
-  if (MAIN_ALIASES.has(raw)) {
-    return {
-      mode: "aliases",
-      sql: `(branch_id IS NULL OR branch_id IN ('default', 'main_branch', 'branch_1', ?))`,
-      params: [raw],
-    };
-  }
-
-  return {
-    mode: "aliases",
-    sql: `(branch_id = ? OR branch_id IS NULL OR branch_id = 'default' OR branch_id = 'main_branch')`,
-    params: [raw],
-  };
 }
 
 function getCorsHeaders(request: Request, env: Env) {
@@ -416,6 +480,87 @@ function getCorsHeaders(request: Request, env: Env) {
   };
 }
 
+/**
+ * Per-column value contracts. The allow-list above only filters column NAMES;
+ * without this a client could store totalAmount: "abc" or a negative price and
+ * permanently poison financial reporting.
+ *   num  → finite, non-negative, rounded to 2dp (money-safe)
+ *   int  → finite, non-negative integer
+ *   iso  → parseable date string
+ *   str  → string, length-capped
+ *   enum → must be one of ENUM_VALUES[column]
+ */
+const COLUMN_TYPES: Record<string, Record<string, "num" | "int" | "iso" | "str" | "enum">> = {
+  orders: {
+    totalAmount: "num", taxRate: "num", taxAmount: "num", grandTotal: "num",
+    pointsEarned: "num", pointsRedeemed: "num",
+    createdAt: "iso", updatedAt: "iso", paidAt: "iso", refundedAt: "iso", deletedAt: "iso",
+    orderNumber: "str", tableId: "str", customerPhone: "str",
+    status: "enum", paymentStatus: "enum", paymentMethod: "enum"
+  },
+  menu_items: {
+    price: "num", name: "str", category: "str",
+    created_at: "iso", updated_at: "iso", deleted_at: "iso"
+  },
+  customers: { points: "num", name: "str", phone: "str", createdAt: "iso", updated_at: "iso" },
+  companies: { name: "str", phone: "str", createdAt: "iso", updated_at: "iso" },
+  inventory: {
+    stock: "num", minStock: "num", costPerUnit: "num",
+    name: "str", unit: "str", created_at: "iso", updated_at: "iso"
+  },
+  recipes: { quantity: "num", unit: "str", updated_at: "iso" },
+  inventory_transactions: { quantity: "num", unit: "str", created_at: "iso" },
+  settings: { key: "str", updated_at: "iso" },
+  snapshots: { created_at: "iso", kind: "str" }
+};
+
+const ENUM_VALUES: Record<string, Set<string>> = {
+  status: new Set(["New", "Preparing", "Ready", "Completed", "Cancelled", "Refunded"]),
+  paymentStatus: new Set(["Paid", "Unpaid", "Refunded", "Partial"]),
+  paymentMethod: new Set(["Cash", "Card", "Wallet", "Credit", "InstaPay", "Transfer"])
+};
+
+/** Longest single string value we will persist (JSON blobs excluded). */
+const MAX_STRING_LEN = 4096;
+
+function coerceValue(table: string, key: string, value: any): any {
+  // Nulls are legitimate (optional columns, tombstones cleared, etc.)
+  if (value === null || value === undefined) return value;
+
+  const kind = COLUMN_TYPES[table]?.[key];
+  if (!kind) return value;
+
+  if (kind === "num" || kind === "int") {
+    if (value === "") return null;
+    const n = Number(value);
+    if (!Number.isFinite(n)) throw new ValidationError(`Invalid numeric value for '${key}'`);
+    if (n < 0) throw new ValidationError(`Value for '${key}' must not be negative`);
+    return kind === "int" ? Math.floor(n) : Math.round(n * 100) / 100;
+  }
+
+  if (kind === "iso") {
+    if (value === "") return null;
+    if (typeof value !== "string" || Number.isNaN(Date.parse(value))) {
+      throw new ValidationError(`Invalid date value for '${key}'`);
+    }
+    return value;
+  }
+
+  if (kind === "enum") {
+    if (value === "") return null;
+    const allowedSet = ENUM_VALUES[key];
+    if (allowedSet && !allowedSet.has(String(value))) {
+      throw new ValidationError(`Invalid value for '${key}'`);
+    }
+    return value;
+  }
+
+  // str
+  const s = typeof value === "string" ? value : String(value);
+  if (s.length > MAX_STRING_LEN) throw new ValidationError(`Value for '${key}' is too long`);
+  return s;
+}
+
 function sanitizeAndNormalize(table: string, data: any) {
   const normalized = normalizeData(table, data);
   const allowed = ALLOWED_COLUMNS[table];
@@ -424,7 +569,7 @@ function sanitizeAndNormalize(table: string, data: any) {
   const sanitized: any = {};
   for (const key of Object.keys(normalized)) {
     if (allowed.has(key)) {
-      sanitized[key] = normalized[key];
+      sanitized[key] = coerceValue(table, key, normalized[key]);
     }
   }
   return sanitized;
@@ -573,9 +718,8 @@ function normalizeData(table: string, data: any) {
 
   if (table === 'snapshots') {
     if ('branchId' in normalized) normalized.branch_id = normalized.branchId;
-    if (!normalized.branch_id || normalized.branch_id === 'manager' || normalized.branch_id === 'all' || normalized.branch_id === '*') {
-      normalized.branch_id = 'main_branch';
-    }
+    // snapshots.branch_id is NOT NULL — always the single-branch constant.
+    normalized.branch_id = BRANCH_ID;
     if ('createdAt' in normalized) {
       normalized.created_at = normalized.createdAt;
       delete normalized.createdAt;
@@ -605,13 +749,17 @@ function denormalizeData(table: string, row: any) {
     doc.total_amount = doc.totalAmount;
     doc.paymentMethod = row.paymentMethod || row.payment_method || 'Cash';
     doc.payment_method = doc.paymentMethod;
-    doc.paymentStatus = row.paymentStatus || 'Paid';
+    // SAFE DEFAULT: a row with a missing/empty paymentStatus must NEVER be
+    // reported as collected revenue. This matches the schema default ('Unpaid')
+    // and the "revenue is only recognized when Paid" rule. Defaulting to 'Paid'
+    // silently inflated every manager report.
+    doc.paymentStatus = row.paymentStatus || 'Unpaid';
     // Keep nullish tax fields as null — never Number(null) => 0 (breaks revenue after restore)
     const n = (v: any) => (v === null || v === undefined || v === '' ? null : (Number.isFinite(Number(v)) ? Number(v) : null));
     doc.taxRate = n(row.taxRate ?? row.tax_rate);
     doc.taxAmount = n(row.taxAmount ?? row.tax_amount);
     doc.grandTotal = n(row.grandTotal ?? row.grand_total);
-    doc.branch_id = row.branch_id || row.branchId || 'main_branch';
+    doc.branch_id = row.branch_id || row.branchId || BRANCH_ID;
     doc.branchId = doc.branch_id;
     doc.customerPhone = row.customerPhone || row.customer_phone || undefined;
     doc.customerId = row.customerId || row.customer_id || undefined;
@@ -679,7 +827,7 @@ function denormalizeData(table: string, row: any) {
   }
 
   if (table === 'settings') {
-    doc.branchId = row.branch_id || row.branchId || 'default';
+    doc.branchId = row.branch_id || row.branchId || BRANCH_ID;
     doc.branch_id = doc.branchId;
     doc.key = row.key;
     doc.value = row.value;
@@ -729,20 +877,23 @@ function denormalizeData(table: string, row: any) {
   return doc;
 }
 
-async function pruneSnapshots(db: D1Database, branchId: string) {
+/**
+ * Keep only the newest MAX_SNAPSHOTS rows. Single-branch, so no grouping.
+ * Deletes in ONE statement instead of a request per row (the old N+1 loop).
+ */
+async function pruneSnapshots(db: D1Database) {
   try {
     const { results } = await db
-      .prepare(
-        `SELECT id FROM snapshots WHERE branch_id = ? ORDER BY created_at DESC`
-      )
-      .bind(branchId)
+      .prepare(`SELECT id FROM snapshots ORDER BY created_at DESC`)
       .all();
     const rows = results || [];
-    if (rows.length <= MAX_SNAPSHOTS_PER_BRANCH) return;
-    const toDelete = rows.slice(MAX_SNAPSHOTS_PER_BRANCH);
-    for (const row of toDelete) {
-      await db.prepare(`DELETE FROM snapshots WHERE id = ?`).bind((row as any).id).run();
-    }
+    if (rows.length <= MAX_SNAPSHOTS) return;
+
+    const ids = rows.slice(MAX_SNAPSHOTS).map(r => (r as any).id);
+    if (ids.length === 0) return;
+
+    const placeholders = ids.map(() => "?").join(",");
+    await db.prepare(`DELETE FROM snapshots WHERE id IN (${placeholders})`).bind(...ids).run();
   } catch (e) {
     console.warn('[pruneSnapshots]', e);
   }

@@ -85,45 +85,19 @@ export function setWorkerUrl(url: string): void {
 }
 
 /**
- * Branch header for cloud requests.
- * Manager sessions must send "manager" so the worker returns ALL branches.
- * Cashier / default config normalize to main_branch (D1 source of truth).
+ * SINGLE-BRANCH SYSTEM.
+ * One store: the cashier side and the manager dashboard read the exact same
+ * data. There is no branch selection, no per-branch scoping, and no "manager
+ * sees all branches" special case — there is only ever one branch.
+ *
+ * This constant is the single source of truth for the branch_id column that
+ * still exists in the schema for back-compat.
  */
+export const BRANCH_ID = 'main_branch';
+
+/** Branch header for cloud requests — always the one constant. */
 export function getBranchIdHeader(): string {
-  if (typeof window === 'undefined') return 'main_branch';
-  try {
-    // Prefer live auth session (manager vs cashier)
-    const sessionRaw =
-      localStorage.getItem('auth_session_system_online') ||
-      sessionStorage.getItem('auth_session_system_online');
-    if (sessionRaw) {
-      const session = JSON.parse(sessionRaw);
-      const bid = session?.branch?.branchId || session?.user?.role;
-      if (bid === 'manager' || session?.user?.role === 'manager') return 'manager';
-      if (bid && bid !== 'all') {
-        return normalizeBranchId(String(bid));
-      }
-    }
-
-    const standalone = localStorage.getItem('branch_id');
-    if (standalone) return normalizeBranchId(standalone);
-
-    const raw = localStorage.getItem('brewmaster_branch_config');
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (parsed?.branchId) return normalizeBranchId(String(parsed.branchId));
-    }
-  } catch {
-    // ignore
-  }
-  return 'main_branch';
-}
-
-/** Map legacy aliases so default/branch_1 write & read as main_branch family */
-export function normalizeBranchId(branchId: string): string {
-  const b = String(branchId || '').trim();
-  if (!b || b === 'default' || b === 'branch_1' || b === 'manager' || b === 'all' || b === '*') return 'main_branch';
-  return b;
+  return BRANCH_ID;
 }
 
 export function isCloudConfigured(): boolean {
@@ -184,23 +158,49 @@ export async function cloudFetch(
   }
 }
 
+/** Page size requested per round-trip; must be <= the worker's MAX_PAGE_LIMIT. */
+const CLOUD_PAGE_SIZE = 1000;
+/** Hard stop so a bad `hasMore` can never spin forever. */
+const CLOUD_MAX_PAGES = 200;
+
+/**
+ * Fetch a whole collection, following the worker's pagination.
+ *
+ * The worker caps every response (it will not dump an entire table anymore), so
+ * we loop until it reports `hasMore: false`. Older workers that return no
+ * pagination metadata simply yield one page and stop — same behaviour as before.
+ */
 export async function cloudGetCollection(collection: string): Promise<any[] | null> {
-  try {
-    const res = await cloudFetch(
-      `/v1/databases/default/collections/${collection}/documents`,
-      { method: 'GET', timeoutMs: DEFAULT_TIMEOUT_MS }
-    );
-    if (!res) return null;
-    if (!res.ok) {
-      console.warn(`[cloud] GET ${collection} failed: HTTP ${res.status}`);
-      return null;
+  const all: any[] = [];
+  let offset = 0;
+
+  for (let page = 0; page < CLOUD_MAX_PAGES; page++) {
+    try {
+      const res = await cloudFetch(
+        `/v1/databases/default/collections/${collection}/documents?limit=${CLOUD_PAGE_SIZE}&offset=${offset}`,
+        { method: 'GET', timeoutMs: DEFAULT_TIMEOUT_MS }
+      );
+      if (!res) return page === 0 ? null : all;
+      if (!res.ok) {
+        console.warn(`[cloud] GET ${collection} failed: HTTP ${res.status}`);
+        return page === 0 ? null : all;
+      }
+      const json = await res.json();
+      const docs = Array.isArray(json?.documents) ? json.documents : [];
+      all.push(...docs);
+
+      // Stop when the worker says there is nothing left, or when it returned a
+      // short/unpaginated page (legacy worker, or final page).
+      if (json?.hasMore !== true || docs.length === 0) return all;
+      offset += docs.length;
+    } catch (err) {
+      console.warn(`[cloud] GET ${collection} error:`, err);
+      return offset === 0 ? null : all;
     }
-    const json = await res.json();
-    return Array.isArray(json?.documents) ? json.documents : [];
-  } catch (err) {
-    console.warn(`[cloud] GET ${collection} error:`, err);
-    return null;
   }
+
+  console.warn(`[cloud] GET ${collection} hit page cap (${CLOUD_MAX_PAGES})`);
+  return all;
 }
 
 /**
@@ -214,14 +214,9 @@ export async function cloudUpsert(
 ): Promise<boolean> {
   if (!id) return false;
   const payload: Record<string, any> = { ...data, id };
-  const bid = payload.branchId || payload.branch_id;
-  if (collection === 'snapshots') {
-    payload.branch_id = normalizeBranchId(bid || getBranchIdHeader());
-    payload.branchId = payload.branch_id;
-  } else if (bid === 'manager' || bid === 'all' || bid === '*') {
-    delete payload.branchId;
-    delete payload.branch_id;
-  }
+  // Single-branch: always stamp the one constant. The worker enforces this too.
+  payload.branch_id = BRANCH_ID;
+  payload.branchId = BRANCH_ID;
   try {
     const res = await cloudFetch(
       `/v1/databases/default/collections/${collection}/documents`,
@@ -257,13 +252,14 @@ export async function ackSyncQueueForEntity(entityId: string): Promise<void> {
       for (const rec of all) {
         if (rec.synced === 1) continue;
         const rid = rec.data?.id || rec.data?.documentId;
-        // Match entity id, or queue ids like sync_<entityId> / sync_menu_<entityId>_...
-        const related =
-          rid === entityId ||
-          rec.id === `sync_${entityId}` ||
-          rec.id.includes(`_${entityId}`) ||
-          rec.id.includes(`${entityId}_`);
-        if (!related) continue;
+        // EXACT match on the queued payload id only.
+        //
+        // This used to also substring-match the queue row's own id
+        // (`rec.id.includes('_' + entityId)`), which meant syncing order
+        // "ord_12" would also mark "ord_123"'s pending row as synced — that row
+        // then never reached D1 and was pruned after 24h, silently losing a
+        // paid order. Never widen this condition.
+        if (rid !== entityId) continue;
         rec.synced = 1;
         rec.syncedAt = now;
         rec.lastError = undefined;

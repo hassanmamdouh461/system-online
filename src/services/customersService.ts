@@ -1,7 +1,6 @@
 import { Customer } from '../types/customer';
 import { customerRepository } from '../repositories';
-
-const WORKER_URL = (import.meta.env.VITE_CLOUDFLARE_WORKER_URL || '').replace(/\/$/, '');
+import { BRANCH_ID, cloudGetCollection, isCloudConfigured } from './cloudConfig';
 
 function normalizePhone(phone: string): string {
   return phone.replace(/[\s\-()]/g, '').trim();
@@ -55,17 +54,18 @@ export const customersService = {
     }
 
     // 2) Server (Cloudflare D1 via Worker REST)
-    if (WORKER_URL && typeof navigator !== 'undefined' && navigator.onLine) {
+    //
+    // Uses cloudGetCollection so the request carries the correct database path
+    // AND the auth headers. This previously hand-rolled a fetch against
+    // `/v1/databases/main/...` — the wrong database segment (everything else
+    // uses `default`) and with no X-API-Key, so phone lookup ALWAYS failed and
+    // the swallowed error made it look like the customer simply didn't exist.
+    if (isCloudConfigured() && typeof navigator !== 'undefined' && navigator.onLine) {
       try {
-        const res = await fetch(
-          `${WORKER_URL}/v1/databases/main/collections/customers/documents`,
-          { headers: { Accept: 'application/json' } }
-        );
-        if (res.ok) {
-          const body = await res.json();
-          const docs: any[] = Array.isArray(body?.documents) ? body.documents : [];
+        const docs = await cloudGetCollection('customers');
+        if (docs) {
           const match = docs.find(
-            (d) => normalizePhone(String(d.phone || '')) === normalized
+            (d: any) => normalizePhone(String(d.phone || '')) === normalized
           );
           if (match) {
             const remote: Customer = {
@@ -81,7 +81,7 @@ export const customersService = {
                   : [],
               notes: match.notes || undefined,
               createdAt: match.createdAt || match.$createdAt || new Date().toISOString(),
-              branchId: match.branchId || match.branch_id || branchId,
+              branchId: match.branchId || match.branch_id || BRANCH_ID,
             };
             // Cache locally for offline / history
             try {
