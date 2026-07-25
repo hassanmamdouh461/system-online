@@ -28,15 +28,9 @@ export function useSwipe(handlers: SwipeHandlers, config: SwipeConfig = {}) {
     });
   };
 
-  const onTouchMove = (e: TouchEvent) => {
-    if (!touchStart) return;
-
-    const touch = e.touches[0];
-    const deltaX = Math.abs(touch.clientX - touchStart.x);
-    const deltaY = Math.abs(touch.clientY - touchStart.y);
-
-
-  };
+  // Swipe direction is decided in onTouchEnd; nothing to track mid-gesture.
+  // (This previously computed deltaX/deltaY and discarded them.)
+  const onTouchMove = (_e: TouchEvent) => {};
 
   const onTouchEnd = (e: TouchEvent) => {
     if (!touchStart) return;

@@ -108,8 +108,8 @@ export class IndexedDbCustomerRepository implements ICustomerRepository {
       }
     }
 
-    if (!branchId || branchId === 'manager' || branchId === 'all') return localCustomers;
-    return localCustomers.filter((c) => !c.branchId || c.branchId === branchId);
+    // SINGLE-BRANCH SYSTEM: no branch filtering.
+    return localCustomers;
   }
 
   async getByPhone(phone: string, branchId?: string): Promise<Customer | null> {
@@ -129,9 +129,7 @@ export class IndexedDbCustomerRepository implements ICustomerRepository {
         });
       }
       if (!customer) return null;
-      if (branchId && branchId !== 'manager' && branchId !== 'all') {
-        if (customer.branchId && customer.branchId !== branchId) return null;
-      }
+      // SINGLE-BRANCH SYSTEM: never reject a customer on branch mismatch.
       return customer;
     });
   }

@@ -177,10 +177,9 @@ export class IndexedDbMenuRepository implements IMenuRepository {
     // Always hide soft-deleted items from consumers.
     const live = localItems.filter((item) => !item.deletedAt);
 
-    if (!branchId || branchId === 'manager' || branchId === 'all') return live;
-    return live.filter(
-      (item) => !item.branchId || item.branchId === branchId || item.branchId === 'default'
-    );
+    // SINGLE-BRANCH SYSTEM: no branch filtering — every item belongs to this
+    // one store, including legacy rows stamped 'default' / 'branch_1' / NULL.
+    return live;
   }
 
   /** Push entire local menu to D1 when cloud is empty */

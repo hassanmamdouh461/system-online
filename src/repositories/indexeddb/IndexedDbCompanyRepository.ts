@@ -59,8 +59,8 @@ export class IndexedDbCompanyRepository implements ICompanyRepository {
       }
     }
 
-    if (!branchId) return localCompanies;
-    return localCompanies.filter((c) => !c.branchId || c.branchId === branchId);
+    // SINGLE-BRANCH SYSTEM: no branch filtering.
+    return localCompanies;
   }
 
   async getById(id: string): Promise<Company | null> {

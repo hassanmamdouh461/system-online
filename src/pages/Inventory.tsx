@@ -97,11 +97,6 @@ export default function Inventory() {
     };
 
     // 2. Map unit costs for each inventory item
-    const getUnitCost = (invItemId: string): number => {
-      const found = resolveInvItem(invItemId);
-      return found?.costPerUnit && found.costPerUnit > 0 ? found.costPerUnit : 1;
-    };
-
     // 3. Group recipes by menuItemId
     const menuRecipeMap: Record<string, RecipeIngredient[]> = {};
     recipes.forEach(r => {

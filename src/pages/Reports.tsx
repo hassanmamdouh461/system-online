@@ -75,11 +75,6 @@ export default function Reports() {
     const invMapById = new Map<string, any>();
     inventory.forEach(item => invMapById.set(item.id, item));
 
-    const getUnitCost = (invItemId: string): number => {
-      const found = resolveInvItem(invItemId, inventory);
-      return found ? Number(found.costPerUnit || 0) : 0;
-    };
-
     const menuRecipeMap: Record<string, any[]> = {};
     recipes.forEach(r => {
       if (r.menuItemId) {

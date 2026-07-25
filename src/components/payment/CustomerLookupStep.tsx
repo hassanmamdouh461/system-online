@@ -9,7 +9,6 @@ import { companiesService } from '../../services/companiesService';
 import { Customer } from '../../types/customer';
 import { Company } from '../../types/company';
 import { useLanguage } from '../../context/LanguageContext';
-import { useAuth } from '../../context/AuthContext';
 import { clsx } from 'clsx';
 
 export interface CustomerLookupResult {
@@ -43,8 +42,8 @@ export function CustomerLookupStep({
   accountMode = 'any',
 }: CustomerLookupStepProps) {
   const { t, language } = useLanguage();
-  const { branch } = useAuth();
-  const branchId = branch?.branchId === 'manager' ? undefined : branch?.branchId;
+  // Single-branch system: no branch scoping on customer lookup.
+  const branchId = undefined;
 
   const [query, setQuery] = useState(initialPhone);
   const [name, setName] = useState('');
