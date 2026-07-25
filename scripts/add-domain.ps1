@@ -5,7 +5,7 @@ $headers = @{
   "Content-Type" = "application/json"
 }
 
-$account = "6c8cc1f1a3f0af27b949d785c31c8c6c"
+$account = $env:CF_ACCOUNT_ID
 $project = "system-online"
 $domain = "pos.engaz.tech"
 

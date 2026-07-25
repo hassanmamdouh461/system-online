@@ -1,7 +1,7 @@
 $tokenLine = Get-Content "$env:APPDATA\xdg.config\.wrangler\config\default.toml" | Select-String 'oauth_token'
 $token = ($tokenLine.Line -split '=', 2)[1].Trim().Trim('"')
 $headers = @{ Authorization = "Bearer $token" }
-$account = "6c8cc1f1a3f0af27b949d785c31c8c6c"
+$account = $env:CF_ACCOUNT_ID
 
 Write-Host "=== system-online-web script settings ==="
 try {

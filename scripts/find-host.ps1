@@ -1,7 +1,7 @@
 $tokenLine = Get-Content "$env:APPDATA\xdg.config\.wrangler\config\default.toml" | Select-String 'oauth_token'
 $token = ($tokenLine.Line -split '=', 2)[1].Trim().Trim('"')
 $headers = @{ Authorization = "Bearer $token" }
-$account = "6c8cc1f1a3f0af27b949d785c31c8c6c"
+$account = $env:CF_ACCOUNT_ID
 
 Write-Host "=== Workers scripts ==="
 try {
@@ -17,7 +17,7 @@ try {
 Write-Host ""
 Write-Host "=== Workers routes on engaz zone (if permitted) ==="
 try {
-  $zoneId = "1252da82cfc658ae3a25d2eb3dc76971"
+  $zoneId = $env:CF_ZONE_ID
   $r2 = Invoke-RestMethod -Uri "https://api.cloudflare.com/client/v4/zones/$zoneId/workers/routes" -Headers $headers
   Write-Host ($r2 | ConvertTo-Json -Depth 6)
 } catch {

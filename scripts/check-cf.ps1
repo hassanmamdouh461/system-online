@@ -4,7 +4,7 @@ $headers = @{ Authorization = "Bearer $token" }
 
 Write-Host "=== Pages project system-online ==="
 try {
-  $r = Invoke-RestMethod -Uri "https://api.cloudflare.com/client/v4/accounts/6c8cc1f1a3f0af27b949d785c31c8c6c/pages/projects/system-online" -Headers $headers
+  $r = Invoke-RestMethod -Uri "https://api.cloudflare.com/client/v4/accounts/$($env:CF_ACCOUNT_ID)/pages/projects/system-online" -Headers $headers
   Write-Host ("name=" + $r.result.name)
   Write-Host ("subdomain=" + $r.result.subdomain)
   Write-Host ("domains=" + ($r.result.domains -join ", "))

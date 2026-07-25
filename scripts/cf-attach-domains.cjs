@@ -7,8 +7,19 @@ if (!match) {
   process.exit(1);
 }
 const token = match[1];
-const ACCOUNT_ID = '6c8cc1f1a3f0af27b949d785c31c8c6c';
-const ZONE_ID = '1252da82cfc658ae3a25d2eb3dc76971';
+// Infrastructure identifiers come from the environment, never the repo.
+// Set CF_ACCOUNT_ID and CF_ZONE_ID before running (see scripts/README.md).
+function requireEnv(name) {
+  const value = process.env[name];
+  if (!value) {
+    console.error(`Missing required environment variable: ${name}`);
+    process.exit(1);
+  }
+  return value;
+}
+
+const ACCOUNT_ID = requireEnv('CF_ACCOUNT_ID');
+const ZONE_ID = requireEnv('CF_ZONE_ID');
 const PAGES_PROJECT = 'system-online';
 const WORKER_NAME = 'system-online-backend';
 

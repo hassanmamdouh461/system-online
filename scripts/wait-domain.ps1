@@ -1,9 +1,9 @@
 $tokenLine = Get-Content "$env:APPDATA\xdg.config\.wrangler\config\default.toml" | Select-String 'oauth_token'
 $token = ($tokenLine.Line -split '=', 2)[1].Trim().Trim('"')
 $headers = @{ Authorization = "Bearer $token"; "Content-Type" = "application/json" }
-$account = "6c8cc1f1a3f0af27b949d785c31c8c6c"
+$account = $env:CF_ACCOUNT_ID
 $project = "system-online"
-$zoneId = "1252da82cfc658ae3a25d2eb3dc76971"
+$zoneId = $env:CF_ZONE_ID
 
 for ($i = 1; $i -le 12; $i++) {
   Write-Host ("--- poll $i ---")
