@@ -338,7 +338,7 @@ class OrderRepository {
       INSERT INTO orders (
         id, orderNumber, tableId, items, status, paymentStatus, paymentMethod,
         totalAmount, taxRate, taxAmount, grandTotal,
-        createdAt, updatedAt, paidAt,
+        createdAt, updated_at, paidAt,
         customerPhone, customerId, customerName,
         companyId, companyName, billedToType,
         pointsEarned, pointsRedeemed, refundedAt, refundReason, deletedAt,
@@ -375,7 +375,7 @@ class OrderRepository {
     // Keep a local payment win: if the local row is Paid more recently than the
     // cloud row (cashier just settled it here), do not let a stale cloud pull
     // downgrade it back to Unpaid/OnAccount and lose the revenue record.
-    const getLocalPaid = sqlite.prepare('SELECT paidAt, paymentStatus, updatedAt FROM orders WHERE id = ?');
+    const getLocalPaid = sqlite.prepare('SELECT paidAt, paymentStatus, updated_at FROM orders WHERE id = ?');
 
     const runTx = sqlite.transaction((orders) => {
       for (const order of orders) {
