@@ -354,6 +354,11 @@ async function applyOrderInventory(
     } catch (invErr) {
       console.error('[DataContext] Failed to restore inventory on refund:', existing.id, invErr);
     }
+
+    // Immediate Cloudflare D1 Sync (non-blocking).
+    // Without this a refund stayed local until the next scheduled cycle, so
+    // other devices kept showing the order as Paid and reported inflated revenue.
+    void syncService.syncPendingData();
   }, []);
 
   const updateOrder = useCallback(async (id: string, data: Partial<Omit<Order, 'id'>>) => {
@@ -406,6 +411,10 @@ async function applyOrderInventory(
           console.error('[DataContext] Failed to restore inventory on physical order deletion:', existing.id, invErr);
         }
       }
+
+      // Immediate Cloudflare D1 Sync (non-blocking) — matches every other
+      // order mutation, so the deletion propagates instead of waiting.
+      void syncService.syncPendingData();
     } catch (err) {
       console.error('[DataContext] Failed to delete order in repository:', err);
       toast.error(err instanceof Error ? err.message : String(err));

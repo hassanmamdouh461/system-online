@@ -238,13 +238,14 @@ export async function ackSyncQueueForEntity(entityId: string): Promise<void> {
       for (const rec of all) {
         if (rec.synced === 1) continue;
         const rid = rec.data?.id || rec.data?.documentId;
-        // Match entity id, or queue ids like sync_<entityId> / sync_menu_<entityId>_...
-        const related =
-          rid === entityId ||
-          rec.id === `sync_${entityId}` ||
-          rec.id.includes(`_${entityId}`) ||
-          rec.id.includes(`${entityId}_`);
-        if (!related) continue;
+        // Exact payload-id match only.
+        //
+        // This previously used rec.id.includes(`_${entityId}`), which matched
+        // by substring: acking "ord_123" also acked queue rows belonging to
+        // "ord_1234". Those rows were marked synced without ever reaching D1
+        // and were purged 24h later — a silent, permanent loss of an order or
+        // payment. Substring matching is never safe for id comparison.
+        if (rid !== entityId) continue;
         rec.synced = 1;
         rec.syncedAt = now;
         rec.lastError = undefined;
