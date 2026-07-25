@@ -41,35 +41,35 @@ export function StatCard({ label, value, icon: Icon, trend, color }: StatCardPro
   const colors = colorConfig[color] || colorConfig.orange;
 
   return (
-    <motion.div 
+    <motion.div
       whileHover={{ y: -4, scale: 1.01 }}
       whileTap={{ scale: 0.99 }}
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
-      className="bg-white/95 backdrop-blur-sm p-3 md:p-6 rounded-xl md:rounded-2xl shadow-sm hover:shadow-md border border-gray-200/50 relative overflow-hidden group transition-all mobile-touch-target"
+      className="bg-white/95 backdrop-blur-sm p-3 sm:p-4 md:p-6 rounded-xl md:rounded-2xl shadow-sm hover:shadow-md border border-gray-200/50 relative overflow-hidden group transition-all mobile-touch-target"
     >
       {/* Soft gradient overlay on hover */}
       <div className={`absolute inset-0 bg-gradient-to-br ${colors.gradient} opacity-0 group-hover:opacity-[0.03] transition-opacity duration-300`} />
-      
+
       <div className="relative z-10">
         <div className="flex justify-between items-start mb-3 md:mb-4 gap-1">
           {/* Icon with soft gradient */}
-          <motion.div 
+          <motion.div
             whileHover={{ rotate: 15, scale: 1.05 }}
             transition={{ duration: 0.3 }}
-            className={`p-2 md:p-3 rounded-xl ${colors.iconBg} ${colors.iconText} shadow-sm border border-current/10 shrink-0`}
+            className={`p-2 md:p-3 rounded-lg md:rounded-xl ${colors.iconBg} ${colors.iconText} shadow-sm border border-current/10 shrink-0`}
           >
-            <Icon className="w-4 h-4 md:w-6 md:h-6" strokeWidth={2} />
+            <Icon className="w-4 h-4 sm:w-5 sm:h-5 md:w-6 md:h-6" strokeWidth={2} />
           </motion.div>
-          
+
           {/* Trend badge - responsive */}
-          <span className="text-[10px] md:text-xs font-sans font-semibold text-green-600 bg-green-50 px-1.5 md:px-2.5 py-0.5 md:py-1 rounded-lg border border-green-100/50 shadow-sm text-right min-w-0 leading-tight max-w-[62%]">
+          <span className="text-[9px] sm:text-[10px] md:text-xs font-sans font-semibold text-green-600 bg-green-50 px-1.5 md:px-2.5 py-0.5 md:py-1 rounded-lg border border-green-100/50 shadow-sm text-right min-w-0 leading-tight max-w-[60%]">
             {trend}
           </span>
         </div>
-        
-        <h3 className="text-gray-500 text-xs md:text-sm font-semibold mb-1 uppercase tracking-wide">{label}</h3>
-        <p className="text-2xl md:text-3xl font-bold text-gray-800">
+
+        <h3 className="text-gray-500 text-[10px] sm:text-xs md:text-sm font-semibold mb-1 uppercase tracking-wide line-clamp-2">{label}</h3>
+        <p className="text-base sm:text-xl md:text-2xl lg:text-3xl font-bold text-gray-800 leading-tight">
           {value}
         </p>
       </div>

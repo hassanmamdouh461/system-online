@@ -44,23 +44,23 @@ export function TopNav() {
   return (
     <header className="hidden sm:block w-full bg-white border-b border-gray-200 shadow-sm relative z-30">
       <div className="w-full px-3 sm:px-4 lg:px-6">
-        <div className="flex items-center justify-between h-16">
+        <div className="flex items-center justify-between h-14 sm:h-16">
           
           {/* Brand/Logo */}
-          <div className="flex items-center gap-3 shrink-0">
-            <div className="bg-gradient-to-br from-mocha-600 to-coffee-dark p-2 rounded-lg shadow-md shadow-mocha-500/10">
-              <Coffee className="w-5 h-5 text-white" />
+          <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+            <div className="bg-gradient-to-br from-mocha-600 to-coffee-dark p-1.5 sm:p-2 rounded-lg shadow-md shadow-mocha-500/10">
+              <Coffee className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
             </div>
             <div>
-              <h1 className="text-gray-900 font-black text-base leading-none">
+              <h1 className="text-gray-900 font-black text-sm sm:text-base leading-none">
                 Brew<span className="text-caramel">Master</span>
               </h1>
-              <p className="text-gray-400 text-[10px] font-bold">Coffee POS</p>
+              <p className="text-gray-400 text-[9px] sm:text-[10px] font-bold">Coffee POS</p>
             </div>
           </div>
 
           {/* Navigation Items in center */}
-          <div className="flex items-center gap-1.5 bg-gray-50/80 backdrop-blur-sm p-1 rounded-xl border border-gray-200/50 shadow-sm">
+          <div className="flex items-center gap-1 sm:gap-1.5 bg-gray-50/80 backdrop-blur-sm p-1 rounded-xl border border-gray-200/50 shadow-sm">
             {navItems.map((item) => {
               const Icon = item.icon;
               return (
@@ -69,25 +69,25 @@ export function TopNav() {
                   to={item.to}
                   className={({ isActive }) =>
                     clsx(
-                      "flex items-center gap-2 px-4 py-2 rounded-lg text-xs md:text-sm font-extrabold transition-all duration-200",
+                      "flex items-center gap-2 px-2.5 sm:px-3 lg:px-4 py-2 rounded-lg text-xs lg:text-sm font-extrabold transition-all duration-200",
                       isActive
                         ? "bg-gray-900 text-white shadow-sm"
                         : "text-gray-500 hover:text-gray-700 hover:bg-gray-200/50"
                     )
                   }
                 >
-                  <Icon size={16} />
-                  <span>{item.label}</span>
+                  <Icon size={16} className="shrink-0" />
+                  <span className="hidden lg:inline">{item.label}</span>
                 </NavLink>
               );
             })}
           </div>
 
           {/* Right Action Section (User Profile & Logout) */}
-          <div className="flex items-center gap-3 shrink-0">
+          <div className="flex items-center gap-2 sm:gap-3 shrink-0">
 
             {/* User Profile Mini Card */}
-            <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-gray-50 border border-gray-200/40">
+            <div className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-gray-50 border border-gray-200/40">
               <div className={clsx("text-left", isRtl && "text-right")}>
                 <p className="text-xs font-bold text-gray-800 leading-tight">
                   {language === 'ar' && user?.id === 'branch_1' ? 'فرع المعادي' :

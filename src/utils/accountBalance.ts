@@ -1,6 +1,14 @@
 import { Order, getOrderGrandTotal } from '../types/order';
 import { Customer } from '../types/customer';
 
+/**
+ * Utility function to handle Javascript Floating Point issues (e.g. 0.1 + 0.2)
+ * Ensures money calculations are accurate to 2 decimal places.
+ */
+export const roundMoney = (amount: number): number => {
+  return Math.round((amount + Number.EPSILON) * 100) / 100;
+};
+
 function phonesMatch(a?: string, b?: string): boolean {
   if (!a || !b) return false;
   const pa = a.replace(/[\s\-()]/g, '').trim();
@@ -15,9 +23,18 @@ function normalizePhone(p?: string): string {
 
 /** True when this OnAccount invoice is carried by a company ledger. */
 export function isCompanyBilledOrder(order: Order): boolean {
-  if (order.paymentStatus !== 'OnAccount' || order.status === 'Cancelled') return false;
-  if (order.billedToType === 'company' && order.companyId) return true;
+  if (!order) return false;
+  
+  // Edge Case: Exclude explicitly cancelled or refunded orders
+  if (order.status === 'Cancelled' || order.paymentStatus === 'Refunded') return false;
+  
+  // Must be strictly OnAccount
+  if (order.paymentStatus !== 'OnAccount') return false;
+
+  if (order.billedToType === 'customer') return false;
+  if (order.billedToType === 'company') return true;
   if (!order.billedToType && order.companyId && order.companyName) return true;
+  
   return false;
 }
 
@@ -29,10 +46,11 @@ export function getCustomerAccountBalance(
   customer: Pick<Customer, 'id' | 'phone'>,
   taxRate = 0
 ): number {
-  return getCustomerOpenInvoices(orders, customer).reduce(
+  const totalDebt = getCustomerOpenInvoices(orders, customer).reduce(
     (s, o) => s + getOrderGrandTotal(o, taxRate),
     0
   );
+  return roundMoney(totalDebt);
 }
 
 /**
@@ -46,21 +64,27 @@ export function getCompanyAccountBalance(
   taxRate = 0,
   memberPhones: string[] = [],
   memberIds: string[] = [],
-  includeMemberPersonal = true
+  includeMemberPersonal = false
 ): number {
-  return getCompanyOpenInvoices(orders, companyId, memberPhones, memberIds, includeMemberPersonal).reduce(
+  const totalDebt = getCompanyOpenInvoices(orders, companyId, memberPhones, memberIds, includeMemberPersonal).reduce(
     (s, o) => s + getOrderGrandTotal(o, taxRate),
     0
   );
+  return roundMoney(totalDebt);
 }
 
 export function getCustomerOpenInvoices(
   orders: Order[],
   customer: Pick<Customer, 'id' | 'phone'>
 ): Order[] {
+  if (!orders || !customer) return [];
+  
   return orders
     .filter(o => {
-      if (o.paymentStatus !== 'OnAccount' || o.status === 'Cancelled') return false;
+      // Exclude invalid or non-debt statuses explicitly
+      if (o.status === 'Cancelled' || o.paymentStatus === 'Refunded') return false;
+      if (o.paymentStatus !== 'OnAccount') return false;
+      
       if (isCompanyBilledOrder(o)) return false;
       if (o.customerId && o.customerId === customer.id) return true;
       return phonesMatch(o.customerPhone, customer.phone);
@@ -76,14 +100,18 @@ export function getCompanyOpenInvoices(
   companyId: string,
   memberPhones: string[] = [],
   memberIds: string[] = [],
-  includeMemberPersonal = true
+  includeMemberPersonal = false
 ): Order[] {
+  if (!orders || !companyId) return [];
+
   const phoneSet = new Set(memberPhones.map(normalizePhone).filter(Boolean));
   const idSet = new Set(memberIds.filter(Boolean));
 
   return orders
     .filter(o => {
-      if (o.paymentStatus !== 'OnAccount' || o.status === 'Cancelled') return false;
+      // Exclude invalid or non-debt statuses explicitly
+      if (o.status === 'Cancelled' || o.paymentStatus === 'Refunded') return false;
+      if (o.paymentStatus !== 'OnAccount') return false;
 
       // Explicitly company-billed
       if (isCompanyBilledOrder(o) && o.companyId === companyId) return true;

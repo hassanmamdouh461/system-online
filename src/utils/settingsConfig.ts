@@ -53,7 +53,7 @@ const DEFAULT_BRANCH_CONFIG: BranchConfig = {
   branchId: 'main_branch',
   branchName: 'Main Branch',
   email: 'admin@branch.local',
-  password: '123',
+  password: '',
 };
 
 const DEFAULT_STORE_CONFIG: StoreConfig = {
@@ -115,6 +115,59 @@ export async function hashPassword(password: string, saltHex?: string): Promise<
   };
 }
 
+/** Hash a short numeric PIN using PBKDF2. Format: `pinhash$<saltHex>$<hashHex>`.
+ *  Reuses the same KDF parameters as hashPassword but stores the result in a
+ *  single self-describing string so verifyAdminPin can detect plaintext vs hashed. */
+export async function hashPin(pin: string): Promise<string> {
+  const enc = new TextEncoder();
+  const salt = window.crypto.getRandomValues(new Uint8Array(8));
+  const keyMaterial = await window.crypto.subtle.importKey(
+    'raw', enc.encode(pin), 'PBKDF2', false, ['deriveBits']
+  );
+  const derivedBits = await window.crypto.subtle.deriveBits(
+    { name: 'PBKDF2', salt: salt as BufferSource, iterations: 100_000, hash: 'SHA-256' },
+    keyMaterial, 128
+  );
+  const hashHex = bufToHex(new Uint8Array(derivedBits));
+  const saltHex = bufToHex(salt);
+  return `pinhash$${saltHex}$${hashHex}`;
+}
+
+/** Verify a PIN against stored value. Auto-migrates plaintext → hashed on first
+ *  successful match (transparent to caller, no session break). */
+export async function verifyAdminPin(pin: string): Promise<boolean> {
+  const saved = localStorage.getItem('brewmaster_admin_pin');
+  if (!saved) return false; // Fail-closed: require PIN setup
+
+  // Hashed format: pinhash$<salt>$<hash>
+  if (saved.startsWith('pinhash$')) {
+    const parts = saved.split('$');
+    if (parts.length !== 3) return false;
+    const saltHex = parts[1];
+    const expectedHash = parts[2];
+    const salt = hexToBuf(saltHex);
+    const enc = new TextEncoder();
+    const keyMaterial = await window.crypto.subtle.importKey(
+      'raw', enc.encode(pin), 'PBKDF2', false, ['deriveBits']
+    );
+    const derivedBits = await window.crypto.subtle.deriveBits(
+      { name: 'PBKDF2', salt: salt as BufferSource, iterations: 100_000, hash: 'SHA-256' },
+      keyMaterial, 128
+    );
+    return bufToHex(new Uint8Array(derivedBits)) === expectedHash;
+  }
+
+  // Legacy plaintext — compare directly, then auto-migrate on match.
+  if (pin === saved) {
+    const hashed = await hashPin(pin);
+    localStorage.setItem('brewmaster_admin_pin', hashed);
+    cloudPersist('brewmaster_admin_pin', hashed);
+    return true;
+  }
+
+  return false;
+}
+
 export function getTaxRate(): number {
   const saved = localStorage.getItem(LS_TAX_RATE_KEY);
   if (saved !== null) {
@@ -171,11 +224,19 @@ export async function verifyAdminCredentials(username: string, password: string)
     if (saved.password && saved.password === password) return true;
   }
 
-  if (!hasStoredCredentials) {
-    const allowedDefaults = ['123', '123456', 'admin', branchCfg.password].filter(Boolean);
-    if (allowedDefaults.includes(password)) return true;
+  // First-run bootstrap: when no admin credentials have ever been stored, allow the
+  // well-known setup password ('123') exactly once and persist it as a hashed
+  // credential. From then on the bootstrap door is closed — changing the password in
+  // Settings, or storing any other credential, removes this fallback permanently.
+  if (!hasStoredCredentials && branchCfg.password === '' && password === '123') {
+    await setAdminCredentials('admin', '123');
+    // Flag that the user logged in via the default bootstrap password so the
+    // UI can force a password change before any other action.
+    localStorage.setItem('brewmaster_must_change_password', 'true');
+    return true;
   }
 
+  void branchCfg;
   return false;
 }
 
@@ -220,11 +281,16 @@ export async function verifyManagerCredentials(username: string, password: strin
     if (saved.password && saved.password === password) return true;
   }
 
-  if (!hasStoredCredentials) {
-    const allowedDefaults = ['123', '123456', 'admin', branchCfg.password].filter(Boolean);
-    if (allowedDefaults.includes(password)) return true;
+  // First-run bootstrap for manager: only when no manager credentials have ever been
+  // stored and the branch password hasn't been customized, allow '123' once and persist
+  // it so this fallback never reopens afterward.
+  if (!hasStoredCredentials && branchCfg.password === '' && password === '123') {
+    await setManagerCredentials('manager', '123');
+    localStorage.setItem('brewmaster_must_change_password', 'true');
+    return true;
   }
 
+  void branchCfg;
   return false;
 }
 
@@ -299,12 +365,17 @@ export function setTelegramConfig(config: TelegramConfig): void {
   }
 }
 
-export function verifyAdminPin(pin: string): boolean {
-  const saved = localStorage.getItem('brewmaster_admin_pin');
-  if (!saved) return false; // Fail-closed: require PIN setup
-  return pin === saved;
-}
-
 export function hasAdminPin(): boolean {
   return !!localStorage.getItem('brewmaster_admin_pin');
+}
+
+/** True when the user logged in via the default bootstrap password ('123').
+ *  The dashboard should force a password-change prompt until this is cleared. */
+export function mustChangePassword(): boolean {
+  return localStorage.getItem('brewmaster_must_change_password') === 'true';
+}
+
+/** Call after the user sets a real password to dismiss the forced-change prompt. */
+export function clearMustChangePassword(): void {
+  localStorage.removeItem('brewmaster_must_change_password');
 }

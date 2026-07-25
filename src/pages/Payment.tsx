@@ -1224,10 +1224,13 @@ export default function Payment() {
 
       <PaymentModal
         isOpen={isPaymentModalOpen}
-        onClose={() => setIsPaymentModalOpen(false)}
+        onClose={() => {
+          setIsPaymentModalOpen(false);
+          setSelectedOrder(null);
+        }}
         order={selectedOrder}
         onPaymentComplete={handlePaymentComplete}
-        onRefund={handleRefund}
+        onRefund={refundOrder}
       />
     </div>
   );

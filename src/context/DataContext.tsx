@@ -1,11 +1,12 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { MenuItem, INITIAL_MENU_ITEMS } from '../types/menu';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { MenuItem } from '../types/menu';
 import { Order, OrderStatus } from '../types/order';
 import { menuRepository, orderRepository } from '../repositories';
 import { useAuth } from './AuthContext';
 import { inventoryService } from '../services/inventoryService';
 import { getIngredientBaseQty } from '../utils/units';
 import { syncService } from '../services/syncService';
+import { useToast } from '../components/ui/Toast';
 
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -19,7 +20,6 @@ interface MenuState {
   deleteItem: (id: string) => Promise<void>;
   toggleAvailability: (id: string) => Promise<void>;
   refetch: () => Promise<void>;
-  resetMenu: () => Promise<void>;
 }
 
 interface OrdersState {
@@ -38,17 +38,21 @@ interface OrdersState {
 interface DataContextValue {
   menu: MenuState;
   orders: OrdersState;
+  /** Tell the provider that an editing surface (modal/form) is active.
+   *  While true, background refetches are suppressed so typing is never wiped. */
+  setEditing: (editing: boolean) => void;
 }
 
 // ─── Context ──────────────────────────────────────────────────────────────────
 
-const DataContext = createContext<DataContextValue | null>(null);
+export const DataContext = createContext<DataContextValue | null>(null);
 
 // ─── Provider ─────────────────────────────────────────────────────────────────
 
 export function DataProvider({ children }: { children: React.ReactNode }) {
   // Get the current branch session for auto-injecting branchId into new records
   const { branch } = useAuth();
+  const toast = useToast();
 
   // Menu state
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
@@ -60,9 +64,36 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   const [ordersLoading, setOrdersLoading] = useState(true);
   const [ordersError, setOrdersError] = useState<Error | null>(null);
 
+  // ── Editing guard ──────────────────────────────────────────────────────────
+  // A modal/form can mark itself as editing via setEditing(true). While true,
+  // any refetch is suppressed so typing is never wiped by a re-render.
+  const isEditingRef = useRef(false);
+
+  // Mirror of ordersList so mutation callbacks can read the latest orders
+  // without depending on [ordersList] (avoids re-creating callbacks each tick
+  // and avoids stale closures when multiple mutations fire in one frame).
+  const ordersListRef = useRef<Order[]>([]);
+  useEffect(() => {
+    ordersListRef.current = ordersList;
+  }, [ordersList]);
+
+  // Same mirror for menu items — lets toggleAvailability read the latest
+  // state without re-creating on every menu change.
+  const menuItemsRef = useRef<MenuItem[]>([]);
+  useEffect(() => {
+    menuItemsRef.current = menuItems;
+  }, [menuItems]);
+
+  const setEditing = useCallback((editing: boolean) => {
+    isEditingRef.current = editing;
+  }, []);
+
   // ── Menu fetching ────────────────────────────────────────────────────────────
 
   const fetchMenu = useCallback(async () => {
+    // Never run a background refetch while the user is editing a form/modal —
+    // it would replace the items array and re-render consumers mid-typing.
+    if (isEditingRef.current) return;
     try {
       setMenuLoading(true);
       setMenuError(null);
@@ -70,9 +101,9 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       const data = await menuRepository.getAll(targetBranch);
       setMenuItems(data);
     } catch (err) {
-      console.warn('[DataContext] Failed to fetch menu from repository, using default initial items:', err);
+      console.warn('[DataContext] Failed to fetch menu from repository:', err);
       setMenuError(err instanceof Error ? err : new Error(String(err)));
-      setMenuItems(INITIAL_MENU_ITEMS);
+      // Do NOT fall back to INITIAL_MENU_ITEMS — an empty menu is valid for production.
     } finally {
       setMenuLoading(false);
     }
@@ -81,6 +112,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   // ── Orders fetching ───────────────────────────────────────────────────────────
 
   const fetchOrders = useCallback(async () => {
+    if (isEditingRef.current) return;
     try {
       setOrdersLoading(true);
       setOrdersError(null);
@@ -111,15 +143,17 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     }
   }, [branch?.branchId]);
 
-  // Fetch when branch changes + periodic background refetch
-  // Manager: force cloud hydrate so a fresh browser sees cashier D1 sales
+  // Fetch on mount + when branch changes.
+  // NOTE: A 10-second auto-refresh keeps analytics, dashboard receivables,
+  // and any live views current without a manual page refresh. The editing
+  // guard (isEditingRef) prevents it from wiping in-progress form state.
   useEffect(() => {
     let cancelled = false;
 
     (async () => {
       try {
         const { hydrateFromCloud, resetHydrateCache } = await import('../services/cloudHydrate');
-        // Always try cloud restore on mount / branch change (cross-browser source of truth)
+        // Cloud restore on mount / branch change (cross-browser source of truth)
         resetHydrateCache();
         await hydrateFromCloud(true);
       } catch {
@@ -130,17 +164,14 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       await fetchOrders();
     })();
 
-    const interval = setInterval(() => {
-      if (typeof navigator !== 'undefined' && navigator.onLine) {
-        // Periodic light refetch — repositories merge remote when online
-        fetchMenu();
-        fetchOrders();
-      }
-    }, 15000);
+    // ── Auto-refresh orders every 10 seconds (suppressed while editing) ──
+    const refreshInterval = setInterval(() => {
+      fetchOrders();
+    }, 10_000);
 
     return () => {
       cancelled = true;
-      clearInterval(interval);
+      clearInterval(refreshInterval);
     };
   }, [fetchMenu, fetchOrders, branch?.branchId]);
 
@@ -153,6 +184,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       return newItem;
     } catch (err) {
       console.error('[DataContext] Failed to create item in repository:', err);
+      toast.error(err instanceof Error ? err.message : String(err));
       return null;
     }
   }, [branch?.branchId]);
@@ -163,6 +195,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       setMenuItems(prev => prev.map(i => i.id === id ? updatedItem : i));
     } catch (err) {
       console.error('[DataContext] Failed to update item in repository:', err);
+      toast.error(err instanceof Error ? err.message : String(err));
     }
   }, []);
 
@@ -172,33 +205,22 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       setMenuItems(prev => prev.filter(i => i.id !== id));
     } catch (err) {
       console.error('[DataContext] Failed to delete item in repository:', err);
+      toast.error(err instanceof Error ? err.message : String(err));
     }
   }, []);
 
   const toggleAvailability = useCallback(async (id: string) => {
-    const item = menuItems.find(i => i.id === id);
+    const item = menuItemsRef.current.find(i => i.id === id);
     if (!item) return;
     try {
       const updatedItem = await menuRepository.update(id, { available: !item.available });
       setMenuItems(prev => prev.map(i => i.id === id ? updatedItem : i));
     } catch (err) {
       console.error('[DataContext] Failed to toggle availability in repository:', err);
+      toast.error(err instanceof Error ? err.message : String(err));
     }
-  }, [menuItems]);
+  }, []);
 
-  const resetMenu = useCallback(async () => {
-    try {
-      setMenuLoading(true);
-      setMenuError(null);
-      const seeded = await menuRepository.resetToDefaults(INITIAL_MENU_ITEMS, branch?.branchId);
-      setMenuItems(seeded);
-    } catch (err) {
-      console.error('[DataContext] Failed to reset menu to defaults:', err);
-      setMenuError(err as Error);
-    } finally {
-      setMenuLoading(false);
-    }
-  }, [branch?.branchId]);
 
   // ── Orders mutations ──────────────────────────────────────────────────────────
 
@@ -265,7 +287,7 @@ async function applyOrderInventory(
 
   const updateOrderStatus = useCallback(async (id: string, status: OrderStatus) => {
     try {
-      const existing = ordersList.find(o => o.id === id);
+      const existing = ordersListRef.current.find(o => o.id === id);
       // Paid orders must use refund/void flow — do not cancel+restock here.
       if (status === 'Cancelled' && existing?.paymentStatus === 'Paid') {
         throw new Error('Cannot cancel a paid order. Use refund/void instead.');
@@ -292,7 +314,7 @@ async function applyOrderInventory(
       console.error('[DataContext] Failed to update order status in repository:', err);
       throw err;
     }
-  }, [ordersList]);
+  }, []);
 
   const completeWithPayment = useCallback(async (id: string, method: 'Cash' | 'Card' | 'OnAccount' = 'Cash') => {
     try {
@@ -301,6 +323,7 @@ async function applyOrderInventory(
       void syncService.syncPendingData();
     } catch (err) {
       console.error('[DataContext] Failed to complete payment in repository:', err);
+      toast.error(err instanceof Error ? err.message : String(err));
     }
   }, []);
 
@@ -310,7 +333,7 @@ async function applyOrderInventory(
    * keep kitchen history but stop counting revenue.
    */
   const refundOrder = useCallback(async (id: string, reason?: string) => {
-    const existing = ordersList.find(o => o.id === id);
+    const existing = ordersListRef.current.find(o => o.id === id);
     if (!existing) throw new Error('Order not found');
     if (existing.paymentStatus !== 'Paid') {
       throw new Error('Only paid orders can be refunded');
@@ -331,11 +354,11 @@ async function applyOrderInventory(
     } catch (invErr) {
       console.error('[DataContext] Failed to restore inventory on refund:', existing.id, invErr);
     }
-  }, [ordersList]);
+  }, []);
 
   const updateOrder = useCallback(async (id: string, data: Partial<Omit<Order, 'id'>>) => {
     try {
-      const existing = ordersList.find(o => o.id === id);
+      const existing = ordersListRef.current.find(o => o.id === id);
 
       if (data.status === 'Cancelled' && existing?.paymentStatus === 'Paid') {
         throw new Error('Cannot cancel a paid order. Use refund/void instead.');
@@ -360,20 +383,38 @@ async function applyOrderInventory(
       console.error('[DataContext] Failed to update order in repository:', err);
       throw err;
     }
-  }, [ordersList]);
+  }, []);
 
   const deleteOrder = useCallback(async (id: string) => {
     try {
+      const existing = ordersListRef.current.find(o => o.id === id);
+
+      // Paid orders must use refund/void flow — never hard-delete.
+      if (existing?.paymentStatus === 'Paid') {
+        const msg = 'لا يمكن حذف طلب مدفوع — استخدم الاسترجاع';
+        toast.error(msg);
+        throw new Error(msg);
+      }
+
       await orderRepository.delete(id);
       setOrdersList(prev => prev.filter(o => o.id !== id));
+
+      if (existing && existing.status !== 'Cancelled') {
+        try {
+          await applyOrderInventory(existing, 'restore');
+        } catch (invErr) {
+          console.error('[DataContext] Failed to restore inventory on physical order deletion:', existing.id, invErr);
+        }
+      }
     } catch (err) {
       console.error('[DataContext] Failed to delete order in repository:', err);
+      toast.error(err instanceof Error ? err.message : String(err));
     }
   }, []);
 
   // ── Context value ─────────────────────────────────────────────────────────────
 
-  const value: DataContextValue = {
+  const value: DataContextValue = useMemo(() => ({
     menu: {
       items: menuItems,
       loading: menuLoading,
@@ -383,7 +424,6 @@ async function applyOrderInventory(
       deleteItem,
       toggleAvailability,
       refetch: fetchMenu,
-      resetMenu,
     },
     orders: {
       orders: ordersList,
@@ -397,7 +437,14 @@ async function applyOrderInventory(
       deleteOrder,
       refetch: fetchOrders,
     },
-  };
+    setEditing,
+  }), [
+    menuItems, menuLoading, menuError,
+    ordersList, ordersLoading, ordersError,
+    addItem, updateItem, deleteItem, toggleAvailability, fetchMenu,
+    addOrder, updateOrderStatus, completeWithPayment, refundOrder, updateOrder, deleteOrder, fetchOrders,
+    setEditing,
+  ]);
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;
 }

@@ -123,6 +123,8 @@ export interface AnalyticsResult {
   totalOrders: number;
   avgOrderValue: number;
   openOrders: number;           // live count only — no baseline (always current)
+  totalTax: number;
+  totalPreTax: number;
 
   // ── Menu ────────────────────────────────────────────────────────────────────
   menuItemsCount: number;
@@ -163,18 +165,19 @@ export function useAnalytics(period: AnalyticsPeriod): AnalyticsResult {
   // All orders that fall inside the requested period
   // Do NOT blank out while loading if we already have orders (prevents flash-to-zero after hydrate)
   const periodOrders = useMemo(
-    () => orders.filter(o => inPeriod(o.createdAt, period) || inPeriod(o.paidAt, period)),
+    () => orders.filter(o => inPeriod(o.createdAt, period)),
     [orders, period],
   );
 
-  // Only paid orders contribute to revenue (paymentStatus set exclusively by Payment.tsx)
-  // Financial rule: filter completed orders by the date they were actually PAID (paidAt) rather than created.
+  // Realized Sales: Include strictly paid orders (Cash + Card) based on creation date.
+  // OnAccount / Unpaid orders are tracked as receivables (outstanding amounts), not realized drawer revenue.
   const completedPeriod = useMemo(
     () =>
       orders.filter(
         (o) =>
           o.paymentStatus === 'Paid' &&
-          (inPeriod(o.paidAt, period) || (!o.paidAt && inPeriod(o.createdAt, period)))
+          o.status !== 'Cancelled' &&
+          inPeriod(o.paidAt || o.createdAt, period)
       ),
     [orders, period],
   );
@@ -182,29 +185,42 @@ export function useAnalytics(period: AnalyticsPeriod): AnalyticsResult {
 
   // Sum of real completed-order revenue in the period (including frozen tax when present)
   // CRITICAL: NaN / non-finite grandTotal/tax fields must be ignored (D1 nulls used to become 0/NaN)
-  const realRevenue = useMemo(
-    () =>
-      completedPeriod.reduce((s, o) => {
-        if (typeof o.grandTotal === 'number' && Number.isFinite(o.grandTotal) && o.grandTotal > 0) {
-          return s + o.grandTotal;
-        }
+  // We compute both the tax-inclusive total AND the actual frozen tax, so net-profit
+  // can subtract the real collected tax instead of re-guessing revenue * rate.
+  const { realRevenue, realTax, realPreTax } = useMemo(() => {
+    let rev = 0;
+    let tax = 0;
+    let preTax = 0;
+    for (const o of completedPeriod) {
+      let lineTax = 0;
+      let lineTotal = 0;
+      if (typeof o.taxAmount === 'number' && Number.isFinite(o.taxAmount)) {
+        lineTax = o.taxAmount;
+      } else {
         const rate =
           typeof o.taxRate === 'number' && Number.isFinite(o.taxRate) ? o.taxRate : getTaxRate();
-        const tax =
-          typeof o.taxAmount === 'number' && Number.isFinite(o.taxAmount)
-            ? o.taxAmount
-            : o.totalAmount * rate;
-        const points = Number.isFinite(o.pointsRedeemed as number) ? (o.pointsRedeemed || 0) : 0;
-        const line = o.totalAmount + tax - points;
-        return s + (Number.isFinite(line) ? line : 0);
-      }, 0),
-    [completedPeriod],
-  );
+        lineTax = o.totalAmount * rate;
+      }
+      if (typeof o.grandTotal === 'number' && Number.isFinite(o.grandTotal) && o.grandTotal > 0) {
+        lineTotal = o.grandTotal;
+      } else {
+        lineTotal = o.totalAmount + lineTax;
+      }
+      lineTax = Number.isFinite(lineTax) ? lineTax : 0;
+      lineTotal = Number.isFinite(lineTotal) ? lineTotal : 0;
+      rev += lineTotal;
+      tax += lineTax;
+      preTax += Number.isFinite(o.totalAmount) ? o.totalAmount : 0;
+    }
+    return { realRevenue: rev, realTax: tax, realPreTax: preTax };
+  }, [completedPeriod]);
 
   // ── Combined stats ──────────────────────────────────────────────────────────
   const bl             = BASELINE[period];
   const totalRevenue   = bl.revenue        + realRevenue;
-  const totalOrders    = bl.orders         + periodOrders.length;
+  const totalTax       = realTax;       // baseline has no tax component
+  const totalPreTax    = bl.revenue      + realPreTax;
+  const totalOrders    = bl.orders         + completedPeriod.length;
   const completedTotal = bl.completedOrders + completedPeriod.length;
   const avgOrderValue  = completedTotal > 0 ? totalRevenue / completedTotal : 0;
   const openOrders = useMemo(
@@ -231,7 +247,7 @@ export function useAnalytics(period: AnalyticsPeriod): AnalyticsResult {
             typeof o.taxAmount === 'number' && Number.isFinite(o.taxAmount)
               ? o.taxAmount
               : o.totalAmount * rate;
-          total = o.totalAmount + tax - (o.pointsRedeemed || 0);
+          total = o.totalAmount + tax;
         }
         if (Number.isFinite(total)) {
           realRev[idx] += total;
@@ -257,11 +273,30 @@ export function useAnalytics(period: AnalyticsPeriod): AnalyticsResult {
     const map: Record<string, TopItem> = {};
 
     completedPeriod.forEach(order => {
-      const rate = typeof order.taxRate === 'number' ? order.taxRate : getTaxRate();
+      // Resolve the order's actual grand total from the frozen snapshot so the
+      // per-item revenue allocation matches what the dashboard / reports show.
+      const rate =
+        typeof order.taxRate === 'number' && Number.isFinite(order.taxRate)
+          ? order.taxRate
+          : getTaxRate();
+      const orderTax =
+        typeof order.taxAmount === 'number' && Number.isFinite(order.taxAmount)
+          ? order.taxAmount
+          : order.totalAmount * rate;
+      const orderTotal =
+        typeof order.grandTotal === 'number' && Number.isFinite(order.grandTotal) && order.grandTotal > 0
+          ? order.grandTotal
+          : Math.max(0, order.totalAmount + orderTax);
+
+      // Allocate the order's real grand total proportionally by line subtotal.
+      const lineSubtotal = order.items.reduce(
+        (s, i) => s + i.price * i.quantity, 0
+      ) || 1;
       order.items.forEach(item => {
         if (!map[item.name]) map[item.name] = { name: item.name, count: 0, revenue: 0 };
+        const fraction = (item.price * item.quantity) / lineSubtotal;
         map[item.name].count += item.quantity;
-        map[item.name].revenue += item.quantity * item.price * (1 + rate);
+        map[item.name].revenue += orderTotal * fraction;
       });
     });
 
@@ -294,7 +329,7 @@ export function useAnalytics(period: AnalyticsPeriod): AnalyticsResult {
   const recentTransactions = useMemo(
     () =>
       [...completedPeriod]
-        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+        .sort((a, b) => new Date(b.paidAt || b.createdAt).getTime() - new Date(a.paidAt || a.createdAt).getTime())
         .slice(0, 5),
     [completedPeriod],
   );
@@ -303,6 +338,8 @@ export function useAnalytics(period: AnalyticsPeriod): AnalyticsResult {
     loading,
     error,
     totalRevenue,
+    totalTax,
+    totalPreTax,
     totalOrders,
     avgOrderValue,
     openOrders,
@@ -310,7 +347,7 @@ export function useAnalytics(period: AnalyticsPeriod): AnalyticsResult {
     availableMenuItemsCount: menuItems.filter(i => i.available).length,
     menuItems,
     realRevenue,
-    realOrders: periodOrders.length,
+    realOrders: completedPeriod.length,
     chartData,
     topItems,
     statusBreakdown,

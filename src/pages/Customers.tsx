@@ -5,7 +5,7 @@ import {
   Users, Building2, Plus, Search, Phone, Tag, X, Save,
   ShoppingBag, Trash2, Edit3, UserCircle, BarChart3, Printer,
   Wallet, DollarSign, Star, ChevronLeft, ChevronRight, FileText,
-  AlertCircle, Check, Award
+  AlertCircle, Check, Award, Undo2
 } from 'lucide-react';
 import { customersService } from '../services/customersService';
 import { companiesService } from '../services/companiesService';
@@ -87,7 +87,7 @@ function getAvatarGradient(name: string): string {
 export default function CustomersPage({ managerMode = false }: CustomersPageProps) {
   const { t, language, isRtl } = useLanguage();
   const { user, branch } = useAuth();
-  const { orders, deleteOrder } = useOrders();
+  const { orders, deleteOrder, refundOrder } = useOrders();
 
   const taxRate = getTaxRate();
   const branchId = branch?.branchId === 'manager' ? undefined : branch?.branchId;
@@ -807,6 +807,7 @@ export default function CustomersPage({ managerMode = false }: CustomersPageProp
               language={language}
               allOrders={orders}
               onDeleteOrder={deleteOrder}
+              onRefundOrder={refundOrder}
             />
 
           </ModalShell>
@@ -880,6 +881,7 @@ export default function CustomersPage({ managerMode = false }: CustomersPageProp
 
       <ConfirmDialog
         isOpen={!!deleteTarget}
+        key={deleteTarget ? `${deleteTarget.type}-${deleteTarget.id}` : 'none'}
         title={deleteTarget?.type === 'customer' ? (language === 'ar' ? 'حذف العميل' : 'Delete Customer') : (language === 'ar' ? 'حذف الشركة' : 'Delete Company')}
         message={language === 'ar' ? 'هل أنت تأكد من رغبتك في الحذف نهائياً؟' : 'Are you sure you want to delete this record?'}
         confirmText={language === 'ar' ? 'نعم، حذف' : 'Yes, Delete'}
@@ -995,7 +997,7 @@ function ModalShell({
 }
 
 function CustomerProfileDetail({
-  customer, company, orders, taxRate, currency, t, language, allOrders, onDeleteOrder,
+  customer, company, orders, taxRate, currency, t, language, allOrders, onDeleteOrder, onRefundOrder,
 }: {
   customer: Customer;
   company?: Company;
@@ -1006,7 +1008,12 @@ function CustomerProfileDetail({
   language: string;
   allOrders: Order[];
   onDeleteOrder: (id: string) => Promise<void>;
+  onRefundOrder: (id: string, reason?: string) => Promise<void>;
 }) {
+  const { user } = useAuth();
+  const [refundTarget, setRefundTarget] = useState<Order | null>(null);
+  const [refundReason, setRefundReason] = useState('');
+  const [refundBusy, setRefundBusy] = useState(false);
   const stats = orderStats(orders, taxRate);
   const balance = getCustomerAccountBalance(allOrders, customer, taxRate);
   const openInvoices = getCustomerOpenInvoices(allOrders, customer);
@@ -1095,18 +1102,33 @@ function CustomerProfileDetail({
                   >
                     <Printer size={15} />
                   </button>
-                  <button
-                    onClick={async (e) => {
-                      e.stopPropagation();
-                      if (window.confirm(language === 'ar' ? `هل أنت تأكد من حذف الفاتورة #${formatOrderNumber(o)} نهائياً؟` : `Are you sure you want to delete invoice #${formatOrderNumber(o)}?`)) {
-                        await onDeleteOrder(o.id);
-                      }
-                    }}
-                    className="p-1.5 rounded-lg text-rose-600 hover:bg-rose-200/80 hover:text-rose-900 transition-colors"
-                    title={language === 'ar' ? 'حذف الفاتورة' : 'Delete Invoice'}
-                  >
-                    <Trash2 size={15} />
-                  </button>
+                  {user?.role === 'manager' && o.paymentStatus === 'Paid' && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setRefundTarget(o);
+                        setRefundReason('');
+                      }}
+                      className="p-1.5 rounded-lg text-amber-600 hover:bg-amber-100 hover:text-amber-800 transition-colors"
+                      title={language === 'ar' ? 'إرجاع الفاتورة' : 'Refund Invoice'}
+                    >
+                      <Undo2 size={15} />
+                    </button>
+                  )}
+                  {user?.role === 'manager' && (
+                    <button
+                      onClick={async (e) => {
+                        e.stopPropagation();
+                        if (window.confirm(language === 'ar' ? `هل أنت تأكد من حذف الفاتورة #${formatOrderNumber(o)} نهائياً؟` : `Are you sure you want to delete invoice #${formatOrderNumber(o)}?`)) {
+                          await onDeleteOrder(o.id);
+                        }
+                      }}
+                      className="p-1.5 rounded-lg text-rose-600 hover:bg-rose-200/80 hover:text-rose-900 transition-colors"
+                      title={language === 'ar' ? 'حذف الفاتورة' : 'Delete Invoice'}
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                  )}
                 </div>
               </div>
             ))}
@@ -1150,24 +1172,142 @@ function CustomerProfileDetail({
                   >
                     <Printer size={15} />
                   </button>
-                  <button
-                    onClick={async (e) => {
-                      e.stopPropagation();
-                      if (window.confirm(language === 'ar' ? `هل أنت تأكد من حذف الفاتورة #${formatOrderNumber(o)} نهائياً؟` : `Are you sure you want to delete invoice #${formatOrderNumber(o)}?`)) {
-                        await onDeleteOrder(o.id);
-                      }
-                    }}
-                    className="p-1.5 rounded-lg text-gray-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
-                    title={language === 'ar' ? 'حذف الفاتورة' : 'Delete Invoice'}
-                  >
-                    <Trash2 size={15} />
-                  </button>
+                  {user?.role === 'manager' && o.paymentStatus === 'Paid' && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setRefundTarget(o);
+                        setRefundReason('');
+                      }}
+                      className="p-1.5 rounded-lg text-amber-500 hover:text-amber-700 hover:bg-amber-50 transition-colors"
+                      title={language === 'ar' ? 'إرجاع الفاتورة' : 'Refund Invoice'}
+                    >
+                      <Undo2 size={15} />
+                    </button>
+                  )}
+                  {user?.role === 'manager' && (
+                    <button
+                      onClick={async (e) => {
+                        e.stopPropagation();
+                        if (window.confirm(language === 'ar' ? `هل أنت تأكد من حذف الفاتورة #${formatOrderNumber(o)} نهائياً؟` : `Are you sure you want to delete invoice #${formatOrderNumber(o)}?`)) {
+                          await onDeleteOrder(o.id);
+                        }
+                      }}
+                      className="p-1.5 rounded-lg text-gray-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+                      title={language === 'ar' ? 'حذف الفاتورة' : 'Delete Invoice'}
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                  )}
                 </div>
               </div>
             ))}
           </div>
         )}
       </div>
+
+      {/* Refund Reason Modal */}
+      {refundTarget && createPortal(
+        <AnimatePresence>
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[9200] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
+            onClick={() => !refundBusy && setRefundTarget(null)}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden"
+            >
+              <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-amber-50/60">
+                <h3 className="font-extrabold text-gray-900 text-base flex items-center gap-2">
+                  <Undo2 size={18} className="text-amber-600" />
+                  {language === 'ar' ? 'إرجاع الفاتورة' : 'Refund Invoice'}
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => !refundBusy && setRefundTarget(null)}
+                  className="p-1.5 text-gray-400 hover:text-gray-700 rounded-xl hover:bg-gray-200/60 transition-colors disabled:opacity-50"
+                  disabled={refundBusy}
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="p-6 space-y-4">
+                <div className="bg-gray-50 rounded-xl p-3 border border-gray-100">
+                  <p className="text-xs text-gray-500">{language === 'ar' ? 'فاتورة رقم' : 'Invoice'}</p>
+                  <p className="font-black text-gray-900 text-lg">#{formatOrderNumber(refundTarget)}</p>
+                  <p className="text-xs text-gray-400 mt-0.5">{new Date(refundTarget.createdAt).toLocaleString()}</p>
+                  <p className="text-sm font-bold text-emerald-600 mt-1">{getOrderGrandTotal(refundTarget, taxRate).toFixed(2)} {currency}</p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    {language === 'ar' ? 'سبب الاسترجاع (اختياري)' : 'Refund reason (optional)'}
+                  </label>
+                  <textarea
+                    rows={2}
+                    value={refundReason}
+                    onChange={(e) => setRefundReason(e.target.value)}
+                    disabled={refundBusy}
+                    className="w-full px-4 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-400 focus:border-transparent transition-all resize-none bg-white text-gray-900 placeholder-gray-400 font-medium"
+                    placeholder={language === 'ar' ? 'مثال: إرجاع بناءً على طلب العميل...' : 'e.g. Customer requested refund...'}
+                  />
+                </div>
+
+                <div className="bg-amber-50 rounded-xl p-3 border border-amber-100 text-xs text-amber-800 leading-relaxed">
+                  {language === 'ar'
+                    ? 'تحذير: سيتم تحويل حالة الفاتورة إلى "مسترجعة" وملغاة، وسيتم إرجاع كميات المكونات للمخزون تلقائياً.'
+                    : 'Warning: the invoice will be marked as Refunded & Cancelled, and ingredient quantities will be restored to inventory automatically.'}
+                </div>
+              </div>
+
+              <div className="flex gap-3 px-6 py-4 border-t border-gray-100 bg-gray-50/50">
+                <button
+                  type="button"
+                  onClick={() => !refundBusy && setRefundTarget(null)}
+                  disabled={refundBusy}
+                  className="flex-1 px-4 py-2.5 rounded-xl border border-gray-200 text-gray-700 font-bold hover:bg-gray-100 transition-colors disabled:opacity-50"
+                >
+                  {language === 'ar' ? 'إلغاء' : 'Cancel'}
+                </button>
+                <button
+                  type="button"
+                  disabled={refundBusy}
+                  onClick={async () => {
+                    setRefundBusy(true);
+                    try {
+                      await onRefundOrder(refundTarget.id, refundReason.trim() || undefined);
+                      setRefundTarget(null);
+                    } catch (err) {
+                      console.error('Refund failed:', err);
+                      alert(language === 'ar' ? 'فشل الإرجاع: ' + (err instanceof Error ? err.message : String(err)) : 'Refund failed: ' + (err instanceof Error ? err.message : String(err)));
+                    } finally {
+                      setRefundBusy(false);
+                    }
+                  }}
+                  className="flex-1 px-4 py-2.5 rounded-xl bg-amber-600 text-white font-bold hover:bg-amber-700 shadow-lg shadow-amber-500/20 transition-colors disabled:opacity-60 flex items-center justify-center gap-2"
+                >
+                  {refundBusy ? (
+                    <span>{language === 'ar' ? 'جاري الإرجاع...' : 'Refunding...'}</span>
+                  ) : (
+                    <>
+                      <Undo2 size={16} />
+                      <span>{language === 'ar' ? 'تأكيد الإرجاع' : 'Confirm Refund'}</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        </AnimatePresence>,
+        document.body
+      )}
     </div>
   );
 }

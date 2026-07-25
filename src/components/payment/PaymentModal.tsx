@@ -326,24 +326,28 @@ export function PaymentModal({
     );
   };
 
-  const handleRefundSubmit = async () => {
+  const handleRefundSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!order) return;
     setRefundError('');
-    if (!onRefund) return;
-    if (hasAdminPin() && !verifyAdminPin(refundPin)) {
-      setRefundError(language === 'ar' ? 'رمز PIN غير صحيح' : 'Invalid PIN');
-      return;
-    }
-    if (!refundReason.trim()) {
-      setRefundError(language === 'ar' ? 'أدخل سبب الاسترجاع' : 'Enter refund reason');
-      return;
-    }
     setIsRefunding(true);
+
     try {
-      await onRefund(order.id, refundReason.trim());
-      setStep('receipt');
+      if (hasAdminPin()) {
+        const isValid = await verifyAdminPin(refundPin);
+        if (!isValid) {
+          setRefundError(language === 'ar' ? 'رمز PIN غير صحيح' : 'Invalid PIN');
+          setIsRefunding(false);
+          return;
+        }
+      }
+
+      if (onRefund) {
+        await onRefund(order.id, refundReason);
+      }
       onClose();
-    } catch {
-      setRefundError(language === 'ar' ? 'فشل الاسترجاع' : 'Refund failed');
+    } catch (err: any) {
+      setRefundError(err.message || 'Refund failed');
     } finally {
       setIsRefunding(false);
     }
@@ -408,7 +412,7 @@ export function PaymentModal({
 
           <div className="p-6 overflow-y-auto flex-1">
             {step === 'refund' ? (
-              <div className="space-y-4">
+              <form onSubmit={handleRefundSubmit} className="space-y-4">
                 <p className="text-sm text-gray-600">
                   {language === 'ar'
                     ? 'سيتم استرجاع المبلغ من الإيراد واستعادة المخزون وإلغاء الطلب.'
@@ -454,9 +458,8 @@ export function PaymentModal({
                     {language === 'ar' ? 'رجوع' : 'Back'}
                   </button>
                   <button
-                    type="button"
-                    disabled={isRefunding}
-                    onClick={handleRefundSubmit}
+                    type="submit"
+                    disabled={isRefunding || (!refundReason.trim() && order.paymentStatus === 'Paid')}
                     className="flex-1 py-3 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700 disabled:opacity-60"
                   >
                     {isRefunding
@@ -468,7 +471,7 @@ export function PaymentModal({
                         : 'Confirm Refund'}
                   </button>
                 </div>
-              </div>
+              </form>
             ) : step === 'customer' ? (
               <CustomerLookupStep
                 initialPhone={order.customerPhone || ''}

@@ -13,6 +13,7 @@ import { Customer } from '../../types/customer';
 import { Company } from '../../types/company';
 import { companiesService } from '../../services/companiesService';
 import { PaymentMethod, BilledToType, PaymentStatus } from '../../types/order';
+import { persistSetting } from '../../services/settingsCloudService';
 
 interface POSViewProps {
   menuItems: MenuItem[];
@@ -23,8 +24,6 @@ interface POSViewProps {
     paymentMethod?: PaymentMethod,
     paidAmount?: number,
     customerPhone?: string,
-    pointsEarned?: number,
-    pointsRedeemed?: number,
     accountMeta?: {
       customerId?: string;
       customerName?: string;
@@ -50,14 +49,16 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
   const [receivedAmount, setReceivedAmount] = useState<string>(() => {
     return localStorage.getItem('pos_receivedAmount') || '0';
   });
+  const [orderMode, setOrderMode] = useState<'Dine-in' | 'Takeaway'>(() => {
+    return (localStorage.getItem('pos_orderMode') as 'Dine-in' | 'Takeaway') || 'Takeaway';
+  });
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(() => {
+    const mode = localStorage.getItem('pos_orderMode');
+    if (mode === 'Dine-in') return 'Cash';
     return (localStorage.getItem('pos_paymentMethod') as PaymentMethod) || 'Cash';
   });
   const [paymentStatus, setPaymentStatus] = useState<'Paid' | 'Unpaid'>(() => {
     return (localStorage.getItem('pos_paymentStatus') as 'Paid' | 'Unpaid') || 'Paid';
-  });
-  const [orderMode, setOrderMode] = useState<'Dine-in' | 'Takeaway'>(() => {
-    return (localStorage.getItem('pos_orderMode') as 'Dine-in' | 'Takeaway') || 'Takeaway';
   });
   const [tableId, setTableId] = useState<string>(() => {
     return localStorage.getItem('pos_tableId') || '';
@@ -87,6 +88,7 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
   const [newTableName, setNewTableName] = useState('');
   /** Pending checkout action waiting for customer phone step (skippable) */
   const [pendingCheckout, setPendingCheckout] = useState<'save' | 'print' | null>(null);
+  const [isProcessing, setIsProcessing] = useState(false);
 
   useEffect(() => {
     localStorage.setItem('pos_invoiceItems', JSON.stringify(invoiceItems));
@@ -118,16 +120,17 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
 
   useEffect(() => {
     localStorage.setItem('pos_tables_list', JSON.stringify(tables));
+    void persistSetting('pos_tables_list', JSON.stringify(tables));
   }, [tables]);
 
   const handleAddTable = (tableNameToAdd?: string) => {
     const target = (tableNameToAdd || newTableName).trim();
     if (!target) return;
-    const cleanName = target.replace(/^T/i, '');
+    const cleanName = target.replace(/^T(?=\d+$)/i, '');
     if (!tables.includes(cleanName)) {
       setTables(prev => [...prev, cleanName]);
-      setTableId(cleanName);
     }
+    setTableId(cleanName);
     setNewTableName('');
   };
 
@@ -150,26 +153,38 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
       setPaymentStatus('Paid');
     } else {
       setPaymentStatus('Unpaid');
+      setPaymentMethod('Cash');
       setTableId('');
     }
   };
 
-  // Available categories for cashier: only All, Bar (بار)
+  // Dynamic categories from menu items: use the part before '|' (e.g. 'Hot Coffee' from 'Hot Coffee|Bar')
   const categories = useMemo(() => {
-    return ['All', 'Bar'];
-  }, []);
+    const cats = Array.from(
+      new Set(
+        menuItems
+          .filter(item => item.available)
+          .map(item => {
+            const parts = item.category ? item.category.split('|') : [];
+            return parts[0] || '';
+          })
+          .filter(c => c)
+      )
+    );
+    return ['All', ...cats];
+  }, [menuItems]);
 
   // Filtered menu items
   const filteredMenuItems = useMemo(() => {
     const available = menuItems.filter(item => item.available);
     
-    // Filter by preparation destination (part after '|')
+    // Filter by category name (part before '|')
     const categoryFiltered = selectedCategory === 'All' 
       ? available 
       : available.filter(item => {
           const parts = item.category ? item.category.split('|') : [];
-          const prepDest = parts[1] || parts[0] || '';
-          return prepDest === selectedCategory;
+          const catName = parts[0] || '';
+          return catName === selectedCategory;
         });
       
     // Next, filter by search query (Arabic & English support)
@@ -321,14 +336,18 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
       }
     }
 
-    // OnAccount always requires a registered customer
+    // OnAccount always requires a registered customer or company (both Takeaway & Dine-in)
     if (paymentMethod === 'OnAccount') {
       setPendingCheckout(action);
       return;
     }
 
-    // Always ask for customer phone before finalizing (cashier can skip)
-    setPendingCheckout(action);
+    // Cash / Card: do not prompt for customer phone
+    if (action === 'save') {
+      void executeSaveOrder(undefined, linkedCustomer || undefined);
+    } else {
+      void executePrintAndPay(undefined, linkedCustomer || undefined);
+    }
   };
 
   const handleCustomerLookupResolved = async (result: CustomerLookupResult) => {
@@ -449,10 +468,10 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
   const executeSaveOrder = async (
     customerPhone?: string,
     customer?: Customer,
-    company?: Company | null,
-    pointsEarned?: number,
-    pointsRedeemed?: number
+    company?: Company | null
   ) => {
+    if (isProcessing) return;
+    setIsProcessing(true);
     try {
       const finalTableId = orderMode === 'Takeaway' ? 'Takeaway' : `${t('Table')} ${tableId}`;
       let finalStatus: PaymentStatus =
@@ -464,7 +483,7 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
       }
       const paidAmt =
         finalStatus === 'Paid' || finalStatus === 'OnAccount'
-          ? grandTotal - (pointsRedeemed || 0)
+          ? grandTotal
           : undefined;
       const accountMeta = buildAccountMeta(customer || linkedCustomer || undefined, company);
 
@@ -475,8 +494,6 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
         method,
         paidAmt,
         customerPhone,
-        pointsEarned,
-        pointsRedeemed,
         accountMeta
       );
 
@@ -503,16 +520,18 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
       console.error(err);
       const msg = err instanceof Error ? err.message : String(err);
       alert(isRtl ? `فشل حفظ الطلب: ${msg}` : `Failed to save order: ${msg}`);
+    } finally {
+      setIsProcessing(false);
     }
   };
 
   const executePrintAndPay = async (
     customerPhone?: string,
     customer?: Customer,
-    company?: Company | null,
-    pointsEarned?: number,
-    pointsRedeemed?: number
+    company?: Company | null
   ) => {
+    if (isProcessing) return;
+    setIsProcessing(true);
     try {
       const finalTableId = orderMode === 'Takeaway' ? 'Takeaway' : `${t('Table')} ${tableId}`;
       let finalPaymentStatus: PaymentStatus = 'Paid';
@@ -521,7 +540,7 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
         finalPaymentStatus = 'OnAccount';
         method = 'OnAccount';
       }
-      const paidAmt = grandTotal - (pointsRedeemed || 0);
+      const paidAmt = grandTotal;
       const accountMeta = buildAccountMeta(customer || linkedCustomer || undefined, company);
 
       const newOrder = await onCreateOrder(
@@ -531,8 +550,6 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
         method,
         paidAmt,
         customerPhone,
-        pointsEarned,
-        pointsRedeemed,
         accountMeta
       );
 
@@ -559,6 +576,8 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
       console.error(err);
       const msg = err instanceof Error ? err.message : String(err);
       alert(isRtl ? `فشل حفظ الطلب: ${msg}` : `Failed to process order: ${msg}`);
+    } finally {
+      setIsProcessing(false);
     }
   };
 
@@ -601,18 +620,7 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
               </div>
             </div>
 
-            {/* Quick Cash Buttons */}
-            <div className="grid grid-cols-3 gap-1 shrink-0">
-              {[10, 20, 50, 100, 200, 500].map(amt => (
-                <button
-                  key={amt}
-                  onClick={() => handleQuickCash(amt)}
-                  className="bg-gray-100 hover:bg-gray-200 active:scale-95 transition-all text-xs font-black text-gray-800 py-1 rounded-lg border border-gray-200 shadow-sm"
-                >
-                  {amt}
-                </button>
-              ))}
-            </div>
+
 
             {/* Keypad */}
             <div className="grid grid-cols-3 grid-rows-5 gap-1 font-mono flex-1 min-h-0 py-0.5">
@@ -688,25 +696,25 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
                       type="button"
                       onClick={() => setBillTo('customer')}
                       className={clsx(
-                        'flex-1 py-1.5 rounded-lg text-[10px] font-bold border',
+                        'flex-1 py-1.5 rounded-lg text-[10px] font-extrabold border transition-all',
                         billTo === 'customer'
-                          ? 'bg-mocha-50 border-mocha-300 text-mocha-800'
-                          : 'bg-white border-gray-200 text-gray-500'
+                          ? 'bg-mocha-600 text-white border-mocha-700 shadow-xs'
+                          : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'
                       )}
                     >
-                      {isRtl ? 'حساب عميل' : 'Customer'}
+                      {isRtl ? 'حساب عميل (شخصي)' : 'Personal Account'}
                     </button>
                     <button
                       type="button"
                       onClick={() => setBillTo('company')}
                       className={clsx(
-                        'flex-1 py-1.5 rounded-lg text-[10px] font-bold border',
+                        'flex-1 py-1.5 rounded-lg text-[10px] font-extrabold border transition-all',
                         billTo === 'company'
-                          ? 'bg-purple-50 border-purple-300 text-purple-800'
-                          : 'bg-white border-gray-200 text-gray-500'
+                          ? 'bg-purple-600 text-white border-purple-700 shadow-xs'
+                          : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'
                       )}
                     >
-                      {isRtl ? 'حساب شركة' : 'Company'}
+                      {isRtl ? 'حساب شركة' : 'Company Account'}
                     </button>
                   </div>
                 )}
@@ -718,27 +726,20 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
           <div className="space-y-1 pt-1 border-t border-gray-100 shrink-0">
             <button
               onClick={handlePrintAndPay}
-              className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-black py-1.5 rounded-xl border border-emerald-700 transition-all active:scale-95 text-xs sm:text-sm text-center flex items-center justify-center gap-1.5 shadow-sm"
+              disabled={isProcessing}
+              className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400 text-white font-black py-1.5 rounded-xl border border-emerald-700 transition-all active:scale-95 text-xs sm:text-sm text-center flex items-center justify-center gap-1.5 shadow-sm"
             >
               <Printer size={14} />
-              <span className="font-sans">{t('Print & Pay')}</span>
+              <span className="font-sans">{isProcessing ? t('Processing...') : t('Print & Pay')}</span>
             </button>
             
-            <div className="grid grid-cols-2 gap-1">
-              <button
-                onClick={handleSaveOrder}
-                className="bg-mocha-600 hover:bg-mocha-700 text-white font-black py-1.5 rounded-xl border border-mocha-700 transition-all active:scale-95 text-xs sm:text-sm text-center flex items-center justify-center gap-1.5 shadow-sm"
-              >
-                <Check size={14} />
-                <span className="font-sans">{t('Save Invoice')}</span>
-              </button>
-              <button
-                onClick={handleReset}
-                className="bg-red-50 hover:bg-red-100 text-red-600 font-black py-1.5 rounded-xl border border-red-200 transition-all active:scale-95 text-xs sm:text-sm text-center"
-              >
-                <span className="font-sans">{t('Clear / Reset')}</span>
-              </button>
-            </div>
+            <button
+              onClick={handleReset}
+              disabled={isProcessing}
+              className="w-full bg-red-50 hover:bg-red-100 disabled:opacity-50 text-red-600 font-black py-1.5 rounded-xl border border-red-200 transition-all active:scale-95 text-xs sm:text-sm text-center flex items-center justify-center gap-1.5 shadow-sm"
+            >
+              <span className="font-sans">{t('Clear / Reset')}</span>
+            </button>
           </div>
         </div>
       )}
@@ -748,7 +749,7 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
         {/* Category Selector & Search */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-gray-100 shrink-0">
           {/* Categories */}
-          <div className="flex gap-2 overflow-x-auto hide-scrollbar">
+          <div className="flex gap-2 overflow-x-auto custom-scrollbar pb-1">
             {categories.map(cat => (
               <button
                 key={cat}
@@ -875,6 +876,20 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
                   type="text"
                   value={tableId}
                   onChange={(e) => setTableId(e.target.value)}
+                  onBlur={() => {
+                    const clean = tableId.trim().replace(/^T(?=\d+$)/i, '');
+                    if (clean && !tables.includes(clean)) {
+                      setTables(prev => [...prev, clean]);
+                    }
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      const clean = tableId.trim().replace(/^T(?=\d+$)/i, '');
+                      if (clean && !tables.includes(clean)) {
+                        setTables(prev => [...prev, clean]);
+                      }
+                    }
+                  }}
                   placeholder={t('Enter Table Number')}
                   className="w-full px-3 py-1 bg-gray-50 border border-gray-300 rounded-lg font-black text-xs md:text-sm focus:outline-none focus:border-mocha-600 text-gray-900"
                 />
@@ -892,7 +907,7 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
                         : "bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100"
                     )}
                   >
-                    T{num}
+                    {num}
                   </button>
                 ))}
                 <button
@@ -986,22 +1001,74 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
             </span>
           </div>
           
-          {/* Action buttons for Dine-in */}
+          {/* Action buttons & OnAccount for Dine-in */}
           {orderMode === 'Dine-in' && (
-            <div className="grid grid-cols-2 gap-1 pt-0.5">
-              <button
-                onClick={handleReset}
-                className="bg-red-50 hover:bg-red-100 text-red-600 font-black py-1.5 rounded-xl border border-red-200 transition-all active:scale-95 text-xs text-center"
-              >
-                {t('Clear / Reset')}
-              </button>
-              <button
-                onClick={handleSaveOrder}
-                className="bg-mocha-600 hover:bg-mocha-700 text-white font-black py-1.5 rounded-xl border border-mocha-700 transition-all active:scale-95 text-xs text-center flex items-center justify-center gap-1 shadow-sm"
-              >
-                <Check size={14} />
-                {t('Save Invoice')}
-              </button>
+            <div className="space-y-1 pt-0.5">
+              {/* Payment Method for Dine-in */}
+              <div className="space-y-1">
+                <label className="text-[10px] text-gray-500 font-extrabold uppercase block">
+                  <span className="font-sans">{t('Payment Method')}</span>
+                </label>
+                <div className="flex flex-col gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setPaymentMethod('OnAccount')}
+                    className={clsx(
+                      "py-1.5 rounded-lg text-[10px] font-black transition-all flex items-center justify-center gap-1.5 border",
+                      paymentMethod === 'OnAccount'
+                        ? "bg-amber-500 text-white border-amber-600 shadow-sm"
+                        : "bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100"
+                    )}
+                    title={isRtl ? 'تسجيل على حساب العميل/الشركة (دفع مؤجل)' : 'Charge to customer/company account'}
+                  >
+                    <BookUser size={14} />
+                    <span className="font-sans">{isRtl ? 'على الحساب' : 'On Account'}</span>
+                  </button>
+                </div>
+                {paymentMethod === 'OnAccount' && (
+                  <div className="flex gap-1 mt-1">
+                    <button
+                      type="button"
+                      onClick={() => setBillTo('customer')}
+                      className={clsx(
+                        'flex-1 py-1.5 rounded-lg text-[10px] font-extrabold border transition-all',
+                        billTo === 'customer'
+                          ? 'bg-mocha-600 text-white border-mocha-700 shadow-xs'
+                          : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'
+                      )}
+                    >
+                      {isRtl ? 'حساب عميل (شخصي)' : 'Personal Account'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setBillTo('company')}
+                      className={clsx(
+                        'flex-1 py-1.5 rounded-lg text-[10px] font-extrabold border transition-all',
+                        billTo === 'company'
+                          ? 'bg-purple-600 text-white border-purple-700 shadow-xs'
+                          : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'
+                      )}
+                    >
+                      {isRtl ? 'حساب شركة' : 'Company Account'}
+                    </button>
+                  </div>
+                )}
+              </div>
+              <div className="grid grid-cols-2 gap-1">
+                <button
+                  onClick={handleReset}
+                  className="bg-red-50 hover:bg-red-100 text-red-600 font-black py-1.5 rounded-xl border border-red-200 transition-all active:scale-95 text-xs text-center"
+                >
+                  {t('Clear / Reset')}
+                </button>
+                <button
+                  onClick={handleSaveOrder}
+                  className="bg-mocha-600 hover:bg-mocha-700 text-white font-black py-1.5 rounded-xl border border-mocha-700 transition-all active:scale-95 text-xs text-center flex items-center justify-center gap-1 shadow-sm"
+                >
+                  <Check size={14} />
+                  {t('Save Invoice')}
+                </button>
+              </div>
             </div>
           )}
         </div>
@@ -1068,7 +1135,7 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
                         tableId === num ? "bg-mocha-600 text-white border-mocha-700" : "bg-white text-gray-800 border-gray-200"
                       )}
                     >
-                      <span>T{num}</span>
+                      <span>{num}</span>
                       <button
                         onClick={() => handleDeleteTable(num)}
                         className="text-red-500 hover:text-red-700 hover:bg-red-50 p-0.5 rounded transition-colors"

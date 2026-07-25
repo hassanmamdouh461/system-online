@@ -116,6 +116,18 @@ export function mergeOrderRecords(local: OrderLike | undefined, remote: OrderLik
 
   const orderNumber = preferTicketNumber(local.orderNumber, remote.orderNumber);
 
+  // Resolve soft-delete tombstone: whichever side has a NEWER deletedAt wins.
+  const localDeletedAt = local.deletedAt;
+  const remoteDeletedAt = remote.deletedAt;
+  const effectiveDeletedAt =
+    !localDeletedAt
+      ? remoteDeletedAt
+      : !remoteDeletedAt
+        ? localDeletedAt
+        : new Date(localDeletedAt).getTime() >= new Date(remoteDeletedAt).getTime()
+          ? localDeletedAt
+          : remoteDeletedAt;
+
   // Prefer non-empty fields; local wins when remote is empty/placeholder
   const isEmpty = (v: unknown) =>
     v === undefined || v === null || v === '' || (typeof v === 'string' && !v.trim());
@@ -137,20 +149,41 @@ export function mergeOrderRecords(local: OrderLike | undefined, remote: OrderLik
     return (r ?? l) as T | undefined;
   };
 
-  // Prefer newer updatedAt/paidAt for payment state, but never wipe account identity
+  // Tie-breaker for payment state. Numeric comparison via getTime() is correct
+  // (NaN-safe: an invalid timestamp yields NaN which fails every comparison
+  // below, so the corresponding side simply loses instead of winning).
   const localPaid = local.paidAt ? new Date(local.paidAt).getTime() : 0;
   const remotePaid = remote.paidAt ? new Date(remote.paidAt).getTime() : 0;
   const localUpdated = local.updatedAt ? new Date(local.updatedAt).getTime() : 0;
   const remoteUpdated = remote.updatedAt ? new Date(remote.updatedAt).getTime() : 0;
+
+  // Local wins payment when it paid more recently (cashier flow on this device)
+  // OR it has a more recent update carrying real payment data.
   const localWinsPayment =
-    (localPaid > 0 && localPaid > remotePaid) ||
-    (localUpdated > 0 && localUpdated > remoteUpdated && local.paymentStatus);
+    Number.isFinite(localPaid) && Number.isFinite(remotePaid) && localPaid > remotePaid ||
+    (Number.isFinite(localUpdated) &&
+      Number.isFinite(remoteUpdated) &&
+      localUpdated > remoteUpdated &&
+      local.paymentStatus);
+
+  // Remote wins STATE when its updatedAt is clearly newer (>5s skew to avoid
+  // trivial clock drift). We still keep local IDENTITY (account fields below).
+  const REMOTE_NEWER_SKEW_MS = 5_000;
+  const remoteWinsState =
+    Number.isFinite(localUpdated) &&
+    Number.isFinite(remoteUpdated) &&
+    remoteUpdated - localUpdated > REMOTE_NEWER_SKEW_MS;
 
   return {
+    // Note: the spread below layers remote on top of local. The explicit keys
+    // after it override the spread so local identity (company/customer) is
+    // never wiped by an empty/placeholder remote copy.
     ...local,
     ...remote,
     id: remote.id || local.id,
     orderNumber,
+    deletedAt: effectiveDeletedAt || undefined,
+    // Identity (always preserved — never let remote empty/placeholder win):
     customerPhone: pick(remote.customerPhone, local.customerPhone),
     customerId: pick(remote.customerId, local.customerId),
     customerName: pick(remote.customerName, local.customerName),
@@ -160,15 +193,23 @@ export function mergeOrderRecords(local: OrderLike | undefined, remote: OrderLik
     taxRate: remote.taxRate ?? local.taxRate,
     taxAmount: remote.taxAmount ?? local.taxAmount,
     grandTotal: remote.grandTotal ?? local.grandTotal,
+    // Payment state: local wins when it paid locally; otherwise prefer remote
+    // when remote is clearly newer (e.g. a refund landed in D1 first).
     paymentStatus: localWinsPayment
-      ? local.paymentStatus || remote.paymentStatus
-      : remote.paymentStatus || local.paymentStatus,
+      ? (local.paymentStatus || remote.paymentStatus)
+      : remoteWinsState
+        ? (remote.paymentStatus || local.paymentStatus)
+        : (local.paymentStatus || remote.paymentStatus),
     paymentMethod: localWinsPayment
-      ? local.paymentMethod || remote.paymentMethod
-      : remote.paymentMethod || local.paymentMethod,
+      ? (local.paymentMethod || remote.paymentMethod)
+      : remoteWinsState
+        ? (remote.paymentMethod || local.paymentMethod)
+        : (local.paymentMethod || remote.paymentMethod),
     paidAt: localWinsPayment
-      ? local.paidAt || remote.paidAt
-      : remote.paidAt || local.paidAt,
+      ? (local.paidAt || remote.paidAt)
+      : remoteWinsState
+        ? (remote.paidAt || local.paidAt)
+        : (local.paidAt || remote.paidAt),
     items: Array.isArray(remote.items) && remote.items.length > 0 ? remote.items : local.items,
   };
 }
@@ -189,6 +230,7 @@ type OrderLike = {
   paymentMethod?: string;
   paidAt?: string;
   updatedAt?: string;
+  deletedAt?: string;
   items?: any[];
   [key: string]: any;
 };

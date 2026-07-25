@@ -37,8 +37,6 @@ export default function Orders({ type = 'all' }: OrdersProps) {
     paymentMethod?: 'Cash' | 'Card' | 'OnAccount',
     paidAmount?: number,
     customerPhone?: string,
-    pointsEarned?: number,
-    pointsRedeemed?: number,
     accountMeta?: {
       customerId?: string;
       customerName?: string;
@@ -71,8 +69,6 @@ export default function Orders({ type = 'all' }: OrdersProps) {
       companyId: accountMeta?.companyId,
       companyName: accountMeta?.companyName,
       billedToType: accountMeta?.billedToType,
-      pointsEarned,
-      pointsRedeemed,
     });
     if (!newOrder) {
       throw new Error(language === 'ar' ? 'فشل حفظ الطلب' : 'Failed to save order');

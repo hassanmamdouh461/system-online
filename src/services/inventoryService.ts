@@ -1,92 +1,9 @@
 import { InventoryItem, InventoryTransaction, RecipeIngredient } from '../global';
-import { getDB, withDB, enqueueWrite, CLIENT_B_INITIAL_INVENTORY } from '../repositories/indexeddb/db';
+import { getDB, withDB, enqueueWrite } from '../repositories/indexeddb/db';
 import { syncService } from './syncService';
 
 const WEB_RECIPES_STORAGE_KEY = 'web_menu_recipes_store';
 
-// ☕ Default realistic recipes seeded for all 40 menu items using exact inventory raw materials:
-const DEFAULT_WEB_RECIPES: Record<string, RecipeIngredient[]> = {
-  // 1: إسبيريسو
-  '1': [{ inventoryItemId: 'inv_b_1', quantity: 0.009 }, { inventoryItemId: 'inv_b_3', quantity: 1 }],
-  // 2: إسبيريسو دبل
-  '2': [{ inventoryItemId: 'inv_b_1', quantity: 0.018 }, { inventoryItemId: 'inv_b_3', quantity: 1 }],
-  // 3: كورنادو
-  '3': [{ inventoryItemId: 'inv_b_1', quantity: 0.018 }, { inventoryItemId: 'inv_b_2', quantity: 0.06 }, { inventoryItemId: 'inv_b_3', quantity: 1 }],
-  // 4: فلات وايت
-  '4': [{ inventoryItemId: 'inv_b_1', quantity: 0.018 }, { inventoryItemId: 'inv_b_2', quantity: 0.15 }, { inventoryItemId: 'inv_b_3', quantity: 1 }],
-  // 5: لاتيه
-  '5': [{ inventoryItemId: 'inv_b_1', quantity: 0.018 }, { inventoryItemId: 'inv_b_2', quantity: 0.20 }, { inventoryItemId: 'inv_b_3', quantity: 1 }],
-  // 6: كابوتشينو
-  '6': [{ inventoryItemId: 'inv_b_1', quantity: 0.018 }, { inventoryItemId: 'inv_b_2', quantity: 0.18 }, { inventoryItemId: 'inv_b_3', quantity: 1 }],
-  // 7: سبانش لاتيه
-  '7': [{ inventoryItemId: 'inv_b_1', quantity: 0.018 }, { inventoryItemId: 'inv_b_2', quantity: 0.20 }, { inventoryItemId: 'inv_b_6', quantity: 0.02 }, { inventoryItemId: 'inv_b_3', quantity: 1 }],
-  // 8: أمريكاو
-  '8': [{ inventoryItemId: 'inv_b_1', quantity: 0.018 }, { inventoryItemId: 'inv_b_3', quantity: 1 }],
-  // 9: كافيه موكا
-  '9': [{ inventoryItemId: 'inv_b_1', quantity: 0.018 }, { inventoryItemId: 'inv_b_2', quantity: 0.20 }, { inventoryItemId: 'inv_b_5', quantity: 0.02 }, { inventoryItemId: 'inv_b_3', quantity: 1 }],
-  // 10: قهوة تركي
-  '10': [{ inventoryItemId: 'inv_b_1', quantity: 0.012 }, { inventoryItemId: 'inv_b_3', quantity: 1 }],
-  // 11: قهوة فرنساوي
-  '11': [{ inventoryItemId: 'inv_b_1', quantity: 0.012 }, { inventoryItemId: 'inv_b_2', quantity: 0.10 }, { inventoryItemId: 'inv_b_3', quantity: 1 }],
-  // 12: أمريكانو بارد
-  '12': [{ inventoryItemId: 'inv_b_1', quantity: 0.018 }, { inventoryItemId: 'inv_b_3', quantity: 1 }],
-  // 13: لاتيه بارد
-  '13': [{ inventoryItemId: 'inv_b_1', quantity: 0.018 }, { inventoryItemId: 'inv_b_2', quantity: 0.20 }, { inventoryItemId: 'inv_b_3', quantity: 1 }],
-  // 14: سبانش لاتيه بارد
-  '14': [{ inventoryItemId: 'inv_b_1', quantity: 0.018 }, { inventoryItemId: 'inv_b_2', quantity: 0.20 }, { inventoryItemId: 'inv_b_6', quantity: 0.02 }, { inventoryItemId: 'inv_b_3', quantity: 1 }],
-  // 15: كراميل ماكياتو بارد
-  '15': [{ inventoryItemId: 'inv_b_1', quantity: 0.018 }, { inventoryItemId: 'inv_b_2', quantity: 0.20 }, { inventoryItemId: 'inv_b_6', quantity: 0.025 }, { inventoryItemId: 'inv_b_7', quantity: 0.01 }, { inventoryItemId: 'inv_b_3', quantity: 1 }],
-  // 16: موكا باردة
-  '16': [{ inventoryItemId: 'inv_b_1', quantity: 0.018 }, { inventoryItemId: 'inv_b_2', quantity: 0.20 }, { inventoryItemId: 'inv_b_5', quantity: 0.025 }, { inventoryItemId: 'inv_b_3', quantity: 1 }],
-  // 17: كولد برو
-  '17': [{ inventoryItemId: 'inv_b_1', quantity: 0.025 }, { inventoryItemId: 'inv_b_3', quantity: 1 }],
-  // 18: بستاشيو لاتيه بارد
-  '18': [{ inventoryItemId: 'inv_b_1', quantity: 0.018 }, { inventoryItemId: 'inv_b_2', quantity: 0.20 }, { inventoryItemId: 'inv_b_8', quantity: 0.02 }, { inventoryItemId: 'inv_b_3', quantity: 1 }],
-  // 19: موكا فرابيه
-  '19': [{ inventoryItemId: 'inv_b_1', quantity: 0.018 }, { inventoryItemId: 'inv_b_2', quantity: 0.15 }, { inventoryItemId: 'inv_b_5', quantity: 0.03 }, { inventoryItemId: 'inv_b_10', quantity: 0.05 }, { inventoryItemId: 'inv_b_3', quantity: 1 }],
-  // 20: كراميل فرابيه
-  '20': [{ inventoryItemId: 'inv_b_1', quantity: 0.018 }, { inventoryItemId: 'inv_b_2', quantity: 0.15 }, { inventoryItemId: 'inv_b_6', quantity: 0.03 }, { inventoryItemId: 'inv_b_10', quantity: 0.05 }, { inventoryItemId: 'inv_b_3', quantity: 1 }],
-  // 21: قهوة فرابيه
-  '21': [{ inventoryItemId: 'inv_b_1', quantity: 0.018 }, { inventoryItemId: 'inv_b_2', quantity: 0.15 }, { inventoryItemId: 'inv_b_10', quantity: 0.05 }, { inventoryItemId: 'inv_b_3', quantity: 1 }],
-  // 22: أوريو فرابيه
-  '22': [{ inventoryItemId: 'inv_b_1', quantity: 0.015 }, { inventoryItemId: 'inv_b_2', quantity: 0.15 }, { inventoryItemId: 'inv_b_9', quantity: 3 }, { inventoryItemId: 'inv_b_5', quantity: 0.015 }, { inventoryItemId: 'inv_b_3', quantity: 1 }],
-  // 23: ميلك شيك أوريو
-  '23': [{ inventoryItemId: 'inv_b_2', quantity: 0.25 }, { inventoryItemId: 'inv_b_9', quantity: 4 }, { inventoryItemId: 'inv_b_10', quantity: 0.10 }, { inventoryItemId: 'inv_b_3', quantity: 1 }],
-  // 24: ميلك شيك فراولة
-  '24': [{ inventoryItemId: 'inv_b_2', quantity: 0.20 }, { inventoryItemId: 'inv_b_24', quantity: 0.10 }, { inventoryItemId: 'inv_b_10', quantity: 0.10 }, { inventoryItemId: 'inv_b_3', quantity: 1 }],
-  // 25: ميلك شيك شوكولاتة
-  '25': [{ inventoryItemId: 'inv_b_2', quantity: 0.20 }, { inventoryItemId: 'inv_b_5', quantity: 0.03 }, { inventoryItemId: 'inv_b_10', quantity: 0.10 }, { inventoryItemId: 'inv_b_3', quantity: 1 }],
-  // 26: ميلك شيك فانيليا
-  '26': [{ inventoryItemId: 'inv_b_2', quantity: 0.20 }, { inventoryItemId: 'inv_b_7', quantity: 0.02 }, { inventoryItemId: 'inv_b_10', quantity: 0.15 }, { inventoryItemId: 'inv_b_3', quantity: 1 }],
-  // 27: ميلك شيك مانجو
-  '27': [{ inventoryItemId: 'inv_b_2', quantity: 0.20 }, { inventoryItemId: 'inv_b_24', quantity: 0.10 }, { inventoryItemId: 'inv_b_10', quantity: 0.10 }, { inventoryItemId: 'inv_b_3', quantity: 1 }],
-  // 28: شاي أخضر
-  '28': [{ inventoryItemId: 'inv_b_11', quantity: 0.005 }, { inventoryItemId: 'inv_b_3', quantity: 1 }],
-  // 29: شاي كرك
-  '29': [{ inventoryItemId: 'inv_b_11', quantity: 0.006 }, { inventoryItemId: 'inv_b_2', quantity: 0.05 }, { inventoryItemId: 'inv_b_3', quantity: 1 }],
-  // 30: عصير ليمون بالنعناع
-  '30': [{ inventoryItemId: 'inv_b_13', quantity: 0.10 }, { inventoryItemId: 'inv_b_14', quantity: 0.20 }, { inventoryItemId: 'inv_b_3', quantity: 1 }],
-  // 31: شاي مثلج بالخوخ
-  '31': [{ inventoryItemId: 'inv_b_11', quantity: 0.005 }, { inventoryItemId: 'inv_b_12', quantity: 0.03 }, { inventoryItemId: 'inv_b_3', quantity: 1 }],
-  // 32: موهيتو باشون فروت
-  '32': [{ inventoryItemId: 'inv_b_13', quantity: 0.05 }, { inventoryItemId: 'inv_b_12', quantity: 0.03 }, { inventoryItemId: 'inv_b_14', quantity: 0.25 }, { inventoryItemId: 'inv_b_3', quantity: 1 }],
-  // 33: كلوب ساندوتش كلاسيك
-  '33': [{ inventoryItemId: 'inv_b_4', quantity: 3 }, { inventoryItemId: 'inv_b_15', quantity: 0.10 }, { inventoryItemId: 'inv_b_22', quantity: 0.05 }, { inventoryItemId: 'inv_b_23', quantity: 0.01 }],
-  // 34: تشيز برجر لحم بقري
-  '34': [{ inventoryItemId: 'inv_b_16', quantity: 0.15 }, { inventoryItemId: 'inv_b_4', quantity: 1 }, { inventoryItemId: 'inv_b_17', quantity: 0.03 }, { inventoryItemId: 'inv_b_22', quantity: 0.03 }, { inventoryItemId: 'inv_b_23', quantity: 0.015 }],
-  // 35: ساندوتش دجاج بانيه
-  '35': [{ inventoryItemId: 'inv_b_15', quantity: 0.12 }, { inventoryItemId: 'inv_b_4', quantity: 1 }, { inventoryItemId: 'inv_b_17', quantity: 0.02 }, { inventoryItemId: 'inv_b_22', quantity: 0.03 }, { inventoryItemId: 'inv_b_23', quantity: 0.015 }],
-  // 36: كرواسون تركي وجبنة
-  '36': [{ inventoryItemId: 'inv_b_20', quantity: 1 }, { inventoryItemId: 'inv_b_18', quantity: 0.04 }, { inventoryItemId: 'inv_b_17', quantity: 0.03 }],
-  // 37: ساندوتش جبنة مشوية
-  '37': [{ inventoryItemId: 'inv_b_4', quantity: 2 }, { inventoryItemId: 'inv_b_17', quantity: 0.08 }],
-  // 38: بطاطس بالجبنة
-  '38': [{ inventoryItemId: 'inv_b_19', quantity: 0.20 }, { inventoryItemId: 'inv_b_17', quantity: 0.05 }],
-  // 39: كيكة شوكولاتة فادج
-  '39': [{ inventoryItemId: 'inv_b_21', quantity: 0.08 }, { inventoryItemId: 'inv_b_5', quantity: 0.03 }],
-  // 40: براوني شوكولاتة دافئة
-  '40': [{ inventoryItemId: 'inv_b_21', quantity: 0.07 }, { inventoryItemId: 'inv_b_5', quantity: 0.02 }, { inventoryItemId: 'inv_b_10', quantity: 0.05 }]
-};
 
 function getWebRecipeStore(): Record<string, RecipeIngredient[]> {
   try {
@@ -236,6 +153,25 @@ export const inventoryService = {
               // ignore
             }
 
+            // Also read pending DELETE queue items so we don't resurrect them
+            let pendingDeleteIds = new Set<string>();
+            try {
+              const pendingAll = await withDB((db) => db.getAll('sync_queue'));
+              pendingDeleteIds = new Set(
+                (pendingAll || [])
+                  .filter(
+                    (q: any) =>
+                      q?.type === 'inventory' &&
+                      q.action === 'delete' &&
+                      q.synced === 0
+                  )
+                  .map((q: any) => q?.data?.id)
+                  .filter(Boolean)
+              );
+            } catch {
+              // ignore
+            }
+
             await enqueueWrite(async () => {
               await withDB(async (db) => {
                 const tx = db.transaction('inventory', 'readwrite');
@@ -246,15 +182,40 @@ export const inventoryService = {
                 for (const doc of remoteDocs) {
                   const id = String(doc.id || doc.$id);
                   remoteIds.add(id);
-                  const remoteUpdated = doc.updatedAt || doc.updated_at || '';
+
                   const local = localById.get(id);
+                  const localDeletedAt = local?.deletedAt;
+                  const remoteDeletedAt = doc.deleted_at || doc.deletedAt;
+
+                  // Resolve the effective tombstone: whichever side has a NEWER
+                  // deletedAt wins. This prevents a stale cloud row from
+                  // resurrecting a locally-deleted item.
+                  const effectiveDeletedAt =
+                    !localDeletedAt
+                      ? remoteDeletedAt
+                      : !remoteDeletedAt
+                        ? localDeletedAt
+                        : new Date(localDeletedAt).getTime() >= new Date(remoteDeletedAt).getTime()
+                          ? localDeletedAt
+                          : remoteDeletedAt;
+
+                  // If there's a pending DELETE for this id, keep it deleted
+                  if (pendingDeleteIds.has(id) && !effectiveDeletedAt) {
+                    continue;
+                  }
+
+                  const remoteUpdated = doc.updatedAt || doc.updated_at || '';
+                  // If local has a newer update (and no tombstone conflict), skip
                   if (
                     local?.updatedAt &&
                     remoteUpdated &&
+                    !effectiveDeletedAt &&
+                    !remoteDeletedAt &&
                     new Date(local.updatedAt).getTime() > new Date(remoteUpdated).getTime()
                   ) {
                     continue;
                   }
+
                   await tx.store.put({
                     id,
                     name: doc.name || local?.name || 'عنصر',
@@ -271,15 +232,24 @@ export const inventoryService = {
                       new Date().toISOString(),
                     updatedAt:
                       remoteUpdated || local?.updatedAt || new Date().toISOString(),
+                    deletedAt: effectiveDeletedAt || undefined,
                   });
                 }
 
+                // Tombstone (don't hard-delete) local inventory rows the cloud
+                // no longer knows about, so they stay restorable if the cloud
+                // later brings them back. 60s grace window tolerates sync lag.
                 for (const local of localAll) {
                   if (!remoteIds.has(local.id) && !pendingCreateIds.has(local.id)) {
                     const ageMs =
                       Date.now() - new Date(local.createdAt || 0).getTime();
-                    if (ageMs > 15_000) {
-                      await tx.store.delete(local.id);
+                    if (ageMs > 60_000 && !local.deletedAt) {
+                      const nowIso = new Date().toISOString();
+                      await tx.store.put({
+                        ...local,
+                        deletedAt: nowIso,
+                        updatedAt: nowIso,
+                      });
                     }
                   }
                 }
@@ -293,8 +263,10 @@ export const inventoryService = {
         }
       }
 
-      if (!branchId) return localItems as InventoryItem[];
-      return (localItems as InventoryItem[]).filter(
+      // Always hide soft-deleted items from consumers.
+      const live = (localItems as InventoryItem[]).filter((i) => !i.deletedAt);
+      if (!branchId) return live;
+      return live.filter(
         (i) => !i.branchId || i.branchId === branchId
       );
     } catch (error) {
@@ -345,6 +317,24 @@ export const inventoryService = {
       } catch {
         void syncService.syncPendingData();
       }
+
+      // Automatically log initial inventory transaction so it appears in history logs
+      try {
+        await this.createTransaction({
+          itemId: newItem.id,
+          itemName: newItem.name,
+          itemUnit: newItem.unit,
+          unit: newItem.unit,
+          type: 'IN',
+          quantity: newItem.stock,
+          referenceId: 'MANUAL',
+          notes: 'إضافة صنف مخزون جديد',
+          branchId: newItem.branchId
+        });
+      } catch (txErr) {
+        console.warn('[inventory] failed to create initial transaction:', txErr);
+      }
+
       return newItem;
     } catch (error) {
       throw new Error('Failed to create inventory item');
@@ -413,16 +403,27 @@ export const inventoryService = {
         await window.electronAPI.deleteInventoryItem(id);
         return;
       }
+      const now = new Date().toISOString();
+
+      // Soft-delete: write a tombstone row (deletedAt) locally AND push it to the cloud.
+      // The tombstone propagates to every device and prevents the item from coming back
+      // via hydrate/sync, even if the hard cloud DELETE races or a stale copy lingers.
       await enqueueWrite(async () => {
         await withDB(async (db) => {
-          const now = new Date().toISOString();
-          await db.delete('inventory', id);
+          const existing = await db.get('inventory', id) as InventoryItem | undefined;
+          const tombstone: InventoryItem = {
+            ...(existing || { id, name: 'deleted', unit: 'unit', stock: 0, minStock: 0, costPerUnit: 0, createdAt: now } as InventoryItem),
+            id,
+            deletedAt: now,
+            updatedAt: now,
+          };
+          await db.put('inventory', tombstone);
           try {
             await db.put('sync_queue', {
               id: `sync_inv_del_${id}_${Date.now()}`,
               type: 'inventory',
               action: 'delete',
-              data: { id },
+              data: { id, deletedAt: now, updatedAt: now },
               timestamp: now,
               synced: 0,
             });
@@ -432,9 +433,13 @@ export const inventoryService = {
         });
       });
 
-      // Immediate cloud delete so refresh/getAll won't resurrect the item
+      // Push tombstone to cloud so other devices / hydration see it as deleted.
+      // Also attempt hard cloud delete as a belt-and-suspenders approach.
       try {
-        const { cloudDeleteDocument, ackSyncQueueForEntity } = await import('./cloudConfig');
+        const { cloudUpsert, cloudDeleteDocument, ackSyncQueueForEntity } = await import('./cloudConfig');
+        // First upsert the tombstone so it persists in D1 even if hard delete fails
+        await cloudUpsert('inventory', id, { id, deletedAt: now, updatedAt: now, name: 'deleted', stock: 0 });
+        // Then try hard delete
         const ok = await cloudDeleteDocument('inventory', id);
         if (ok) await ackSyncQueueForEntity(id);
         else void syncService.syncPendingData();
@@ -455,10 +460,11 @@ export const inventoryService = {
         return all.find((i: InventoryItem) => i.id === itemId || i.name === itemId);
       }
       return await withDB(async (db) => {
-        const byId = await db.get('inventory', itemId);
-        if (byId) return byId as InventoryItem;
+        const byId = await db.get('inventory', itemId) as InventoryItem | undefined;
+        if (byId && !byId.deletedAt) return byId;
+        if (byId) return undefined; // soft-deleted
         const all = (await db.getAll('inventory')) as InventoryItem[];
-        return all.find((i) => i.id === itemId || i.name === itemId);
+        return all.find((i) => !i.deletedAt && (i.id === itemId || i.name === itemId));
       });
     } catch {
       return undefined;
@@ -561,11 +567,9 @@ export const inventoryService = {
       const store = getWebRecipeStore();
       const allIngredients: RecipeIngredient[] = [];
 
-      // Combine DEFAULT_WEB_RECIPES with custom web store overrides
-      const allMenuItemIds = Array.from(new Set([...Object.keys(DEFAULT_WEB_RECIPES), ...Object.keys(store)]));
-
-      for (const menuItemId of allMenuItemIds) {
-        const ingredients = store[menuItemId] || DEFAULT_WEB_RECIPES[menuItemId] || [];
+      // Recipes are user-defined only — no hardcoded fallbacks.
+      for (const menuItemId of Object.keys(store)) {
+        const ingredients = store[menuItemId] || [];
         ingredients.forEach(ing => {
           allIngredients.push({
             ...ing,
@@ -586,26 +590,25 @@ export const inventoryService = {
         return await window.electronAPI.getMenuItemRecipe(menuItemId);
       }
       const store = getWebRecipeStore();
-      let ingredients: RecipeIngredient[] = store[menuItemId];
-      
-      if (!ingredients || ingredients.length === 0) {
-        ingredients = DEFAULT_WEB_RECIPES[menuItemId] || [
-          { inventoryItemId: 'inv_b_1', quantity: 0.018 },
-          { inventoryItemId: 'inv_b_3', quantity: 1 }
-        ];
-      }
+      let ingredients: RecipeIngredient[] = store[menuItemId] || [];
 
-      // Map ingredient IDs to active inventory item IDs if needed
+      // No hardcoded fallback — a menu item with no configured recipe simply yields no deductions.
+
+      // Validate ingredient IDs against active inventory; drop unresolved ones
+      // rather than silently remapping to an unrelated item (which would cause
+      // wrong stock deductions in a financial system).
       const currentInv = await this.getAll();
       if (currentInv.length > 0) {
-        return ingredients.map(ing => {
-          let resolvedId = ing.inventoryItemId;
-          const exists = currentInv.some(i => i.id === resolvedId);
-          if (!exists && currentInv.length > 0) {
-            resolvedId = currentInv[0].id;
-          }
-          return { ...ing, inventoryItemId: resolvedId };
-        });
+        const knownIds = new Set(currentInv.map(i => i.id));
+        const resolved = ingredients.filter(ing => knownIds.has(ing.inventoryItemId));
+        if (resolved.length < ingredients.length) {
+          console.warn(
+            '[inventoryService] Dropped recipe ingredients with unknown inventory item ids for menu',
+            menuItemId,
+            ingredients.filter(ing => !knownIds.has(ing.inventoryItemId))
+          );
+        }
+        return resolved;
       }
 
       return ingredients;

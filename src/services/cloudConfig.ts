@@ -45,8 +45,10 @@ export function getWorkerUrl(): string {
 }
 
 export function getApiKey(): string {
-  const fromEnv = String(import.meta.env.VITE_CLOUDFLARE_API_KEY || '').trim();
-  if (fromEnv) return fromEnv;
+  // SECURITY: API key must NEVER be read from import.meta.env (VITE_* vars are
+  // inlined into the client bundle and would leak to any user opening devtools).
+  // The key is stored only in localStorage and entered by the operator via
+  // Settings → Cloud Sync. Electron reads it directly from the .env file.
   if (typeof window !== 'undefined') {
     try {
       return String(localStorage.getItem('brewmaster_d1_api_key') || '').trim();
@@ -55,6 +57,31 @@ export function getApiKey(): string {
     }
   }
   return '';
+}
+
+/** Persist the Cloudflare Worker API key to localStorage only (never bundled). */
+export function setApiKey(key: string): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const trimmed = String(key || '').trim();
+    if (trimmed) {
+      localStorage.setItem('brewmaster_d1_api_key', trimmed);
+    } else {
+      localStorage.removeItem('brewmaster_d1_api_key');
+    }
+  } catch {
+    // ignore
+  }
+}
+
+/** Persist the Cloudflare Worker URL to localStorage only. */
+export function setWorkerUrl(url: string): void {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem('brewmaster_d1_worker_url', String(url || '').trim());
+  } catch {
+    // ignore
+  }
 }
 
 /**
@@ -95,7 +122,7 @@ export function getBranchIdHeader(): string {
 /** Map legacy aliases so default/branch_1 write & read as main_branch family */
 export function normalizeBranchId(branchId: string): string {
   const b = String(branchId || '').trim();
-  if (!b || b === 'default' || b === 'branch_1') return 'main_branch';
+  if (!b || b === 'default' || b === 'branch_1' || b === 'manager' || b === 'all' || b === '*') return 'main_branch';
   return b;
 }
 
@@ -186,10 +213,12 @@ export async function cloudUpsert(
   data: Record<string, any>
 ): Promise<boolean> {
   if (!id) return false;
-  // Never persist manager/all as a real branch on write payloads
   const payload: Record<string, any> = { ...data, id };
   const bid = payload.branchId || payload.branch_id;
-  if (bid === 'manager' || bid === 'all' || bid === '*') {
+  if (collection === 'snapshots') {
+    payload.branch_id = normalizeBranchId(bid || getBranchIdHeader());
+    payload.branchId = payload.branch_id;
+  } else if (bid === 'manager' || bid === 'all' || bid === '*') {
     delete payload.branchId;
     delete payload.branch_id;
   }

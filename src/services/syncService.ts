@@ -52,6 +52,7 @@ export type SyncHealth = {
 export class SyncService {
   private isSyncing = false;
   private workerDisabled = false;
+  private disabledUntil = 0;
   private resetDisabledTimer: ReturnType<typeof setTimeout> | null = null;
   private lastSuccessAt: string | null = null;
   private lastError: string | null = null;
@@ -69,7 +70,11 @@ export class SyncService {
   }
 
   private enableWorker() {
+    // Respect active backoff: a 401/403/404 sets disabledUntil 5min ahead.
+    // Only re-enable once that window has elapsed OR a human forced online.
+    if (this.disabledUntil > Date.now()) return;
     this.workerDisabled = false;
+    this.disabledUntil = 0;
     if (this.resetDisabledTimer) {
       clearTimeout(this.resetDisabledTimer);
       this.resetDisabledTimer = null;
@@ -78,6 +83,7 @@ export class SyncService {
 
   private disableWorkerTemporarily(ms = 120_000) {
     this.workerDisabled = true;
+    this.disabledUntil = Date.now() + ms;
     if (!this.resetDisabledTimer) {
       this.resetDisabledTimer = setTimeout(() => {
         this.enableWorker();
@@ -166,6 +172,9 @@ export class SyncService {
   }
 
   private async uploadRecord(record: SyncRecord, workerUrl: string): Promise<void> {
+    // Direct callers must also respect active backoff — don't hammer the worker
+    // when we've just received 401/403/404.
+    if (this.workerDisabled || this.disabledUntil > Date.now()) return;
     try {
       const response = await fetch(`${workerUrl}/api/sync`, {
         method: 'POST',

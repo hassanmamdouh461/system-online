@@ -63,6 +63,7 @@ function mapOrder(doc: any): Order {
     billedToType: doc.billedToType || doc.billed_to_type || undefined,
     refundedAt: doc.refundedAt || doc.refunded_at || undefined,
     refundReason: doc.refundReason || doc.refund_reason || undefined,
+    deletedAt: doc.deletedAt || doc.deleted_at || undefined,
     branchId: doc.branch_id || doc.branchId || 'main_branch',
   };
 }

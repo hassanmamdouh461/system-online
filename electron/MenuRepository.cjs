@@ -104,8 +104,8 @@ class MenuRepository {
     
     // Try to delete from Cloudflare D1 database immediately
     try {
-      const mockApi = require('./mockApiService.cjs');
-      mockApi.deleteMenuItem(id).catch(err => {
+      const d1Sync = require('./d1SyncService.cjs');
+      d1Sync.deleteMenuItem(id).catch(err => {
         console.warn('[MenuRepository] Async delete from D1 failed:', err.message);
       });
     } catch (e) {

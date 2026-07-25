@@ -5,8 +5,10 @@ import {
   Coffee, Calendar, Download,
   CheckCircle2, Clock, XCircle, AlertCircle, Utensils,
   UserCheck, Award, Coins, Building2, ChevronDown, RefreshCw,
-  Signal, SignalHigh, WifiOff, Package, AlertTriangle, BarChart3, Languages, Users, Search, Settings, Send, Scale, TrendingDown, Wallet
+  Signal, SignalHigh, WifiOff, Package, AlertTriangle, BarChart3, Languages, Users, Search, Settings, Send, Scale, TrendingDown, Wallet,
+  Undo2, Printer, Trash2, X
 } from 'lucide-react';
+import { createPortal } from 'react-dom';
 import { useLanguage } from '../context/LanguageContext';
 import { getTaxRate } from '../utils/settingsConfig';
 import { useMenu } from '../hooks/useMenu';
@@ -22,6 +24,8 @@ import { LoadingScreen } from '../components/ui/LoadingScreen';
 import { getIngredientBaseQty } from '../utils/units';
 import { useToast } from '../components/ui/Toast';
 import { useOrders } from '../hooks/useOrders';
+import { useAuth } from '../context/AuthContext';
+import { printCustomerReceipt } from '../utils/printReceipts';
 import {
   getCustomerAccountBalance,
   getCompanyAccountBalance,
@@ -256,7 +260,12 @@ export default function ManagerDashboard() {
 
   // Unified Analytics & Inventory State
   const analytics = useAnalytics(dateRange);
-  const { orders: allRealOrders } = useOrders();
+  const { orders: allRealOrders, refundOrder, deleteOrder } = useOrders();
+  const { user } = useAuth();
+  const [refundTarget, setRefundTarget] = useState<any | null>(null);
+  const [refundReason, setRefundReason] = useState('');
+  const [refundBusy, setRefundBusy] = useState(false);
+  const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
   const [liveInventory, setLiveInventory] = useState<any[]>([]);
   const [recipes, setRecipes] = useState<any[]>([]);
   const [menuItems, setMenuItems] = useState<any[]>([]);
@@ -1549,6 +1558,9 @@ export default function ManagerDashboard() {
                 const elapsed = Math.round((Date.now() - new Date(order.createdAt).getTime()) / 60000);
                 const timeStr = elapsed < 1 ? t('just now') : elapsed < 60 ? `${elapsed}${t('m ago')}` : `${Math.round(elapsed / 60)}${t('h ago')}`;
 
+                const isPaid = order.paymentStatus === 'Paid';
+                const isRefunded = order.paymentStatus === 'Refunded';
+
                 return (
                   <motion.div
                     key={order.id}
@@ -1558,22 +1570,60 @@ export default function ManagerDashboard() {
                     className="flex items-center justify-between py-3 gap-3"
                   >
                     <div className="flex items-center gap-2.5 min-w-0">
-                      <div className="p-2 bg-green-50 text-green-600 rounded-xl shrink-0">
-                        <CheckCircle2 size={16} />
+                      <div className={`p-2 rounded-xl shrink-0 ${isRefunded ? 'bg-amber-50 text-amber-600' : 'bg-green-50 text-green-600'}`}>
+                        {isRefunded ? <Undo2 size={16} /> : <CheckCircle2 size={16} />}
                       </div>
                       <div className="min-w-0 text-left">
                         <p className="text-xs md:text-sm font-extrabold text-gray-900 truncate">
-                          {order.tableId === 'Takeaway' ? t('Takeaway') : `${t('Table')} ${order.tableId}`}
+                          #{formatOrderNumber(order)}
                           <span className="text-[10px] text-mocha-600 font-bold bg-mocha-50 border border-mocha-100 px-1.5 py-0.5 rounded mx-1.5">{bLabel}</span>
+                          {isRefunded && (
+                            <span className="text-[10px] text-amber-700 font-bold bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded">
+                              {language === 'ar' ? 'مسترجعة' : 'Refunded'}
+                            </span>
+                          )}
+                        </p>
+                        <p className="text-[11px] text-gray-400 truncate mt-0.5">
+                          {order.tableId === 'Takeaway' ? t('Takeaway') : `${t('Table')} ${order.tableId}`}
+                          {order.customerName ? ` · ${order.customerName}` : order.customerPhone ? ` · ${order.customerPhone}` : ''}
                         </p>
                         <p className="text-[11px] text-gray-400 truncate mt-0.5">{summary}{more}</p>
                       </div>
                     </div>
-                    <div className="text-right shrink-0">
-                      <p className="text-xs md:text-sm font-extrabold text-gray-900">
-                        {getOrderGrandTotal(order, taxRate).toFixed(2)} {currencyStr}
-                      </p>
-                      <p className="text-[10px] text-gray-400 mt-0.5">{timeStr}</p>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <div className="text-right">
+                        <p className="text-xs md:text-sm font-extrabold text-gray-900">
+                          {getOrderGrandTotal(order, taxRate).toFixed(2)} {currencyStr}
+                        </p>
+                        <p className="text-[10px] text-gray-400 mt-0.5">{timeStr}</p>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => printCustomerReceipt(order, language === 'ar' ? 'ar' : 'en')}
+                          className="p-1.5 rounded-lg text-gray-400 hover:text-mocha-700 hover:bg-mocha-50 transition-colors"
+                          title={language === 'ar' ? 'طباعة الفاتورة' : 'Print Receipt'}
+                        >
+                          <Printer size={15} />
+                        </button>
+                        {user?.role === 'manager' && isPaid && (
+                          <button
+                            onClick={() => { setRefundTarget(order); setRefundReason(''); }}
+                            className="p-1.5 rounded-lg text-amber-600 hover:bg-amber-100 hover:text-amber-800 transition-colors"
+                            title={language === 'ar' ? 'إرجاع الفاتورة' : 'Refund Invoice'}
+                          >
+                            <Undo2 size={15} />
+                          </button>
+                        )}
+                        {user?.role === 'manager' && (
+                          <button
+                            onClick={() => setDeleteTargetId(order.id)}
+                            className="p-1.5 rounded-lg text-gray-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+                            title={language === 'ar' ? 'حذف الفاتورة' : 'Delete Invoice'}
+                          >
+                            <Trash2 size={15} />
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </motion.div>
                 );
@@ -1728,6 +1778,183 @@ export default function ManagerDashboard() {
             <SettingsPage />
           </div>
         </Suspense>
+      )}
+
+
+      {/* ── Refund Reason Modal ──────────────────────────────────────────────── */}
+      {refundTarget && createPortal(
+        <AnimatePresence>
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[9200] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
+            onClick={() => !refundBusy && setRefundTarget(null)}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden"
+            >
+              <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-amber-50/60">
+                <h3 className="font-extrabold text-gray-900 text-base flex items-center gap-2">
+                  <Undo2 size={18} className="text-amber-600" />
+                  {language === 'ar' ? 'إرجاع الفاتورة' : 'Refund Invoice'}
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => !refundBusy && setRefundTarget(null)}
+                  className="p-1.5 text-gray-400 hover:text-gray-700 rounded-xl hover:bg-gray-200/60 transition-colors disabled:opacity-50"
+                  disabled={refundBusy}
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="p-6 space-y-4">
+                <div className="bg-gray-50 rounded-xl p-3 border border-gray-100">
+                  <p className="text-xs text-gray-500">{language === 'ar' ? 'فاتورة رقم' : 'Invoice'}</p>
+                  <p className="font-black text-gray-900 text-lg">#{formatOrderNumber(refundTarget)}</p>
+                  <p className="text-xs text-gray-400 mt-0.5">{new Date(refundTarget.createdAt).toLocaleString()}</p>
+                  <p className="text-sm font-bold text-emerald-600 mt-1">{getOrderGrandTotal(refundTarget, taxRate).toFixed(2)} {currencyStr}</p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    {language === 'ar' ? 'سبب الاسترجاع (اختياري)' : 'Refund reason (optional)'}
+                  </label>
+                  <textarea
+                    rows={2}
+                    value={refundReason}
+                    onChange={(e) => setRefundReason(e.target.value)}
+                    disabled={refundBusy}
+                    className="w-full px-4 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-400 focus:border-transparent transition-all resize-none bg-white text-gray-900 placeholder-gray-400 font-medium"
+                    placeholder={language === 'ar' ? 'مثال: إرجاع بناءً على طلب العميل...' : 'e.g. Customer requested refund...'}
+                  />
+                </div>
+
+                <div className="bg-amber-50 rounded-xl p-3 border border-amber-100 text-xs text-amber-800 leading-relaxed">
+                  {language === 'ar'
+                    ? 'تحذير: سيتم تحويل حالة الفاتورة إلى "مسترجعة" وملغاة، وسيتم إرجاع كميات المكونات للمخزون تلقائياً.'
+                    : 'Warning: the invoice will be marked as Refunded & Cancelled, and ingredient quantities will be restored to inventory automatically.'}
+                </div>
+              </div>
+
+              <div className="flex gap-3 px-6 py-4 border-t border-gray-100 bg-gray-50/50">
+                <button
+                  type="button"
+                  onClick={() => !refundBusy && setRefundTarget(null)}
+                  disabled={refundBusy}
+                  className="flex-1 px-4 py-2.5 rounded-xl border border-gray-200 text-gray-700 font-bold hover:bg-gray-100 transition-colors disabled:opacity-50"
+                >
+                  {language === 'ar' ? 'إلغاء' : 'Cancel'}
+                </button>
+                <button
+                  type="button"
+                  disabled={refundBusy}
+                  onClick={async () => {
+                    setRefundBusy(true);
+                    try {
+                      await refundOrder(refundTarget.id, refundReason.trim() || undefined);
+                      setRefundTarget(null);
+                      toast.success(language === 'ar' ? 'تم إرجاع الفاتورة بنجاح' : 'Invoice refunded successfully');
+                    } catch (err) {
+                      console.error('Refund failed:', err);
+                      toast.error(language === 'ar'
+                        ? 'فشل الإرجاع: ' + (err instanceof Error ? err.message : String(err))
+                        : 'Refund failed: ' + (err instanceof Error ? err.message : String(err)));
+                    } finally {
+                      setRefundBusy(false);
+                    }
+                  }}
+                  className="flex-1 px-4 py-2.5 rounded-xl bg-amber-600 text-white font-bold hover:bg-amber-700 shadow-lg shadow-amber-500/20 transition-colors disabled:opacity-60 flex items-center justify-center gap-2"
+                >
+                  {refundBusy ? (
+                    <span>{language === 'ar' ? 'جاري الإرجاع...' : 'Refunding...'}</span>
+                  ) : (
+                    <>
+                      <Undo2 size={16} />
+                      <span>{language === 'ar' ? 'تأكيد الإرجاع' : 'Confirm Refund'}</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        </AnimatePresence>,
+        document.body
+      )}
+
+      {/* ── Delete Confirmation Modal ───────────────────────────────────────── */}
+      {deleteTargetId && createPortal(
+        <AnimatePresence>
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[9200] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
+            onClick={() => setDeleteTargetId(null)}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white rounded-2xl w-full max-w-sm shadow-2xl overflow-hidden"
+            >
+              <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-rose-50/60">
+                <h3 className="font-extrabold text-gray-900 text-base flex items-center gap-2">
+                  <Trash2 size={18} className="text-rose-600" />
+                  {language === 'ar' ? 'حذف الفاتورة' : 'Delete Invoice'}
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => setDeleteTargetId(null)}
+                  className="p-1.5 text-gray-400 hover:text-gray-700 rounded-xl hover:bg-gray-200/60 transition-colors"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+              <div className="p-6">
+                <p className="text-sm text-gray-600 leading-relaxed">
+                  {language === 'ar'
+                    ? 'هل أنت متأكد من حذف هذه الفاتورة نهائياً؟ لا يمكن التراجع عن هذا الإجراء.'
+                    : 'Are you sure you want to permanently delete this invoice? This action cannot be undone.'}
+                </p>
+              </div>
+              <div className="flex gap-3 px-6 py-4 border-t border-gray-100 bg-gray-50/50">
+                <button
+                  type="button"
+                  onClick={() => setDeleteTargetId(null)}
+                  className="flex-1 px-4 py-2.5 rounded-xl border border-gray-200 text-gray-700 font-bold hover:bg-gray-100 transition-colors"
+                >
+                  {language === 'ar' ? 'إلغاء' : 'Cancel'}
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const id = deleteTargetId;
+                    setDeleteTargetId(null);
+                    try {
+                      await deleteOrder(id);
+                      toast.success(language === 'ar' ? 'تم حذف الفاتورة' : 'Invoice deleted');
+                    } catch (err) {
+                      console.error('Delete failed:', err);
+                      toast.error(language === 'ar' ? 'فشل الحذف' : 'Delete failed');
+                    }
+                  }}
+                  className="flex-1 px-4 py-2.5 rounded-xl bg-rose-600 text-white font-bold hover:bg-rose-700 shadow-lg shadow-rose-500/20 transition-colors flex items-center justify-center gap-2"
+                >
+                  <Trash2 size={16} />
+                  <span>{language === 'ar' ? 'حذف نهائي' : 'Delete'}</span>
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        </AnimatePresence>,
+        document.body
       )}
 
 

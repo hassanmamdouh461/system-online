@@ -12,10 +12,24 @@ export class IndexedDbCompanyRepository implements ICompanyRepository {
       try {
         const remoteDocs = await cloudGetCollection('companies');
         if (remoteDocs && remoteDocs.length > 0) {
+          const pendingDeletes = new Set<string>();
+          await withDB(async (db) => {
+            const queue = await db.getAll('sync_queue');
+            for (const item of queue) {
+              if (item.type === 'company' && item.action === 'delete' && item.synced === 0) {
+                const qid = item.data?.id || item.data?.documentId;
+                if (qid) pendingDeletes.add(qid);
+              }
+            }
+          });
+
           await enqueueWrite(async () => {
             await withDB(async (db) => {
               const tx = db.transaction('companies', 'readwrite');
               for (const doc of remoteDocs) {
+                const docId = String(doc.id || doc.$id);
+                if (pendingDeletes.has(docId)) continue;
+
                 let tags = doc.tags;
                 if (typeof tags === 'string') {
                   try {
@@ -25,7 +39,7 @@ export class IndexedDbCompanyRepository implements ICompanyRepository {
                   }
                 }
                 await tx.store.put({
-                  id: String(doc.id || doc.$id),
+                  id: docId,
                   name: doc.name || 'شركة',
                   tags: Array.isArray(tags) ? tags : [],
                   phone: doc.phone,
@@ -118,8 +132,19 @@ export class IndexedDbCompanyRepository implements ICompanyRepository {
         } catch {
           // ignore
         }
-        void syncService.syncPendingData();
       });
     });
+
+    try {
+      const { cloudDeleteDocument, ackSyncQueueForEntity } = await import('../../services/cloudConfig');
+      const ok = await cloudDeleteDocument('companies', id);
+      if (ok) {
+        await ackSyncQueueForEntity(id);
+      } else {
+        void syncService.syncPendingData();
+      }
+    } catch {
+      void syncService.syncPendingData();
+    }
   }
 }

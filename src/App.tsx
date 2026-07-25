@@ -25,6 +25,28 @@ import PublicMenu from './pages/PublicMenu';
 import Inventory from './pages/Inventory';
 import Customers from './pages/Customers';
 
+function NotFound() {
+  const location = useLocation();
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
+      <div className="text-center max-w-md">
+        <div className="text-8xl font-black text-gray-200 mb-4">404</div>
+        <h1 className="text-2xl font-bold text-gray-800 mb-2">الصفحة غير موجودة</h1>
+        <p className="text-gray-500 mb-6 text-sm">
+          <code className="bg-gray-100 px-2 py-0.5 rounded text-gray-600">{location.pathname}</code>
+          {' '}ليس له مسار صالح.
+        </p>
+        <a
+          href="/"
+          className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-6 py-3 rounded-xl transition-colors"
+        >
+          ← الرجوع للوحة التحكم
+        </a>
+      </div>
+    </div>
+  );
+}
+
 function ProtectedRoute() {
   const { isAuthenticated } = useAuth();
   const location = useLocation();
@@ -81,7 +103,7 @@ function AppRoutes() {
           </Route>
         </Route>
         <Route path="/" element={<CashierDefaultRoute />} />
-        <Route path="*" element={<CashierDefaultRoute />} />
+        <Route path="*" element={<NotFound />} />
       </Routes>
     </Suspense>
     </ErrorBoundary>
@@ -103,6 +125,16 @@ function App() {
 
     (async () => {
       try {
+        // One-time localStorage cleanup (locale/settings key dedup).
+        // Runs before anything reads these keys, and is gated internally so
+        // it only ever executes once per browser.
+        try {
+          const { migrateLocaleKeys } = await import('./utils/localeMigration');
+          migrateLocaleKeys();
+        } catch {
+          // non-fatal
+        }
+
         // Open DB first (upgrade if needed) — POS must work even if cloud is down
         await requestPersistentStorage();
         const { getDB } = await import('./repositories/indexeddb/db');
@@ -113,7 +145,9 @@ function App() {
         if (navigator.onLine) {
           void hydrateFromCloud(true)
             .then(async (result) => {
-              console.info('[App boot] cloud hydrate:', result);
+              if (import.meta.env.DEV) {
+                console.debug('[App boot] cloud hydrate:', result);
+              }
               // If wipe left everything empty, try last full snapshot
               try {
                 const { restoreFromSnapshotIfNeeded, startSnapshotScheduler } = await import(

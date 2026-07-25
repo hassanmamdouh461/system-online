@@ -196,10 +196,10 @@ export default function Reports() {
   }, [analytics.completedPeriod, recipeCosts, dateRange]);
 
   const netProfit = useMemo(() => {
-    const revenue = analytics.totalRevenue;
-    const tax = revenue * taxRate;
-    return Math.max(0, revenue - tax - cogs);
-  }, [analytics.totalRevenue, taxRate, cogs]);
+    // totalRevenue is tax-inclusive (sum of grandTotal). Subtract the ACTUAL
+    // collected tax from frozen snapshots — NOT revenue * taxRate (double-discount).
+    return Math.max(0, analytics.totalRevenue - analytics.totalTax - cogs);
+  }, [analytics.totalRevenue, analytics.totalTax, cogs]);
 
   const lowStockItems = useMemo(() => {
     return inventory.filter(item => item.stock <= item.minStock);

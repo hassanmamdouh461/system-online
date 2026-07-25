@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { X, Plus, Minus, ShoppingBag, Search, Trash2 } from 'lucide-react';
 import { MenuItem } from '../../types/menu';
 import { OrderItem } from '../../types/order';
+import { useToast } from '../ui/Toast';
 
 interface NewOrderModalProps {
   isOpen: boolean;
@@ -13,6 +14,7 @@ interface NewOrderModalProps {
 }
 
 export function NewOrderModal({ isOpen, onClose, menuItems, onSubmit }: NewOrderModalProps) {
+  const toast = useToast();
   const [tableId, setTableId] = useState('Dine-in');
   const [cart, setCart] = useState<Map<string, number>>(new Map());
   const [search, setSearch] = useState('');
@@ -68,7 +70,7 @@ export function NewOrderModal({ isOpen, onClose, menuItems, onSubmit }: NewOrder
       onClose();
     } catch (e) {
       console.error('Failed to create order:', e);
-      alert('Failed to create order. Please try again.');
+      toast.error(e instanceof Error ? e.message : String(e));
     } finally {
       setIsSubmitting(false);
     }

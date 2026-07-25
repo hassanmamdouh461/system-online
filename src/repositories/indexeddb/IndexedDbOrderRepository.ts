@@ -62,6 +62,7 @@ function mapRemoteOrder(doc: any): Order {
     billedToType: doc.billedToType || doc.billed_to_type || undefined,
     refundedAt: doc.refundedAt || doc.refunded_at || undefined,
     refundReason: doc.refundReason || doc.refund_reason || undefined,
+    deletedAt: doc.deletedAt || doc.deleted_at || undefined,
     branchId: doc.branch_id || doc.branchId || 'main_branch',
   };
 }
@@ -117,7 +118,9 @@ export class IndexedDbOrderRepository implements IOrderRepository {
   /** Pure local read — no cloud round-trip. */
   async getAllLocal(branchId?: string): Promise<Order[]> {
     const localOrders = await withDB((db) => db.getAll('orders'));
-    return filterByBranch(localOrders, branchId);
+    // Always hide soft-deleted orders from consumers.
+    const live = (localOrders as Order[]).filter(o => !o.deletedAt);
+    return filterByBranch(live, branchId);
   }
 
   async getAll(branchId?: string): Promise<Order[]> {
@@ -152,7 +155,9 @@ export class IndexedDbOrderRepository implements IOrderRepository {
       }
     }
 
-    return filterByBranch(localOrders, branchId);
+    // Always hide soft-deleted orders from consumers.
+    const live = (localOrders as Order[]).filter(o => !o.deletedAt);
+    return filterByBranch(live, branchId);
   }
 
   /**
@@ -219,20 +224,11 @@ export class IndexedDbOrderRepository implements IOrderRepository {
         }
         await tx.done;
 
-        // Push renumbered tickets to cloud so next hydrate doesn't reintroduce 1000
+        // Queue-only cloud push: the queue write above already staged every
+        // renumbered order for syncPendingData. No direct cloudUpsert here —
+        // the previous double-upsert raced the queue and re-sent numbers twice.
         if (updatedOrders.length > 0) {
-          void import('../../services/cloudConfig')
-            .then(async ({ cloudUpsert }) => {
-              for (const o of updatedOrders) {
-                try {
-                  await cloudUpsert('orders', o.id, o);
-                } catch {
-                  // queue will retry
-                }
-              }
-              void syncService.syncPendingData();
-            })
-            .catch(() => void syncService.syncPendingData());
+          void syncService.syncPendingData();
         }
 
         return changed;
@@ -370,13 +366,23 @@ export class IndexedDbOrderRepository implements IOrderRepository {
     await enqueueWrite(async () => {
       await withDB(async (db) => {
         const now = new Date().toISOString();
-        await db.delete('orders', id);
+        // Soft-delete: write a tombstone row instead of hard-deleting.
+        // This prevents cloud hydrate from resurrecting the order.
+        const existing = await db.get('orders', id) as Order | undefined;
+        const tombstone: Order = {
+          ...(existing || {} as Order),
+          id,
+          deletedAt: now,
+          updatedAt: now,
+        };
+        await db.put('orders', tombstone);
+        // Push tombstone as an update so D1 also marks it deleted.
         try {
           await db.put('sync_queue', {
             id: `sync_del_${id}_${Date.now()}`,
             type: 'order',
-            action: 'delete',
-            data: { id },
+            action: 'update',
+            data: tombstone,
             timestamp: now,
             synced: 0,
           });
@@ -386,14 +392,6 @@ export class IndexedDbOrderRepository implements IOrderRepository {
         void syncService.syncPendingData();
       });
     });
-
-    // Directly delete from Cloud D1 worker database so cloudHydrate does NOT resurrect it
-    try {
-      const { cloudDeleteDocument } = await import('../../services/cloudConfig');
-      await cloudDeleteDocument('orders', id);
-    } catch {
-      // ignore
-    }
   }
 
 

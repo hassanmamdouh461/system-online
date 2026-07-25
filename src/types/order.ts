@@ -38,7 +38,7 @@ export interface Order {
    */
   taxRate?: number;
   taxAmount?: number;
-  /** totalAmount + taxAmount − pointsRedeemed (if any). Prefer this for revenue when present. */
+  /** totalAmount + taxAmount. Prefer this for revenue when present. */
   grandTotal?: number;
   createdAt: string; // ISO string
   updatedAt?: string; // ISO string — last modification timestamp for sync conflict resolution
@@ -51,18 +51,18 @@ export interface Order {
   companyId?: string;
   companyName?: string;
   billedToType?: BilledToType;
-  pointsEarned?: number;
-  pointsRedeemed?: number;
   /** Set when a paid order is voided/refunded */
   refundedAt?: string;
   refundReason?: string;
+  /** Soft-delete tombstone — set when order is "deleted" via DataContext. */
+  deletedAt?: string;
   /** Multi-branch sync fields */
   branchId?: string; // UUID identifying which branch created/owns this record
   isSynced?: boolean; // false = needs to be pushed to central server
 }
 
 /** Resolve order grand total using frozen tax fields when available. */
-export function getOrderGrandTotal(order: Pick<Order, 'totalAmount' | 'taxAmount' | 'grandTotal' | 'taxRate' | 'pointsRedeemed'>, fallbackTaxRate = 0): number {
+export function getOrderGrandTotal(order: Pick<Order, 'totalAmount' | 'taxAmount' | 'grandTotal' | 'taxRate'>, fallbackTaxRate = 0): number {
   // Only trust grandTotal when it's a real positive snapshot (null from D1 used to become 0)
   if (typeof order.grandTotal === 'number' && Number.isFinite(order.grandTotal) && order.grandTotal > 0) {
     return order.grandTotal;
@@ -75,10 +75,7 @@ export function getOrderGrandTotal(order: Pick<Order, 'totalAmount' | 'taxAmount
     typeof order.taxAmount === 'number' && Number.isFinite(order.taxAmount)
       ? order.taxAmount
       : order.totalAmount * rate;
-  const points = order.pointsRedeemed || 0;
-  const total = order.totalAmount + tax - points;
+  const total = order.totalAmount + tax;
   return Math.max(0, Number.isFinite(total) ? total : 0);
 }
 
-// Clean initial state for new client database (0 initial orders)
-export const MOCK_ORDERS: Order[] = [];

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { X, Lock, ShieldCheck, KeyRound, AlertCircle } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
+import { hashPin } from '../../utils/settingsConfig';
 
 interface PinSetupModalProps {
   isOpen: boolean;
@@ -27,7 +28,7 @@ export function PinSetupModal({ isOpen, onClose }: PinSetupModalProps) {
     }
   }, [isOpen]);
 
-  const handleSave = () => {
+  const handleSave = async () => {
     setError('');
     setSuccess('');
 
@@ -49,9 +50,11 @@ export function PinSetupModal({ isOpen, onClose }: PinSetupModalProps) {
       setSuccess(t('PIN has been removed'));
       setHasExistingPin(false);
     } else {
-      localStorage.setItem('brewmaster_admin_pin', pin);
+      // Store PBKDF2-hashed PIN — never persist plaintext.
+      const hashed = await hashPin(pin);
+      localStorage.setItem('brewmaster_admin_pin', hashed);
       void import('../../services/settingsCloudService').then((m) =>
-        m.persistSetting('brewmaster_admin_pin', pin)
+        m.persistSetting('brewmaster_admin_pin', hashed)
       );
       setSuccess(t('PIN has been successfully updated'));
       setHasExistingPin(true);

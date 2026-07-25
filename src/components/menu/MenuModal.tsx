@@ -9,6 +9,7 @@ import { InventoryItem } from '../../global';
 import { useEditingGuard } from '../../hooks/useEditingGuard';
 import { getIngredientBaseQty } from '../../utils/units';
 import { persistSetting } from '../../services/settingsCloudService';
+import { useToast } from '../ui/Toast';
 
 interface MenuModalProps {
 
@@ -21,6 +22,7 @@ interface MenuModalProps {
 
 export function MenuModal({ isOpen, onClose, onSave, initialData, existingItems }: MenuModalProps) {
   const { t } = useLanguage();
+  const toast = useToast();
   const setEditing = useEditingGuard();
   const [activeTab, setActiveTab] = useState<'general' | 'recipe'>('general');
   const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([]);
@@ -39,8 +41,7 @@ export function MenuModal({ isOpen, onClose, onSave, initialData, existingItems 
     name: '',
     description: '',
     price: '',
-    category: 'General', // Default category
-    image: '',
+    category: '',
     available: true,
   });
 
@@ -91,18 +92,9 @@ export function MenuModal({ isOpen, onClose, onSave, initialData, existingItems 
   }, [initialData, isOpen]);
 
   const availableCategories = useMemo(() => {
-    const defaults = [
-      { value: 'Hot Coffee', label: 'قهوة ساخنة (Hot Coffee)' },
-      { value: 'Iced Coffee', label: 'قهوة باردة (Iced Coffee)' },
-      { value: 'Frappe', label: 'فرابيه (Frappe)' },
-      { value: 'Milkshakes', label: 'ميلك شيك (Milkshakes)' },
-      { value: 'Juices', label: 'عصائر ومشروبات (Juices)' },
-      { value: 'Desserts', label: 'حلويات (Desserts)' },
-      { value: 'Food', label: 'مأكولات (Food)' }
-    ];
-    
-    const set = new Set(defaults.map(d => d.value));
-    const list = [...defaults];
+    // Only show categories that exist on actual menu items — no hardcoded defaults.
+    const set = new Set<string>();
+    const list: Array<{ value: string; label: string }> = [];
 
     (existingItems || []).forEach(item => {
       const cat = item.category ? item.category.split('|')[0] : '';
@@ -125,30 +117,33 @@ export function MenuModal({ isOpen, onClose, onSave, initialData, existingItems 
     // If the removed category was the selected one, reset to first available
     if (formData.category === catValue) {
       const remaining = availableCategories.filter(c => c.value !== catValue);
-      setFormData(prev => ({ ...prev, category: remaining.length > 0 ? remaining[0].value : 'Hot Coffee' }));
+      setFormData(prev => ({ ...prev, category: remaining.length > 0 ? remaining[0].value : '' }));
     }
   };
 
 
-  // Initialize form ONLY when the modal opens or the edited item changes.
-  // NOTE: availableCategories is intentionally excluded from deps — it is
-  // recomputed every time the parent re-renders (e.g. on the 15s background
-  // refresh). Including it here would wipe the user's in-progress typing.
+  // Initialize form ONLY when the edited item changes (by id), NOT on every
+  // isOpen toggle. This preserves the user's in-progress draft when the modal
+  // is closed and reopened for the same/new item.
+  // - initialData?.id === undefined  → "new item" form
+  // - initialData?.id === <someId>   → "edit item" form for that id
+  // Closing/reopening without changing the id keeps the draft intact.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const editedItemId = initialData?.id;
   useEffect(() => {
     if (!isOpen) return;
     if (initialData) {
       const parts = initialData.category.split('|');
-      const menuCat = parts[0] || 'Hot Coffee';
+      const menuCat = parts[0] || '';
 
       const isKnown = availableCategories.some(c => c.value === menuCat);
-      if (!isKnown && menuCat !== 'General') {
+      if (!isKnown && menuCat !== 'General' && menuCat !== '') {
         setShowNewCategoryInput(true);
         setFormData({
           name: initialData.name,
           description: initialData.description,
           price: initialData.price.toString(),
           category: menuCat,
-          image: initialData.image || '',
           available: initialData.available,
         });
       } else {
@@ -157,8 +152,7 @@ export function MenuModal({ isOpen, onClose, onSave, initialData, existingItems 
           name: initialData.name,
           description: initialData.description,
           price: initialData.price.toString(),
-          category: menuCat === 'General' ? 'Hot Coffee' : menuCat,
-          image: initialData.image || '',
+          category: menuCat || (availableCategories.length > 0 ? availableCategories[0].value : ''),
           available: initialData.available,
         });
       }
@@ -168,13 +162,12 @@ export function MenuModal({ isOpen, onClose, onSave, initialData, existingItems 
         name: '',
         description: '',
         price: '',
-        category: availableCategories.length > 0 ? availableCategories[0].value : 'Hot Coffee',
-        image: '',
+        category: availableCategories.length > 0 ? availableCategories[0].value : '',
         available: true,
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialData, isOpen]);
+  }, [editedItemId]);
 
   const calculatedCost = useMemo(() => {
     return mappedIngredients.reduce((sum, ing) => {
@@ -229,7 +222,7 @@ export function MenuModal({ isOpen, onClose, onSave, initialData, existingItems 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const menuCategory = formData.category.trim() || 'Hot Coffee';
+      const menuCategory = formData.category.trim() || availableCategories[0]?.value || 'General';
       const finalCategory = `${menuCategory}|Bar`;
 
       const defaultImage = ['Hot Coffee', 'Iced Coffee', 'Frappe', 'Milkshakes', 'Bar'].includes(menuCategory)
@@ -250,7 +243,9 @@ export function MenuModal({ isOpen, onClose, onSave, initialData, existingItems 
       onClose();
     } catch (err) {
       console.error('Failed to save menu item:', err);
-      alert(t('Failed to save item. Please try again.'));
+      // alert() blocks the UI thread and is hostile in a POS context; surface
+      // the error via the toast system instead.
+      toast.error(err instanceof Error ? err.message : String(err));
     }
   };
 
@@ -415,6 +410,7 @@ export function MenuModal({ isOpen, onClose, onSave, initialData, existingItems 
                       )}
                     </div>
                   </div>
+
                 </>
               ) : (
                 <div className="space-y-4">

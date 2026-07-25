@@ -20,85 +20,85 @@ export function OverviewTab({
   t,
 }: OverviewTabProps) {
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       {/* 4 Main Stat Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
+      <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 md:gap-6">
         <motion.div
           whileHover={{ y: -4 }}
-          className="bg-white/90 backdrop-blur-md p-5 rounded-2xl border border-gray-100 shadow-sm relative overflow-hidden"
+          className="bg-white/90 backdrop-blur-md p-3 sm:p-5 rounded-xl sm:rounded-2xl border border-gray-100 shadow-sm relative overflow-hidden"
         >
-          <div className="flex items-center justify-between mb-3">
-            <div className="p-3 rounded-xl bg-orange-50 text-amber-600 border border-orange-100/50">
-              <DollarSign className="w-6 h-6" />
+          <div className="flex items-center justify-between mb-3 gap-1">
+            <div className="p-2 sm:p-3 rounded-lg sm:rounded-xl bg-orange-50 text-amber-600 border border-orange-100/50 shrink-0">
+              <DollarSign className="w-4 h-4 sm:w-6 sm:h-6" />
             </div>
-            <span className="text-xs font-semibold text-green-600 bg-green-50 px-2.5 py-1 rounded-lg border border-green-100">
+            <span className="text-[9px] sm:text-xs font-semibold text-green-600 bg-green-50 px-1.5 sm:px-2.5 py-0.5 sm:py-1 rounded-lg border border-green-100 text-right leading-tight">
               +12.5%
             </span>
           </div>
-          <p className="text-gray-500 text-xs font-medium uppercase tracking-wider">{t('Total Revenue')}</p>
-          <h3 className="text-2xl md:text-3xl font-bold text-gray-900 mt-1">
-            {processedData.totalRevenue.toLocaleString(undefined, { minimumFractionDigits: 2 })} <span className="text-xs text-gray-500 font-normal">ج.م</span>
+          <p className="text-gray-500 text-[10px] sm:text-xs font-medium uppercase tracking-wider">{t('Total Revenue')}</p>
+          <h3 className="text-base sm:text-2xl md:text-3xl font-bold text-gray-900 mt-1 leading-tight">
+            {processedData.totalRevenue.toLocaleString(undefined, { minimumFractionDigits: 2 })} <span className="text-[10px] sm:text-xs text-gray-500 font-normal">ج.م</span>
           </h3>
         </motion.div>
 
         <motion.div
           whileHover={{ y: -4 }}
-          className="bg-white/90 backdrop-blur-md p-5 rounded-2xl border border-gray-100 shadow-sm relative overflow-hidden"
+          className="bg-white/90 backdrop-blur-md p-3 sm:p-5 rounded-xl sm:rounded-2xl border border-gray-100 shadow-sm relative overflow-hidden"
         >
-          <div className="flex items-center justify-between mb-3">
-            <div className="p-3 rounded-xl bg-blue-50 text-blue-600 border border-blue-100/50">
-              <ShoppingBag className="w-6 h-6" />
+          <div className="flex items-center justify-between mb-3 gap-1">
+            <div className="p-2 sm:p-3 rounded-lg sm:rounded-xl bg-blue-50 text-blue-600 border border-blue-100/50 shrink-0">
+              <ShoppingBag className="w-4 h-4 sm:w-6 sm:h-6" />
             </div>
-            <span className="text-xs font-semibold text-blue-600 bg-blue-50 px-2.5 py-1 rounded-lg border border-blue-100">
+            <span className="text-[9px] sm:text-xs font-semibold text-blue-600 bg-blue-50 px-1.5 sm:px-2.5 py-0.5 sm:py-1 rounded-lg border border-blue-100 text-right leading-tight">
               {processedData.totalOrdersCount} {t('orders')}
             </span>
           </div>
-          <p className="text-gray-500 text-xs font-medium uppercase tracking-wider">{t('Total Orders')}</p>
-          <h3 className="text-2xl md:text-3xl font-bold text-gray-900 mt-1">
+          <p className="text-gray-500 text-[10px] sm:text-xs font-medium uppercase tracking-wider">{t('Total Orders')}</p>
+          <h3 className="text-base sm:text-2xl md:text-3xl font-bold text-gray-900 mt-1 leading-tight">
             {processedData.totalOrdersCount}
           </h3>
         </motion.div>
 
         <motion.div
           whileHover={{ y: -4 }}
-          className="bg-white/90 backdrop-blur-md p-5 rounded-2xl border border-gray-100 shadow-sm relative overflow-hidden"
+          className="bg-white/90 backdrop-blur-md p-3 sm:p-5 rounded-xl sm:rounded-2xl border border-gray-100 shadow-sm relative overflow-hidden"
         >
-          <div className="flex items-center justify-between mb-3">
-            <div className="p-3 rounded-xl bg-emerald-50 text-emerald-600 border border-emerald-100/50">
-              <Scale className="w-6 h-6" />
+          <div className="flex items-center justify-between mb-3 gap-1">
+            <div className="p-2 sm:p-3 rounded-lg sm:rounded-xl bg-emerald-50 text-emerald-600 border border-emerald-100/50 shrink-0">
+              <Scale className="w-4 h-4 sm:w-6 sm:h-6" />
             </div>
-            <span className="text-xs font-semibold text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-100">
+            <span className="text-[9px] sm:text-xs font-semibold text-emerald-600 bg-emerald-50 px-1.5 sm:px-2.5 py-0.5 sm:py-1 rounded-lg border border-emerald-100 text-right leading-tight">
               {t('Average Ticket')}
             </span>
           </div>
-          <p className="text-gray-500 text-xs font-medium uppercase tracking-wider">{t('Avg. Order Value')}</p>
-          <h3 className="text-2xl md:text-3xl font-bold text-gray-900 mt-1">
-            {processedData.avgOrderValue.toFixed(2)} <span className="text-xs text-gray-500 font-normal">ج.م</span>
+          <p className="text-gray-500 text-[10px] sm:text-xs font-medium uppercase tracking-wider">{t('Avg. Order Value')}</p>
+          <h3 className="text-base sm:text-2xl md:text-3xl font-bold text-gray-900 mt-1 leading-tight">
+            {processedData.avgOrderValue.toFixed(2)} <span className="text-[10px] sm:text-xs text-gray-500 font-normal">ج.م</span>
           </h3>
         </motion.div>
 
         <motion.div
           whileHover={{ y: -4 }}
-          className="bg-white/90 backdrop-blur-md p-5 rounded-2xl border border-gray-100 shadow-sm relative overflow-hidden"
+          className="bg-white/90 backdrop-blur-md p-3 sm:p-5 rounded-xl sm:rounded-2xl border border-gray-100 shadow-sm relative overflow-hidden"
         >
-          <div className="flex items-center justify-between mb-3">
-            <div className="p-3 rounded-xl bg-purple-50 text-purple-600 border border-purple-100/50">
-              <Users className="w-6 h-6" />
+          <div className="flex items-center justify-between mb-3 gap-1">
+            <div className="p-2 sm:p-3 rounded-lg sm:rounded-xl bg-purple-50 text-purple-600 border border-purple-100/50 shrink-0">
+              <Users className="w-4 h-4 sm:w-6 sm:h-6" />
             </div>
           </div>
-          <p className="text-gray-500 text-xs font-medium uppercase tracking-wider">{t('Customers')}</p>
-          <h3 className="text-2xl md:text-3xl font-bold text-gray-900 mt-1">
-            {processedData.loyaltyCount}
+          <p className="text-gray-500 text-[10px] sm:text-xs font-medium uppercase tracking-wider">{t('Customers')}</p>
+          <h3 className="text-base sm:text-2xl md:text-3xl font-bold text-gray-900 mt-1 leading-tight">
+            {processedData.customerCount}
           </h3>
         </motion.div>
       </div>
 
       {/* Top Items & Payment Breakdown Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
         {/* Top Items Card */}
-        <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
+        <div className="bg-white p-4 sm:p-6 rounded-2xl border border-gray-100 shadow-sm">
           <div className="flex items-center justify-between mb-4">
-            <h4 className="text-base font-bold text-gray-900 flex items-center gap-2">
+            <h4 className="text-sm sm:text-base font-bold text-gray-900 flex items-center gap-2">
               <Coffee className="w-5 h-5 text-amber-600" />
               {t('Top Items')}
             </h4>
@@ -107,16 +107,16 @@ export function OverviewTab({
             <div className="space-y-3">
               {processedData.topItems.slice(0, 5).map((item: any, idx: number) => (
                 <div key={idx} className="flex items-center justify-between p-3 rounded-xl bg-gray-50/80 hover:bg-gray-100/80 transition-colors">
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-lg bg-amber-100 text-amber-700 font-bold text-sm flex items-center justify-center">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="w-8 h-8 rounded-lg bg-amber-100 text-amber-700 font-bold text-sm flex items-center justify-center shrink-0">
                       #{idx + 1}
                     </div>
-                    <div>
-                      <p className="text-sm font-semibold text-gray-800">{item.name}</p>
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-gray-800 truncate">{item.name}</p>
                       <p className="text-xs text-gray-500">{item.count} {t('Quantity sold')}</p>
                     </div>
                   </div>
-                  <span className="text-sm font-bold text-gray-900">
+                  <span className="text-sm font-bold text-gray-900 shrink-0">
                     {item.revenue.toFixed(2)} ج.م
                   </span>
                 </div>
@@ -128,7 +128,7 @@ export function OverviewTab({
         </div>
 
         {/* Payment Methods Card */}
-        <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
+        <div className="bg-white p-4 sm:p-6 rounded-2xl border border-gray-100 shadow-sm">
           <div className="flex items-center justify-between mb-4">
             <h4 className="text-base font-bold text-gray-900 flex items-center gap-2">
               <Award className="w-5 h-5 text-blue-600" />

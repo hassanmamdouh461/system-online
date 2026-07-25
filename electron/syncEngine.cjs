@@ -1,5 +1,5 @@
 const https = require('https');
-const mockApi = require('./mockApiService.cjs');
+const d1Sync = require('./d1SyncService.cjs');
 
 function checkInternet() {
   return new Promise((resolve) => {
@@ -57,6 +57,18 @@ class SyncEngine {
       this.intervalId = null;
       console.log('[syncEngine] Background Sync Worker stopped.');
     }
+  }
+
+  /**
+   * Wait for any in-flight sync cycle to finish (bounded), then stop the loop.
+   * Used on app quit so we never cut a sync mid-write and leave D1 half-updated.
+   */
+  async flushAndStop(timeoutMs = 5000) {
+    const deadline = Date.now() + timeoutMs;
+    while (this.isSyncing && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    this.stop();
   }
 
   /**
@@ -134,7 +146,7 @@ class SyncEngine {
       // 2. Pull updates from Cloudflare D1 database
       try {
         console.log('[syncEngine] Pulling updates from Cloudflare D1...');
-        const pulledOrders = await mockApi.pullOrders();
+        const pulledOrders = await d1Sync.pullOrders();
         if (pulledOrders && pulledOrders.length > 0) {
           const tempOrderRepository = require('./OrderRepository.cjs');
           tempOrderRepository.upsertPulledOrders(pulledOrders);
@@ -172,7 +184,7 @@ class SyncEngine {
       
       // Sync Menu Items
       if (unsyncedMenu.length > 0) {
-        await mockApi.pushMenuItems(unsyncedMenu);
+        await d1Sync.pushMenuItems(unsyncedMenu);
         const menuIds = unsyncedMenu.map(item => item.id);
         menuRepository.markMenuSynced(menuIds);
         console.log(`[syncEngine] Marked ${menuIds.length} menu items as synced in local DB.`);
@@ -180,7 +192,7 @@ class SyncEngine {
 
       // Sync Customers
       if (unsyncedCustomers.length > 0) {
-        await mockApi.pushCustomers(unsyncedCustomers);
+        await d1Sync.pushCustomers(unsyncedCustomers);
         const customerIds = unsyncedCustomers.map(c => c.id);
         customerRepository.markCustomersSynced(customerIds);
         console.log(`[syncEngine] Marked ${customerIds.length} customers as synced in local DB.`);
@@ -188,7 +200,7 @@ class SyncEngine {
 
       // Sync Orders
       if (unsyncedOrders.length > 0) {
-        await mockApi.pushOrders(unsyncedOrders);
+        await d1Sync.pushOrders(unsyncedOrders);
         const orderIds = unsyncedOrders.map(o => o.id);
         orderRepository.markOrdersSynced(orderIds);
         console.log(`[syncEngine] Marked ${orderIds.length} orders as synced in local DB.`);
@@ -199,7 +211,7 @@ class SyncEngine {
         const inventoryRepository = require('./InventoryRepository.cjs');
         const unsyncedInventory = inventoryRepository.getUnsyncedInventory();
         if (unsyncedInventory.length > 0) {
-          await mockApi.pushInventory(unsyncedInventory);
+          await d1Sync.pushInventory(unsyncedInventory);
           const inventoryIds = unsyncedInventory.map(inv => inv.id);
           inventoryRepository.markInventorySynced(inventoryIds);
           console.log(`[syncEngine] Marked ${inventoryIds.length} inventory items as synced in local DB.`);

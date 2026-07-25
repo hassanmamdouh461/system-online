@@ -9,7 +9,7 @@ const orderRepository = require('./OrderRepository.cjs');
 const menuRepository = require('./MenuRepository.cjs');
 const customerRepository = require('./CustomerRepository.cjs');
 const inventoryRepository = require('./InventoryRepository.cjs');
-const mockApi = require('./mockApiService.cjs');
+const d1Sync = require('./d1SyncService.cjs');
 const telegramService = require('./telegramService.cjs');
 
 let mainWindow;
@@ -80,8 +80,8 @@ app.whenReady().then(() => {
   ipcMain.handle('db:delete-customer', (event, id) => customerRepository.deleteCustomer(id));
   
   // Manager Dashboard cloud fetch handlers
-  ipcMain.handle('db:get-manager-orders', () => mockApi.getManagerOrders());
-  ipcMain.handle('db:get-manager-customers', () => mockApi.getManagerCustomers());
+  ipcMain.handle('db:get-manager-orders', () => d1Sync.getManagerOrders());
+  ipcMain.handle('db:get-manager-customers', () => d1Sync.getManagerCustomers());
 
   ipcMain.handle('db:get-settings', () => db.getSettings());
   ipcMain.handle('db:save-setting', (event, key, value) => db.saveSetting(key, value));
@@ -123,8 +123,14 @@ app.on('window-all-closed', function () {
   if (process.platform !== 'darwin') app.quit();
 });
 
-app.on('will-quit', () => {
+// Graceful shutdown: let an in-flight sync cycle finish before quitting,
+// so D1 never ends up with a half-uploaded batch.
+let isQuitting = false;
+app.on('before-quit', (event) => {
+  if (isQuitting) return;
   if (syncEngine) {
-    syncEngine.stop();
+    event.preventDefault();
+    isQuitting = true;
+    syncEngine.flushAndStop(5000).finally(() => app.quit());
   }
 });

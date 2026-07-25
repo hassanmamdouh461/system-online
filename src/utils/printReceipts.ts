@@ -206,12 +206,12 @@ export function printCustomerReceipt(order: Order, lang: 'en' | 'ar' = 'ar') {
         ${order.companyName || (order.billedToType === 'company' && order.companyId) ? `
         <div class="info-row">
           <strong>${isRtl ? 'الشركة / الحساب' : 'Company / Account'}:</strong>
-          <span>${order.companyName || order.companyId}${order.billedToType === 'company' && order.paymentStatus === 'OnAccount' ? (isRtl ? ' (على الحساب)' : ' (on account)') : ''}</span>
-        </div>` : (order.paymentStatus === 'OnAccount' ? `
+          <span>${order.companyName || order.companyId}</span>
+        </div>` : ''}
         <div class="info-row">
-          <strong>${isRtl ? 'الحساب' : 'Account'}:</strong>
-          <span>${isRtl ? 'على الحساب' : 'On account'}</span>
-        </div>` : '')}
+          <strong>${isRtl ? 'حالة الدفع' : 'Payment Status'}:</strong>
+          <span style="font-weight:bold; ${order.paymentStatus === 'Paid' ? 'border: 1px solid #000; padding: 2px 6px; border-radius: 4px;' : ''}">${order.paymentStatus === 'Paid' ? (isRtl ? 'مدفوعة' : 'Paid') : (order.paymentStatus === 'OnAccount' ? (isRtl ? 'على الحساب' : 'On account') : (order.paymentStatus === 'Refunded' ? (isRtl ? 'مسترجعة' : 'Refunded') : order.paymentStatus))}</span>
+        </div>
         <div class="info-row">
           <strong>${dateLabel}:</strong>
           <span>${new Date(order.createdAt).toLocaleString(isRtl ? 'ar-EG' : 'en-US')}</span>

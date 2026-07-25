@@ -7,6 +7,7 @@ import {
   cloudUpsert,
   getBranchIdHeader,
   isCloudConfigured,
+  normalizeBranchId,
 } from './cloudConfig';
 import { withDB } from '../repositories/indexeddb/db';
 import { DURABLE_SETTING_KEYS } from './settingsCloudService';
@@ -64,7 +65,7 @@ function collectTransactions(): any[] {
 }
 
 export async function buildSnapshotPayload(branchId?: string): Promise<SnapshotPayload> {
-  const branch = branchId || getBranchIdHeader() || 'main_branch';
+  const branch = normalizeBranchId(branchId || getBranchIdHeader() || 'main_branch');
   const [orders, menu_items, customers, companies, inventory] = await withDB(async (db) => {
     return Promise.all([
       db.getAll('orders'),
@@ -79,15 +80,25 @@ export async function buildSnapshotPayload(branchId?: string): Promise<SnapshotP
   // restoreFromSnapshotIfNeeded would resurrect exactly the items the user
   // deleted. We keep their tombstone rows (so a restore still knows they're
   // deleted) but they are filtered out of the live set everywhere.
-  const menuClean = (menu_items || []).filter(
-    (m: any) => m && !m.deletedAt
-  );
+  const menuClean = (menu_items || [])
+    .filter((m: any) => m && !m.deletedAt)
+    .map((m: any) => {
+      // Prevent oversized base64 images from exploding Cloudflare D1 SQL parameter limits
+      if (m.image && typeof m.image === 'string' && m.image.startsWith('data:image') && m.image.length > 50000) {
+        const { image, ...rest } = m;
+        return rest;
+      }
+      return m;
+    });
+
+  // Same protection for orders: never persist soft-deleted (tombstoned) orders.
+  const ordersClean = (orders || []).filter((o: any) => o && !o.deletedAt);
 
   return {
     version: 1,
     createdAt: new Date().toISOString(),
     branchId: branch,
-    orders,
+    orders: ordersClean,
     menu_items: menuClean,
     customers,
     companies,

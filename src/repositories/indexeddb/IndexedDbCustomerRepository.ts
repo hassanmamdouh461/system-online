@@ -67,6 +67,17 @@ export class IndexedDbCustomerRepository implements ICustomerRepository {
       try {
         const remoteDocs = await cloudGetCollection('customers');
         if (remoteDocs && remoteDocs.length > 0) {
+          const pendingDeletes = new Set<string>();
+          await withDB(async (db) => {
+            const queue = await db.getAll('sync_queue');
+            for (const item of queue) {
+              if (item.type === 'customer' && item.action === 'delete' && item.synced === 0) {
+                const qid = item.data?.id || item.data?.documentId;
+                if (qid) pendingDeletes.add(qid);
+              }
+            }
+          });
+
           await enqueueWrite(async () => {
             await withDB(async (db) => {
               const existing = await db.getAll('customers');
@@ -80,6 +91,7 @@ export class IndexedDbCustomerRepository implements ICustomerRepository {
               for (const doc of remoteDocs) {
                 const remote = mapRemoteCustomer(doc);
                 if (!remote) continue;
+                if (pendingDeletes.has(remote.id)) continue;
                 const phoneKey = String(remote.phone || '').replace(/[\s\-()]/g, '');
                 const local =
                   byId.get(remote.id) ||
@@ -222,8 +234,19 @@ export class IndexedDbCustomerRepository implements ICustomerRepository {
         } catch {
           // ignore
         }
-        void syncService.syncPendingData();
       });
     });
+
+    try {
+      const { cloudDeleteDocument, ackSyncQueueForEntity } = await import('../../services/cloudConfig');
+      const ok = await cloudDeleteDocument('customers', id);
+      if (ok) {
+        await ackSyncQueueForEntity(id);
+      } else {
+        void syncService.syncPendingData();
+      }
+    } catch {
+      void syncService.syncPendingData();
+    }
   }
 }

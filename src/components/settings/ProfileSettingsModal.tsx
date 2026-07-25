@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { X, ShieldCheck, AlertCircle, Lock } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
-import { getAdminCredentials, setAdminCredentials } from '../../utils/settingsConfig';
+import { getAdminCredentials, setAdminCredentials, getManagerCredentials, setManagerCredentials } from '../../utils/settingsConfig';
 import { useAuth } from '../../context/AuthContext';
 
 interface ProfileSettingsModalProps {
@@ -12,7 +12,7 @@ interface ProfileSettingsModalProps {
 
 export function ProfileSettingsModal({ isOpen, onClose }: ProfileSettingsModalProps) {
   const { t } = useLanguage();
-  const { logout } = useAuth();
+  const { user, logout } = useAuth();
   
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -29,7 +29,7 @@ export function ProfileSettingsModal({ isOpen, onClose }: ProfileSettingsModalPr
     }
   }, [isOpen]);
 
-  const handleSave = () => {
+  const handleSave = async () => {
     setError('');
     setSuccess(false);
 
@@ -43,15 +43,27 @@ export function ProfileSettingsModal({ isOpen, onClose }: ProfileSettingsModalPr
       return;
     }
 
-    const currentCreds = getAdminCredentials();
-    setAdminCredentials(currentCreds.username, password);
-    setSuccess(true);
-    
-    setTimeout(() => {
-      onClose();
-      // Force logout so they login with new credentials
-      logout();
-    }, 1500);
+    try {
+      if (user?.role === 'manager') {
+        const currentCreds = getManagerCredentials();
+        const username = currentCreds?.username || 'manager';
+        await setManagerCredentials(username, password);
+      } else {
+        const currentCreds = getAdminCredentials();
+        const username = currentCreds?.username || 'admin';
+        await setAdminCredentials(username, password);
+      }
+      setSuccess(true);
+      
+      setTimeout(() => {
+        onClose();
+        // Force logout so they login with new credentials
+        logout();
+      }, 1500);
+    } catch (err) {
+      console.error('Failed to change password:', err);
+      setError(t('Failed to change password. Please try again.'));
+    }
   };
 
   if (!isOpen) return null;

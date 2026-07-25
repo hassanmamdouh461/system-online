@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, ReactNode } from 'react';
-import { verifyAdminCredentials } from '../utils/settingsConfig';
+import { verifyAdminCredentials, verifyManagerCredentials } from '../utils/settingsConfig';
 
 const LS_SESSION_KEY = 'auth_session_system_online';
 
@@ -72,12 +72,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = async (password: string, role?: LoginRole) => {
     await new Promise(resolve => setTimeout(resolve, 400));
 
-    const isValid = await verifyAdminCredentials('admin', password);
+    const isManager = resolveManagerIntent(role);
+
+    const isValid = isManager 
+      ? await verifyManagerCredentials('manager', password)
+      : await verifyAdminCredentials('admin', password);
+
     if (!isValid) {
       throw new Error('كلمة المرور غير صحيحة');
     }
-
-    const isManager = resolveManagerIntent(role);
 
     const userData: User = isManager
       ? {

@@ -46,8 +46,6 @@ export interface Order {
   companyId?: string;
   companyName?: string;
   billedToType?: 'customer' | 'company';
-  pointsEarned?: number;
-  pointsRedeemed?: number;
   branchId?: string;
   isSynced?: boolean;
 }
@@ -89,6 +87,7 @@ export interface InventoryItem {
   isSynced?: boolean;
   createdAt: string;
   updatedAt: string;
+  deletedAt?: string;
 }
 
 export interface InventoryTransaction {

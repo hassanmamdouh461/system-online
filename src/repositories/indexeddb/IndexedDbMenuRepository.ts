@@ -148,13 +148,18 @@ export class IndexedDbMenuRepository implements IMenuRepository {
                 await tx.store.put(merged);
               }
 
-              // Purge local rows that were deleted from the cloud database
-              // (excluding brand-new local items still in pending queue)
+              // For local rows that the cloud no longer knows about, write a
+              // tombstone instead of hard-deleting. This way the item stays
+              // restorable if the cloud brings it back later, and it is hidden
+              // from consumers via the deletedAt filter at the end of getAll.
+              // Use a 60s grace window so brief sync lag never tombstones a
+              // brand-new item that simply hasn't propagated yet.
               for (const local of localAll) {
                 if (!remoteIds.has(local.id) && !pendingCreates.has(local.id)) {
                   const ageMs = Date.now() - new Date(local.createdAt || 0).getTime();
-                  if (ageMs > 15_000 && !local.deletedAt) {
-                    await tx.store.delete(local.id);
+                  if (ageMs > 60_000 && !local.deletedAt) {
+                    const now = new Date().toISOString();
+                    await tx.store.put({ ...local, deletedAt: now, updatedAt: now, available: false });
                   }
                 }
               }
@@ -217,12 +222,14 @@ export class IndexedDbMenuRepository implements IMenuRepository {
         const id = `item_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
         // Creating a brand-new item always clears any prior tombstone — even if
         // an id collided, the intent is "this item exists now".
+        const now = new Date().toISOString();
         const newItem: MenuItem = {
           ...itemData,
           id,
           branchId,
           deletedAt: undefined,
-          updatedAt: new Date().toISOString(),
+          createdAt: now,
+          updatedAt: now,
         };
         await db.put('menu_items', newItem);
         void pushMenuImmediate(newItem, 'create');

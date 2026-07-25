@@ -193,7 +193,20 @@ class OrderRepository {
   completeOrderPayment(id, method) {
     const sqlite = this.getDb();
     const now = new Date().toISOString();
-    sqlite.prepare("UPDATE orders SET paymentStatus = 'Paid', paymentMethod = ?, paidAt = ?, updated_at = ?, is_synced = 0 WHERE id = ?").run(method, now, now, id);
+    // OnAccount = receivable (no paidAt). Cash/Card = settled revenue.
+    if (method === 'OnAccount') {
+      sqlite
+        .prepare(
+          "UPDATE orders SET paymentStatus = 'OnAccount', paymentMethod = 'OnAccount', paidAt = NULL, updated_at = ?, is_synced = 0 WHERE id = ?"
+        )
+        .run(now, id);
+    } else {
+      sqlite
+        .prepare(
+          "UPDATE orders SET paymentStatus = 'Paid', paymentMethod = ?, paidAt = ?, updated_at = ?, is_synced = 0 WHERE id = ?"
+        )
+        .run(method, now, now, id);
+    }
     return this.getOrder(id);
   }
 
