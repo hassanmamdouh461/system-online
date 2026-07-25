@@ -4,15 +4,15 @@ const { app } = require('electron');
 
 let db;
 
-// ─── Helper: get current branch ID from settings (default: 'default') ────────
+// ─── Single-branch POS ───────────────────────────────────────────────────────
+// This installation serves exactly one branch. Previously this returned
+// 'default' while the web layer used 'main_branch' and the inventory layer used
+// 'branch_1'; rows written under one id failed filters expecting another, so
+// records intermittently disappeared from views. One constant, everywhere.
+const MAIN_BRANCH_ID = 'main_branch';
+
 function getBranchId() {
-  try {
-    const sqlite = getDb();
-    const row = sqlite.prepare("SELECT value FROM settings WHERE key = 'branch_id'").get();
-    return row ? row.value : 'default';
-  } catch (e) {
-    return 'default';
-  }
+  return MAIN_BRANCH_ID;
 }
 
 function initDatabase() {

@@ -323,11 +323,11 @@ class OrderRepository {
 
       let i = 1;
       for (const order of orders) {
-        const orderBranchId = order.branch_id || 'default';
-        // Filter by branch_id if we are logged in as a specific branch (manager sees all)
-        if (branchId !== 'manager' && orderBranchId !== branchId) {
-          continue;
-        }
+        // Single-branch system: every pulled order belongs to this branch.
+        // The previous branch_id comparison silently dropped orders whose id
+        // did not match (e.g. rows stamped 'default' vs 'main_branch'), which
+        // made cloud orders vanish on pull.
+        const orderBranchId = branchId;
 
         const id = order.$id;
         const createdAt = order.$createdAt;

@@ -46,18 +46,20 @@ if (!WORKER_URL) {
   } catch (e) {}
 }
 
-if (!WORKER_URL) {
-  WORKER_URL = "https://system-online-backend.YOUR_SUBDOMAIN.workers.dev";
+// No placeholder fallback: an unconfigured sync layer should say so plainly
+// rather than logging a fake endpoint that looks configured.
+if (WORKER_URL) {
+  console.log('[D1 Sync API] Configured Worker URL:', WORKER_URL);
+} else {
+  console.warn('[D1 Sync API] No Worker URL configured — cloud sync is disabled. Set VITE_CLOUDFLARE_WORKER_URL in .env or brewmaster_d1_worker_url in settings.');
 }
-
-console.log('[D1 Sync API] Configured Worker URL:', WORKER_URL);
 
 /**
  * Custom fetch implementation using standard Node.js https module
  */
 function fetchWorker(urlPath, payload = null, method = 'POST') {
   return new Promise((resolve, reject) => {
-    if (!WORKER_URL || WORKER_URL.includes('YOUR_SUBDOMAIN')) {
+    if (!WORKER_URL) {
       return reject(new Error('Cloudflare Worker URL is not properly configured'));
     }
 

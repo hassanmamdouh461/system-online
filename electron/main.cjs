@@ -88,12 +88,12 @@ app.whenReady().then(() => {
   ipcMain.handle('db:delete-setting', (event, key) => db.deleteSetting(key));
 
   // Inventory & Recipe handlers
-  ipcMain.handle('db:get-inventory', (event, branchId) => inventoryRepository.getInventory(branchId));
+  ipcMain.handle('db:get-inventory', () => inventoryRepository.getInventory());
   ipcMain.handle('db:create-inventory-item', (event, item) => inventoryRepository.createInventoryItem(item));
   ipcMain.handle('db:update-inventory-item', (event, id, data) => inventoryRepository.updateInventoryItem(id, data));
   ipcMain.handle('db:delete-inventory-item', (event, id) => inventoryRepository.deleteInventoryItem(id));
   
-  ipcMain.handle('db:get-inventory-transactions', (event, itemId, branchId) => inventoryRepository.getInventoryTransactions(itemId, branchId));
+  ipcMain.handle('db:get-inventory-transactions', (event, itemId) => inventoryRepository.getInventoryTransactions(itemId));
   ipcMain.handle('db:create-inventory-transaction', (event, tx) => inventoryRepository.createInventoryTransaction(tx));
   
   ipcMain.handle('db:get-menu-recipes', () => inventoryRepository.getMenuRecipes());
