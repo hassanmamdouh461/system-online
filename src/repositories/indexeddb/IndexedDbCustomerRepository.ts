@@ -210,15 +210,20 @@ export class IndexedDbCustomerRepository implements ICustomerRepository {
           branchId: branchId || customerData.branchId || existing?.branchId,
           createdAt: existing?.createdAt || now,
           updatedAt: now,
-          // Preserve an existing tombstone across saves so a lookupByPhone
-          // cache write (which does not carry deletedAt) cannot resurrect a
-          // soft-deleted customer. Only an explicit deletedAt in the payload
-          // (clearing it) revives the row — currently no caller does that, so a
-          // deleted customer stays deleted until re-created with a different id.
+          // Tombstone handling:
+          // - lookupByPhone never saves a tombstoned cloud doc (it skips them),
+          //   so any save that hits an existing tombstone is a real re-create
+          //   from the UI (e.g. "delete customer by mistake, re-add same phone").
+          //   Clear the tombstone so the re-added customer is visible again.
+          // - An explicit deletedAt in the payload (the delete path) wins.
+          // - Otherwise preserve an existing tombstone so a stray cache write
+          //   cannot resurrect a deleted record.
           deletedAt:
             customerData.deletedAt !== undefined
               ? customerData.deletedAt
-              : existing?.deletedAt,
+              : existing?.deletedAt && !isPlaceholderName(name) && !!customerData.name
+                ? undefined
+                : existing?.deletedAt,
           isSynced: false,
         };
 
