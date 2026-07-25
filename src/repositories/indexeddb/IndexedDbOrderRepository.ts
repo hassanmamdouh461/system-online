@@ -67,18 +67,10 @@ function mapRemoteOrder(doc: any): Order {
   };
 }
 
-function filterByBranch(orders: Order[], branchId?: string): Order[] {
-  if (!branchId || branchId === 'manager' || branchId === 'all') return orders;
-  return orders.filter(
-    (order) =>
-      !order.branchId ||
-      order.branchId === branchId ||
-      order.branchId === 'default' ||
-      (branchId === 'main_branch' &&
-        (order.branchId === 'default' || order.branchId === 'branch_1')) ||
-      (branchId === 'default' &&
-        (order.branchId === 'main_branch' || order.branchId === 'branch_1'))
-  );
+// Single-branch system: every order belongs to the one branch, so there is
+// nothing to filter. Kept as a pass-through so call sites stay unchanged.
+function filterByBranch(orders: Order[], _branchId?: string): Order[] {
+  return orders;
 }
 
 function sanitizeItems(items: Order['items']): Order['items'] {

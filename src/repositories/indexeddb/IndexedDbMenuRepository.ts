@@ -98,7 +98,7 @@ function resolveEffectiveDeletedAt(local?: MenuItem, remote?: MenuItem): string 
 }
 
 export class IndexedDbMenuRepository implements IMenuRepository {
-  async getAll(branchId?: string): Promise<MenuItem[]> {
+  async getAll(_branchId?: string): Promise<MenuItem[]> {
     let localItems = (await withDB((db) => db.getAll('menu_items'))) as MenuItem[];
 
     if (typeof navigator !== 'undefined' && navigator.onLine) {
@@ -177,10 +177,8 @@ export class IndexedDbMenuRepository implements IMenuRepository {
     // Always hide soft-deleted items from consumers.
     const live = localItems.filter((item) => !item.deletedAt);
 
-    if (!branchId || branchId === 'manager' || branchId === 'all') return live;
-    return live.filter(
-      (item) => !item.branchId || item.branchId === branchId || item.branchId === 'default'
-    );
+    // Single-branch system: no branch filtering.
+    return live;
   }
 
   /** Push entire local menu to D1 when cloud is empty */

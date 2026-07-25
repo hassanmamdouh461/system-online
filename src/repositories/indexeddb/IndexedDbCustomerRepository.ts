@@ -60,7 +60,7 @@ function mergeCustomer(local: Customer | undefined, remote: Customer): Customer 
 }
 
 export class IndexedDbCustomerRepository implements ICustomerRepository {
-  async getAll(branchId?: string): Promise<Customer[]> {
+  async getAll(_branchId?: string): Promise<Customer[]> {
     let localCustomers = await withDB((db) => db.getAll('customers'));
 
     if (typeof navigator !== 'undefined' && navigator.onLine) {
@@ -108,11 +108,11 @@ export class IndexedDbCustomerRepository implements ICustomerRepository {
       }
     }
 
-    if (!branchId || branchId === 'manager' || branchId === 'all') return localCustomers;
-    return localCustomers.filter((c) => !c.branchId || c.branchId === branchId);
+    // Single-branch system: no branch filtering.
+    return localCustomers;
   }
 
-  async getByPhone(phone: string, branchId?: string): Promise<Customer | null> {
+  async getByPhone(phone: string, _branchId?: string): Promise<Customer | null> {
     const cleanPhone = phone.replace(/[\s\-()]/g, '').trim();
     if (!cleanPhone) return null;
 
@@ -129,9 +129,7 @@ export class IndexedDbCustomerRepository implements ICustomerRepository {
         });
       }
       if (!customer) return null;
-      if (branchId && branchId !== 'manager' && branchId !== 'all') {
-        if (customer.branchId && customer.branchId !== branchId) return null;
-      }
+      // Single-branch system: no branch filtering on phone lookup.
       return customer;
     });
   }

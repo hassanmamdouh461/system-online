@@ -5,7 +5,7 @@ import { syncService } from '../../services/syncService';
 import { cloudGetCollection } from '../../services/cloudConfig';
 
 export class IndexedDbCompanyRepository implements ICompanyRepository {
-  async getAll(branchId?: string): Promise<Company[]> {
+  async getAll(_branchId?: string): Promise<Company[]> {
     let localCompanies = await withDB((db) => db.getAll('companies'));
 
     if (typeof navigator !== 'undefined' && navigator.onLine) {
@@ -59,8 +59,8 @@ export class IndexedDbCompanyRepository implements ICompanyRepository {
       }
     }
 
-    if (!branchId) return localCompanies;
-    return localCompanies.filter((c) => !c.branchId || c.branchId === branchId);
+    // Single-branch system: no branch filtering.
+    return localCompanies;
   }
 
   async getById(id: string): Promise<Company | null> {
