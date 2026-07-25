@@ -91,4 +91,32 @@ Collections / tables: `menu_items`, `orders`, `customers`, `inventory`, `compani
 
 ## Security note
 
-The Worker currently uses open CORS (`*`) for local/demo multi-device sync. Add authentication and tighten CORS before exposing it publicly in production.
+**Authentication is mandatory and fail-closed.** If the `API_KEY` secret is not
+set, the Worker returns `503 Service Unavailable` for every request rather than
+serving the database unauthenticated. Set it before/after deploying:
+
+```bash
+npx wrangler secret put API_KEY
+```
+
+Clients must send the key as either `Authorization: Bearer <key>` or
+`X-API-Key: <key>`. In the app it is entered by the operator under
+Settings → Cloud Sync and stored in `localStorage`; it is deliberately **not**
+read from a `VITE_*` variable, because those are inlined into the public
+JavaScript bundle.
+
+CORS is also fail-closed: with `ALLOWED_ORIGINS` unset, no permissive CORS
+headers are emitted (the Worker never reflects `*`). Set it to a comma-separated
+allowlist of your front-end origins.
+
+### Read pagination
+
+Collection reads are unpaginated by default — this is intentional, since
+silently returning only the first N orders would under-report revenue in the
+manager dashboard. Pagination is opt-in per request:
+
+| Param | Effect |
+| --- | --- |
+| `?limit=500` | Cap rows returned (hard ceiling 5000) |
+| `?offset=500` | Skip rows; only applied alongside `limit` |
+| `?since=<ISO>` | Return only rows updated after the timestamp |

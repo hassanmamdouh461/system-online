@@ -4,6 +4,17 @@ interface Env {
   ALLOWED_ORIGINS?: string;
 }
 
+// Incremental-sync column per table (names are inconsistent across tables).
+const UPDATED_AT_COLUMN: Record<string, string> = {
+  menu_items: "updated_at",
+  orders: "updatedAt",
+  customers: "updated_at",
+  companies: "updated_at",
+  inventory: "updated_at",
+  settings: "updated_at",
+  recipes: "updated_at",
+};
+
 const ALLOWED_TABLE_MAP: Record<string, string> = {
   menu: "menu_items",
   menu_items: "menu_items",
@@ -56,8 +67,25 @@ export default {
       });
     }
 
-    // 2. Optional API Key Verification
-    if (env.API_KEY) {
+    // 2. API Key Verification — FAIL CLOSED.
+    //
+    // This was previously `if (env.API_KEY) { ...check... }`, meaning that if
+    // the secret was never set (a manual `wrangler secret put` step, separate
+    // from deployment) every endpoint served unauthenticated traffic: any
+    // caller could read all customer phone numbers or DELETE every order.
+    // An unconfigured deployment must refuse service, not open the database.
+    if (!env.API_KEY) {
+      console.error("[worker] API_KEY secret is not configured — refusing all requests.");
+      return new Response(JSON.stringify({
+        error: "Service Unavailable",
+        message: "Server is not configured for authenticated access."
+      }), {
+        status: 503,
+        headers: { "Content-Type": "application/json", ...corsHeaders }
+      });
+    }
+
+    {
       const authHeader = request.headers.get("Authorization");
       const apiKeyHeader = request.headers.get("X-API-Key");
       const token = authHeader ? authHeader.replace(/^Bearer\s+/i, "") : apiKeyHeader;
@@ -206,8 +234,34 @@ export default {
             headers: { "Content-Type": "application/json", ...corsHeaders }
           });
         } else {
-          const sql = `SELECT * FROM ${table}`;
+          // OPT-IN pagination. Deliberately no default limit: silently
+          // returning the first N rows would under-report revenue in the
+          // manager dashboard, which is far worse than a slow query. Clients
+          // that want to page must ask for it explicitly via ?limit=.
+          let sql = `SELECT * FROM ${table}`;
           const params: any[] = [];
+
+          const sinceParam = url.searchParams.get("since");
+          if (sinceParam) {
+            const updatedCol = UPDATED_AT_COLUMN[table];
+            if (updatedCol) {
+              sql += ` WHERE ${updatedCol} > ?`;
+              params.push(sinceParam);
+            }
+          }
+
+          const limitParam = url.searchParams.get("limit");
+          if (limitParam) {
+            const limit = Number(limitParam);
+            if (Number.isFinite(limit) && limit > 0) {
+              sql += ` LIMIT ${Math.min(Math.floor(limit), 5000)}`;
+              const offsetParam = Number(url.searchParams.get("offset"));
+              if (Number.isFinite(offsetParam) && offsetParam > 0) {
+                sql += ` OFFSET ${Math.floor(offsetParam)}`;
+              }
+            }
+          }
+
           const stmt = params.length > 0 ? env.DB.prepare(sql).bind(...params) : env.DB.prepare(sql);
           const { results } = await stmt.all();
           const documents = (results || []).map(row => denormalizeData(table, row));
@@ -326,7 +380,10 @@ export default {
       });
 
     } catch (err: any) {
-      return new Response(JSON.stringify({ error: "Internal Server Error", message: err.message }), {
+      // Log internally; never return raw D1/SQLite messages to the client —
+      // they disclose table names, column names and constraints.
+      console.error("[worker]", err);
+      return new Response(JSON.stringify({ error: "Internal Server Error" }), {
         status: 500,
         headers: { "Content-Type": "application/json", ...corsHeaders }
       });
@@ -699,9 +756,13 @@ async function pruneSnapshots(db: D1Database, branchId: string) {
     const rows = results || [];
     if (rows.length <= MAX_SNAPSHOTS_PER_BRANCH) return;
     const toDelete = rows.slice(MAX_SNAPSHOTS_PER_BRANCH);
-    for (const row of toDelete) {
-      await db.prepare(`DELETE FROM snapshots WHERE id = ?`).bind((row as any).id).run();
-    }
+    // Single statement instead of one round-trip per row (N+1).
+    const ids = toDelete.map((row: any) => row.id);
+    const placeholders = ids.map(() => "?").join(", ");
+    await db
+      .prepare(`DELETE FROM snapshots WHERE id IN (${placeholders})`)
+      .bind(...ids)
+      .run();
   } catch (e) {
     console.warn('[pruneSnapshots]', e);
   }
