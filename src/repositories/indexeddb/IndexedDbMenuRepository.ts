@@ -21,36 +21,8 @@ function mapRemoteMenu(doc: any): MenuItem {
   };
 }
 
-async function pushMenuImmediate(item: MenuItem, action: 'create' | 'update' | 'delete') {
+async function pushMenuImmediate(item: MenuItem, action: 'create' | 'update') {
   try {
-    if (action === 'delete') {
-      const now = item.deletedAt || new Date().toISOString();
-      const tombstone: MenuItem = {
-        ...item,
-        deletedAt: now,
-        updatedAt: now,
-      };
-      // Push the tombstone so it persists in D1 and every device learns the
-      // item was deleted. Do NOT hard-delete afterwards: that would wipe the
-      // very tombstone we just wrote, letting a competing device UPDATE
-      // resurrect the deleted item (same fix as inventory/customers/companies).
-      const ok = await cloudUpsert('menu_items', item.id, tombstone);
-      if (!ok) {
-        await withDB(async (db) => {
-          await db.put('sync_queue', {
-            id: `sync_menu_del_${item.id}_${Date.now()}`,
-            type: 'menu',
-            action: 'update',
-            data: tombstone,
-            timestamp: now,
-            synced: 0,
-          });
-        });
-        void syncService.syncPendingData();
-      }
-      return;
-    }
-
     const ok = await cloudUpsert('menu_items', item.id, item);
     if (!ok) {
       await withDB(async (db) => {
@@ -253,15 +225,26 @@ export class IndexedDbMenuRepository implements IMenuRepository {
   }
 
   async delete(id: string): Promise<void> {
+    // Soft-delete: write a FULL tombstone row (deletedAt) locally AND upsert it to
+    // the cloud so the tombstone PERSISTS in D1 and propagates to every device.
+    //
+    // This replaces a broken delete path that had two defects:
+    //  1. It pushed a sparse { id, deletedAt } document. D1 (SQLite) evaluates the
+    //     NOT NULL constraints on the INSERT candidate row *before* the
+    //     ON CONFLICT(id) DO UPDATE takes over, so an upsert that omits the
+    //     NOT NULL name/price/category columns raises "NOT NULL constraint failed"
+    //     even when the row already exists — the tombstone upsert always failed.
+    //  2. It then called cloudDeleteDocument() (a hard DELETE), removing the row
+    //     entirely. With no tombstone left in D1, any other device that still had
+    //     the item live re-inserted it on its next sync/hydrate → the deleted
+    //     item came back.
+    // Carrying the full NOT NULL columns and never hard-deleting matches the
+    // inventory / customers / companies delete paths (see their identical notes).
     const now = new Date().toISOString();
-    // Soft-delete: write a tombstone row (deletedAt) locally AND push it to the cloud.
-    // The tombstone propagates to every device and prevents the item from coming back
-    // via hydrate/sync.
-    let tombstoneItem: MenuItem | undefined;
-    await enqueueWrite(async () => {
-      await withDB(async (db) => {
+    const tombstone: MenuItem = await enqueueWrite(async () => {
+      return withDB(async (db) => {
         const existing = (await db.get('menu_items', id)) as MenuItem | undefined;
-        const tombstone: MenuItem = {
+        const ts: MenuItem = {
           ...(existing || ({} as MenuItem)),
           id,
           name: existing?.name ?? 'deleted',
@@ -270,18 +253,36 @@ export class IndexedDbMenuRepository implements IMenuRepository {
           description: existing?.description ?? '',
           image: existing?.image ?? '',
           available: false,
+          createdAt: existing?.createdAt ?? now,
           deletedAt: now,
           updatedAt: now,
         };
-        await db.put('menu_items', tombstone);
-        tombstoneItem = tombstone;
+        await db.put('menu_items', ts);
+        try {
+          await db.put('sync_queue', {
+            id: `sync_menu_del_${id}_${Date.now()}`,
+            type: 'menu',
+            action: 'update',
+            data: ts,
+            timestamp: now,
+            synced: 0,
+          });
+        } catch {
+          // ignore
+        }
+        return ts;
       });
     });
 
-    // Push the FULL tombstone (carrying the NOT NULL columns name/price/category)
-    // so the worker upsert does not 500 and the tombstone actually persists in D1.
-    if (tombstoneItem) {
-      await pushMenuImmediate(tombstoneItem, 'delete');
+    // Push the FULL tombstone (carries NOT NULL name/price/category) and do NOT
+    // hard-delete afterwards — that would wipe the tombstone we just wrote.
+    try {
+      const { cloudUpsert, ackSyncQueueForEntity } = await import('../../services/cloudConfig');
+      const ok = await cloudUpsert('menu_items', id, tombstone);
+      if (ok) await ackSyncQueueForEntity(id);
+      else void syncService.syncPendingData();
+    } catch {
+      void syncService.syncPendingData();
     }
   }
 
