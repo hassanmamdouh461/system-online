@@ -4,13 +4,13 @@ import {
   TrendingUp, DollarSign, ShoppingBag,
   Coffee, Calendar, Download,
   CheckCircle2, Clock, XCircle, AlertCircle, Utensils,
-  UserCheck, Award, Coins, Building2, ChevronDown, RefreshCw,
+  UserCheck, Award, Coins, Building2, RefreshCw,
   Signal, SignalHigh, WifiOff, Package, AlertTriangle, BarChart3, Languages, Users, Search, Settings, Send, Scale, TrendingDown, Wallet,
   Undo2, Printer, Trash2, X
 } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { useLanguage } from '../context/LanguageContext';
-import { getTaxRate } from '../utils/settingsConfig';
+import { getTaxRate, getBranchConfig } from '../utils/settingsConfig';
 import { useMenu } from '../hooks/useMenu';
 import { useAnalytics, AnalyticsPeriod } from '../hooks/useAnalytics';
 import { inventoryService } from '../services/inventoryService';
@@ -77,11 +77,6 @@ interface TopItem {
   count: number;
   revenue: number;
 }
-
-// ─── Branch Config ────────────────────────────────────────────────────────────
-const BRANCHES = [
-  { id: 'all', labelAr: 'الفرع الرئيسي', labelEn: 'Main Branch' }
-];
 
 // ─── Date Period Config ────────────────────────────────────────────────────────
 // AnalyticsPeriod is imported from useAnalytics (single source of truth)
@@ -242,9 +237,6 @@ export default function ManagerDashboard() {
   const { items: localMenuItems } = useMenu();
 
   // Filters State
-  const [selectedBranch, setSelectedBranch] = useState<string>(() => {
-    return localStorage.getItem('manager_selected_branch') || 'all';
-  });
   const [dateRange, setDateRange] = useState<AnalyticsPeriod>(() => {
     const saved = localStorage.getItem('manager_date_range');
     if (saved === 'Today' || saved === 'This Week' || saved === 'This Month' || saved === 'This Year') {
@@ -254,7 +246,6 @@ export default function ManagerDashboard() {
     return 'This Week';
   });
 
-  const [isBranchDropdownOpen, setIsBranchDropdownOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'analytics' | 'menu' | 'inventory' | 'customers' | 'settings'>('analytics');
   const [customerSearchTerm, setCustomerSearchTerm] = useState('');
 
@@ -426,17 +417,8 @@ export default function ManagerDashboard() {
       return;
     }
 
-    // 2. Resolve selected branch label
-    const branchNames: Record<string, string> = {
-      'branch_1': language === 'ar' ? 'فرع المعادي (فرع 1)' : 'Maadi Branch (1)',
-      'branch_2': language === 'ar' ? 'فرع مصر الجديدة (فرع 2)' : 'Heliopolis Branch (2)',
-      'branch_3': language === 'ar' ? 'فرع الزمالك (فرع 3)' : 'Zamalek Branch (3)',
-      'default': language === 'ar' ? 'الفرع الرئيسي' : 'Main Branch'
-    };
-
-    const activeBranchName = selectedBranch === 'all' 
-      ? (language === 'ar' ? 'كافة الفروع' : 'All Branches')
-      : (branchNames[selectedBranch] || selectedBranch);
+    // 2. Branch label — single-branch system, name comes from branch settings
+    const activeBranchName = getBranchConfig().branchName;
 
     const todayStr = new Date().toLocaleDateString('en-CA');
     let message = '';
@@ -451,41 +433,12 @@ export default function ManagerDashboard() {
       };
       const activePeriodLabel = periodNames[dateRange] || dateRange;
 
-      // Filter orders matching current dateRange and branch
-      const filteredOrders = orders.filter(order => {
-        const matchesBranch = selectedBranch === 'all' || order.branch_id === selectedBranch;
-        const matchesPeriod = inPeriod(order.$createdAt, dateRange);
-        return matchesBranch && matchesPeriod;
-      });
+      // Filter orders matching current dateRange (single-branch system)
+      const filteredOrders = orders.filter(order => inPeriod(order.$createdAt, dateRange));
 
       if (filteredOrders.length === 0) {
         alert(language === 'ar' ? 'لا توجد مبيعات مسجلة في هذه الفترة لإرسالها!' : 'No orders recorded in this period to send!');
         return;
-      }
-
-      // Group by branch for consolidated report if 'all' is selected
-      const branchStats: Record<string, { totalOrders: number; totalRevenue: number; totalUnpaid: number; cash: number; card: number }> = {};
-      if (selectedBranch === 'all') {
-        filteredOrders.forEach(order => {
-          const bId = order.branch_id || 'default';
-          if (!branchStats[bId]) {
-            branchStats[bId] = { totalOrders: 0, totalRevenue: 0, totalUnpaid: 0, cash: 0, card: 0 };
-          }
-          
-          branchStats[bId].totalOrders += 1;
-          const amount = Number(order.total_amount) || 0;
-          
-          if (order.paymentStatus === 'Unpaid') {
-            branchStats[bId].totalUnpaid += amount;
-          } else {
-            branchStats[bId].totalRevenue += amount;
-            if (order.payment_method === 'Card') {
-              branchStats[bId].card += amount;
-            } else {
-              branchStats[bId].cash += amount;
-            }
-          }
-        });
       }
 
       message = `📊 <b>تقرير مبيعات BrewMaster: ${activeBranchName}</b>\n`;
@@ -503,18 +456,6 @@ export default function ManagerDashboard() {
       message += `🍽️ <b>أنواع الطلبات:</b>\n`;
       message += `• سفري (Takeaway): <b>${processedData.takeawayCount}</b> طلب\n`;
       message += `• صالة (Dine-in): <b>${processedData.dineInCount}</b> طلب\n\n`;
-
-      if (selectedBranch === 'all' && Object.keys(branchStats).length > 0) {
-        message += `🏢 <b>تفاصيل الفروع المفرّقة:</b>\n`;
-        Object.entries(branchStats).forEach(([bId, s]) => {
-          const bName = branchNames[bId] || bId;
-          message += `📍 <b>${bName}:</b>\n`;
-          message += `• عدد الطلبات: <b>${s.totalOrders}</b>\n`;
-          message += `• مبيعات محصلة: <b>${s.totalRevenue.toFixed(2)}</b> ج.م\n`;
-          message += `• مبيعات آجلة: <b>${s.totalUnpaid.toFixed(2)}</b> ج.م\n`;
-          message += `• كاش: <b>${s.cash.toFixed(2)}</b> | شبكة: <b>${s.card.toFixed(2)}</b>\n\n`;
-        });
-      }
 
       if (processedData.topItems && processedData.topItems.length > 0) {
         message += `☕ <b>أكثر الأصناف مبيعاً في هذه الفترة:</b>\n`;
@@ -559,35 +500,14 @@ export default function ManagerDashboard() {
       message += `• عدد المواد الخام المتابعة: <b>${inventorySummary.totalItems}</b> صنف\n`;
       message += `• تنبيهات نقص المخزون: <b>${inventorySummary.lowStockCount}</b> صنف\n\n`;
 
-      if (selectedBranch === 'all') {
-        message += `🏢 <b>الكميات المتبقية مقارنة بين الفروع:</b>\n`;
-        inventoryData.forEach(inv => {
-          const name = language === 'ar' ? inv.nameAr : inv.nameEn;
-          const unit = language === 'ar' ? inv.unitAr : inv.unit;
-          
-          message += `• <b>${name}:</b>\n`;
-          ['branch_1', 'branch_2', 'branch_3'].forEach(bId => {
-            const bd = inv.branches[bId];
-            const bName = branchNames[bId] || bId;
-            if (bd) {
-              const warning = bd.isLow ? ' ⚠️ (نقص)' : '';
-              message += `  - ${bName}: <code>${bd.remaining}</code> ${unit}${warning}\n`;
-            }
-          });
-        });
-        message += `\n`;
-      } else {
-        message += `📋 <b>تفاصيل كميات المواد الخام بالفرع:</b>\n`;
-        inventoryData.forEach(inv => {
-          const bd = inv.branches[selectedBranch];
-          if (!bd) return;
-          const name = language === 'ar' ? inv.nameAr : inv.nameEn;
-          const unit = language === 'ar' ? inv.unitAr : inv.unit;
-          const warning = bd.isLow ? ' ⚠️ (نقص)' : '';
-          message += `• ${name}: <b>${bd.remaining}</b> ${unit} (${bd.percentage}%)${warning}\n`;
-        });
-        message += `\n`;
-      }
+      message += `📋 <b>تفاصيل كميات المواد الخام:</b>\n`;
+      inventoryData.forEach(inv => {
+        const name = language === 'ar' ? inv.nameAr : inv.nameEn;
+        const unit = language === 'ar' ? inv.unitAr : inv.unit;
+        const warning = inv.isLow ? ' ⚠️ (نقص)' : '';
+        message += `• ${name}: <b>${inv.remaining}</b> ${unit} (${inv.percentage}%)${warning}\n`;
+      });
+      message += `\n`;
 
       message += `✅ تم تصدير تقرير المخزون من لوحة الإشراف المركزية`;
 
@@ -661,17 +581,19 @@ export default function ManagerDashboard() {
   }, [liveInventory, dbInventory]);
 
   const inventoryData = useMemo(() => {
+    // Single-branch system: real stock, reported once. The previous shape
+    // duplicated the same stock value under branch_1/2/3 keys, which fabricated
+    // a per-branch comparison in the Telegram report that never existed.
     return activeInventory.map(inv => ({
       ...inv,
       nameAr: inv.name,
       nameEn: inv.name,
       unitAr: inv.unit,
-      branches: {
-        all: { remaining: inv.stock, consumed: 0, startStock: inv.stock, percentage: 100, isLow: inv.stock <= inv.minStock },
-        branch_1: { remaining: inv.stock, consumed: 0, startStock: inv.stock, percentage: 100, isLow: inv.stock <= inv.minStock },
-        branch_2: { remaining: inv.stock, consumed: 0, startStock: inv.stock, percentage: 100, isLow: inv.stock <= inv.minStock },
-        branch_3: { remaining: inv.stock, consumed: 0, startStock: inv.stock, percentage: 100, isLow: inv.stock <= inv.minStock }
-      }
+      remaining: inv.stock,
+      consumed: 0,
+      startStock: inv.stock,
+      percentage: 100,
+      isLow: inv.stock <= inv.minStock,
     }));
   }, [activeInventory]);
 
@@ -797,11 +719,8 @@ export default function ManagerDashboard() {
   const maxRevenueValue = Math.max(...processedData.chartData.map(d => d.value), 1);
   const maxItemCount = Math.max(...processedData.topItems.map(i => i.count), 1);
 
-  // Labels helper
-  const activeBranchLabel = useMemo(() => {
-    const branch = BRANCHES.find(b => b.id === selectedBranch);
-    return language === 'ar' ? branch?.labelAr : branch?.labelEn;
-  }, [selectedBranch, language]);
+  // Labels helper — single-branch system, name comes from branch settings
+  const activeBranchLabel = useMemo(() => getBranchConfig().branchName, []);
 
   const pLabel = useMemo(() => {
     const map: Record<AnalyticsPeriod, string> = {
@@ -844,12 +763,9 @@ export default function ManagerDashboard() {
 
   // ── Receivables breakdown (canonical, matching Payment.tsx exactly) ──
   const receivablesData = useMemo(() => {
-    let realOrders = allRealOrders || [];
-    // Filter by selected branch to match dashboard context
-    if (selectedBranch !== 'all') {
-      realOrders = realOrders.filter(o => (((o as any).branchId || (o as any).branch_id || 'main_branch') === selectedBranch));
-    }
-    
+    // Single-branch system: every order belongs to the one branch.
+    const realOrders = allRealOrders || [];
+
     const accountOrders = realOrders.filter(o => o.paymentStatus === 'OnAccount' && o.status !== 'Cancelled');
 
     // Create lookup maps
@@ -966,7 +882,7 @@ export default function ManagerDashboard() {
       companiesOwed: Array.from(companiesMap.values()).sort((a, b) => b.balance - a.balance),
       grandTotal
     };
-  }, [allRealOrders, customers, companies, taxRate, selectedBranch, language]);
+  }, [allRealOrders, customers, companies, taxRate, language]);
 
   const totalReceivables = receivablesData.grandTotal;
 
@@ -1035,8 +951,6 @@ export default function ManagerDashboard() {
 
   const filteredCustomers = useMemo(() => {
     return customers.filter(c => {
-      // Branch filter
-      if (selectedBranch !== 'all' && c.branchId !== selectedBranch) return false;
       // Search filter
       const query = customerSearchTerm.trim().toLowerCase();
       if (!query) return true;
@@ -1045,7 +959,7 @@ export default function ManagerDashboard() {
         (c.phone && c.phone.includes(query))
       );
     });
-  }, [customers, selectedBranch, customerSearchTerm]);
+  }, [customers, customerSearchTerm]);
 
   if (loading) {
     return (
@@ -1342,7 +1256,7 @@ export default function ManagerDashboard() {
                   {/* Progress bar with exactly original visual style */}
                   <div className="w-full h-2.5 bg-mocha-100 rounded-full overflow-hidden">
                     <motion.div
-                      key={`${dateRange}-${selectedBranch}-top-${idx}`}
+                      key={`${dateRange}-top-${idx}`}
                       initial={{ width: 0 }}
                       animate={{ width: `${(item.count / maxItemCount) * 100}%` }}
                       transition={{ duration: 0.9, delay: idx * 0.05 }}
@@ -1389,7 +1303,7 @@ export default function ManagerDashboard() {
                 </div>
                 <div className="w-full h-3 bg-mocha-50 rounded-full overflow-hidden border border-mocha-100/50">
                   <motion.div
-                    key={`takeaway-${dateRange}-${selectedBranch}`}
+                    key={`takeaway-`}
                     initial={{ width: 0 }}
                     animate={{ width: `${(processedData.takeawayCount / processedData.totalCount) * 100}%` }}
                     transition={{ duration: 0.8 }}
@@ -1410,7 +1324,7 @@ export default function ManagerDashboard() {
                 </div>
                 <div className="w-full h-3 bg-caramel-50/50 rounded-full overflow-hidden border border-caramel-100/30">
                   <motion.div
-                    key={`dinein-${dateRange}-${selectedBranch}`}
+                    key={`dinein-`}
                     initial={{ width: 0 }}
                     animate={{ width: `${(processedData.dineInCount / processedData.totalCount) * 100}%` }}
                     transition={{ duration: 0.8 }}
@@ -1446,7 +1360,7 @@ export default function ManagerDashboard() {
                 </div>
                 <div className="w-full h-2.5 bg-green-50 rounded-full overflow-hidden border border-green-100/50">
                   <motion.div
-                    key={`paid-inv-${dateRange}-${selectedBranch}`}
+                    key={`paid-inv-`}
                     initial={{ width: 0 }}
                     animate={{ width: `${(processedData.paidCount / processedData.totalCount) * 100}%` }}
                     className="h-full bg-green-600 rounded-full"
@@ -1465,7 +1379,7 @@ export default function ManagerDashboard() {
                 </div>
                 <div className="w-full h-2.5 bg-amber-50 rounded-full overflow-hidden border border-amber-100/30">
                   <motion.div
-                    key={`open-inv-${dateRange}-${selectedBranch}`}
+                    key={`open-inv-`}
                     initial={{ width: 0 }}
                     animate={{ width: `${(processedData.unpaidCount / processedData.totalCount) * 100}%` }}
                     className="h-full bg-amber-500 rounded-full"
@@ -1490,7 +1404,7 @@ export default function ManagerDashboard() {
                   </div>
                   <div className="w-full h-2 bg-emerald-50 rounded-full overflow-hidden border border-emerald-100">
                     <motion.div
-                      key={`cash-${dateRange}-${selectedBranch}`}
+                      key={`cash-`}
                       initial={{ width: 0 }}
                       animate={{ width: `${processedData.cashPercentage}%` }}
                       className="h-full bg-emerald-600 rounded-full"
@@ -1509,7 +1423,7 @@ export default function ManagerDashboard() {
                   </div>
                   <div className="w-full h-2 bg-blue-50 rounded-full overflow-hidden border border-blue-100">
                     <motion.div
-                      key={`card-${dateRange}-${selectedBranch}`}
+                      key={`card-`}
                       initial={{ width: 0 }}
                       animate={{ width: `${processedData.cardPercentage}%` }}
                       className="h-full bg-blue-600 rounded-full"
@@ -1552,9 +1466,6 @@ export default function ManagerDashboard() {
                   }
                 } catch {}
 
-                const branchLabel = BRANCHES.find(b => b.id === (order.branchId || 'all'));
-                const bLabel = language === 'ar' ? branchLabel?.labelAr : branchLabel?.labelEn;
-
                 const elapsed = Math.round((Date.now() - new Date(order.createdAt).getTime()) / 60000);
                 const timeStr = elapsed < 1 ? t('just now') : elapsed < 60 ? `${elapsed}${t('m ago')}` : `${Math.round(elapsed / 60)}${t('h ago')}`;
 
@@ -1576,7 +1487,6 @@ export default function ManagerDashboard() {
                       <div className="min-w-0 text-left">
                         <p className="text-xs md:text-sm font-extrabold text-gray-900 truncate">
                           #{formatOrderNumber(order)}
-                          <span className="text-[10px] text-mocha-600 font-bold bg-mocha-50 border border-mocha-100 px-1.5 py-0.5 rounded mx-1.5">{bLabel}</span>
                           {isRefunded && (
                             <span className="text-[10px] text-amber-700 font-bold bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded">
                               {language === 'ar' ? 'مسترجعة' : 'Refunded'}
