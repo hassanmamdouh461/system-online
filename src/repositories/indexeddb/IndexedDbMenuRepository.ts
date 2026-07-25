@@ -30,19 +30,17 @@ async function pushMenuImmediate(item: MenuItem, action: 'create' | 'update' | '
         deletedAt: now,
         updatedAt: now,
       };
+      // Push the tombstone so it persists in D1 and every device learns the
+      // item was deleted. Do NOT hard-delete afterwards: that would wipe the
+      // very tombstone we just wrote, letting a competing device UPDATE
+      // resurrect the deleted item (same fix as inventory/customers/companies).
       const ok = await cloudUpsert('menu_items', item.id, tombstone);
-      try {
-        const { cloudDeleteDocument } = await import('../../services/cloudConfig');
-        await cloudDeleteDocument('menu_items', item.id);
-      } catch {
-        // ignore
-      }
       if (!ok) {
         await withDB(async (db) => {
           await db.put('sync_queue', {
             id: `sync_menu_del_${item.id}_${Date.now()}`,
             type: 'menu',
-            action: 'delete',
+            action: 'update',
             data: tombstone,
             timestamp: now,
             synced: 0,
@@ -258,7 +256,8 @@ export class IndexedDbMenuRepository implements IMenuRepository {
     const now = new Date().toISOString();
     // Soft-delete: write a tombstone row (deletedAt) locally AND push it to the cloud.
     // The tombstone propagates to every device and prevents the item from coming back
-    // via hydrate/sync, even if the hard cloud DELETE races or a stale copy lingers.
+    // via hydrate/sync.
+    let tombstoneItem: MenuItem | undefined;
     await enqueueWrite(async () => {
       await withDB(async (db) => {
         const existing = (await db.get('menu_items', id)) as MenuItem | undefined;
@@ -275,10 +274,15 @@ export class IndexedDbMenuRepository implements IMenuRepository {
           updatedAt: now,
         };
         await db.put('menu_items', tombstone);
+        tombstoneItem = tombstone;
       });
     });
 
-    await pushMenuImmediate({ id, deletedAt: now, updatedAt: now } as MenuItem, 'delete');
+    // Push the FULL tombstone (carrying the NOT NULL columns name/price/category)
+    // so the worker upsert does not 500 and the tombstone actually persists in D1.
+    if (tombstoneItem) {
+      await pushMenuImmediate(tombstoneItem, 'delete');
+    }
   }
 
   async resetToDefaults(defaults: Omit<MenuItem, 'id'>[], branchId?: string): Promise<MenuItem[]> {
