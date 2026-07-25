@@ -48,7 +48,13 @@ CREATE TABLE IF NOT EXISTS orders (
 CREATE TABLE IF NOT EXISTS customers (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
-  phone TEXT UNIQUE NOT NULL,
+  -- Phone is intentionally NOT UNIQUE. The client (IndexedDB) uses a non-unique
+  -- phone index and enforces "one account per phone" in code by reusing an
+  -- existing id. A UNIQUE constraint here made the worker upsert (ON CONFLICT(id)
+  -- only) throw when two devices created the same phone under different ids,
+  -- stalling that customer's sync and hiding its OnAccount receivables.
+  -- Existing databases: see schema-migrate-v10.sql.
+  phone TEXT NOT NULL,
   points REAL NOT NULL DEFAULT 0,
   company_id TEXT,
   tags TEXT,
