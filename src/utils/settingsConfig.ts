@@ -5,6 +5,16 @@ const LS_TAX_RATE_KEY = 'brewmaster_tax_rate';
 const LS_ADMIN_CREDS_KEY = 'brewmaster_admin_creds_v2';
 const LS_MANAGER_CREDS_KEY = 'brewmaster_manager_creds_v1';
 const LS_BRANCH_CONFIG_KEY = 'brewmaster_branch_config';
+
+/**
+ * First-run bootstrap password.
+ *
+ * Only usable when NO credential has ever been stored; logging in with it
+ * immediately persists a real hashed credential and raises the
+ * must-change-password flag, so the door closes after a single use. It cannot
+ * be removed outright without locking the owner out of a fresh install.
+ */
+const BOOTSTRAP_PASSWORD = '123';
 const LS_STORE_CONFIG_KEY = 'brewmaster_store_config';
 const LS_TELEGRAM_CONFIG_KEY = 'brewmaster_telegram_config';
 
@@ -185,14 +195,30 @@ export function setTaxRate(rate: number): void {
   cloudPersist(LS_TAX_RATE_KEY, v);
 }
 
-export function getAdminCredentials() {
-  const saved = localStorage.getItem(LS_ADMIN_CREDS_KEY);
-  if (saved) {
-    try {
-      return JSON.parse(saved);
-    } catch {}
+/**
+ * Read a stored credential record.
+ *
+ * A corrupt/unparseable value returns a sentinel rather than null. That
+ * distinction matters: null means "no credential was ever set", which is what
+ * unlocks the one-time bootstrap password. If damaged JSON also returned null,
+ * corrupting localStorage on an existing install would silently re-open the
+ * default-password door. The sentinel keeps hasStoredCredentials true, so the
+ * bootstrap stays closed and the login simply fails.
+ */
+function readStoredCredentials(key: string): { username?: string; hash?: string; salt?: string; password?: string } | null {
+  const saved = localStorage.getItem(key);
+  if (!saved) return null;
+  try {
+    const parsed = JSON.parse(saved);
+    if (parsed && typeof parsed === 'object') return parsed;
+  } catch {
+    console.error(`[settingsConfig] Stored credentials at ${key} are corrupt.`);
   }
-  return null;
+  return { hash: '__corrupt__' };
+}
+
+export function getAdminCredentials() {
+  return readStoredCredentials(LS_ADMIN_CREDS_KEY);
 }
 
 export async function setAdminCredentials(username: string, password: string): Promise<void> {
@@ -200,6 +226,8 @@ export async function setAdminCredentials(username: string, password: string): P
   const payload = JSON.stringify({ username, hash, salt });
   localStorage.setItem(LS_ADMIN_CREDS_KEY, payload);
   cloudPersist(LS_ADMIN_CREDS_KEY, payload);
+  // Setting a real password dismisses the default-password warning.
+  if (password !== BOOTSTRAP_PASSWORD) clearMustChangePassword();
 }
 
 export async function verifyAdminCredentials(username: string, password: string): Promise<boolean> {
@@ -230,8 +258,8 @@ export async function verifyAdminCredentials(username: string, password: string)
   // well-known setup password ('123') exactly once and persist it as a hashed
   // credential. From then on the bootstrap door is closed — changing the password in
   // Settings, or storing any other credential, removes this fallback permanently.
-  if (!hasStoredCredentials && branchCfg.password === '' && password === '123') {
-    await setAdminCredentials('admin', '123');
+  if (!hasStoredCredentials && branchCfg.password === '' && password === BOOTSTRAP_PASSWORD) {
+    await setAdminCredentials('admin', BOOTSTRAP_PASSWORD);
     // Flag that the user logged in via the default bootstrap password so the
     // UI can force a password change before any other action.
     localStorage.setItem('brewmaster_must_change_password', 'true');
@@ -243,13 +271,7 @@ export async function verifyAdminCredentials(username: string, password: string)
 }
 
 export function getManagerCredentials() {
-  const saved = localStorage.getItem(LS_MANAGER_CREDS_KEY);
-  if (saved) {
-    try {
-      return JSON.parse(saved);
-    } catch {}
-  }
-  return null;
+  return readStoredCredentials(LS_MANAGER_CREDS_KEY);
 }
 
 export async function setManagerCredentials(username: string, password: string): Promise<void> {
@@ -257,6 +279,8 @@ export async function setManagerCredentials(username: string, password: string):
   const payload = JSON.stringify({ username, hash, salt });
   localStorage.setItem(LS_MANAGER_CREDS_KEY, payload);
   cloudPersist(LS_MANAGER_CREDS_KEY, payload);
+  // Setting a real password dismisses the default-password warning.
+  if (password !== BOOTSTRAP_PASSWORD) clearMustChangePassword();
 }
 
 export async function verifyManagerCredentials(username: string, password: string): Promise<boolean> {
@@ -286,8 +310,8 @@ export async function verifyManagerCredentials(username: string, password: strin
   // First-run bootstrap for manager: only when no manager credentials have ever been
   // stored and the branch password hasn't been customized, allow '123' once and persist
   // it so this fallback never reopens afterward.
-  if (!hasStoredCredentials && branchCfg.password === '' && password === '123') {
-    await setManagerCredentials('manager', '123');
+  if (!hasStoredCredentials && branchCfg.password === '' && password === BOOTSTRAP_PASSWORD) {
+    await setManagerCredentials('manager', BOOTSTRAP_PASSWORD);
     localStorage.setItem('brewmaster_must_change_password', 'true');
     return true;
   }

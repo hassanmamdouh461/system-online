@@ -11,6 +11,7 @@ import { requestPersistentStorage } from './repositories/indexeddb/db';
 import { hydrateFromCloud, resetHydrateCache } from './services/cloudHydrate';
 import { DashboardLayout } from './components/layout/DashboardLayout';
 import { ErrorBoundary } from './components/ui/ErrorBoundary';
+import { mustChangePassword } from './utils/settingsConfig';
 
 // Direct eager imports for 100% instant navigation without chunk pauses or splash screens
 import Login from './pages/Login';
@@ -47,12 +48,43 @@ function NotFound() {
   );
 }
 
+/**
+ * Persistent warning shown while the account is still on the first-run
+ * bootstrap password. The mustChangePassword() flag was previously written on
+ * bootstrap login but never read anywhere, so nothing ever prompted the
+ * operator to change it.
+ */
+function DefaultPasswordBanner() {
+  const [visible, setVisible] = useState(() => mustChangePassword());
+
+  useEffect(() => {
+    const check = () => setVisible(mustChangePassword());
+    window.addEventListener('storage', check);
+    window.addEventListener('focus', check);
+    return () => {
+      window.removeEventListener('storage', check);
+      window.removeEventListener('focus', check);
+    };
+  }, []);
+
+  if (!visible) return null;
+
+  return (
+    <div className="bg-red-600 text-white text-sm font-bold px-4 py-2 text-center">
+      ⚠️ أنت تستخدم كلمة المرور الافتراضية. غيّرها الآن من{' '}
+      <a href="/settings" className="underline hover:text-red-100">الإعدادات</a>
+      {' '}لتأمين النظام.
+    </div>
+  );
+}
+
 function ProtectedRoute() {
   const { isAuthenticated } = useAuth();
   const location = useLocation();
   if (!isAuthenticated) return <Navigate to="/login" state={{ from: location }} replace />;
   return (
     <DataProvider>
+      <DefaultPasswordBanner />
       <Outlet />
     </DataProvider>
   );
