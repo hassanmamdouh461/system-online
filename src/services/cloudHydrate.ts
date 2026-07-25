@@ -444,7 +444,9 @@ export async function hydrateFromCloud(force = false): Promise<HydrateResult> {
           });
         }
         if (inventory && inventory.length > 0) {
-          // Inventory: merge-aware so a soft-deleted item is NOT resurrected.
+          // Inventory: merge-aware so a soft-deleted item is NOT resurrected
+          // AND so a pending local stock change (sale/adjustment not yet uploaded)
+          // is not silently overwritten by a stale cloud row on boot hydration.
           // We keep whichever deletedAt is newer (local vs cloud) so a delete on
           // any device wins. Only items with no tombstone end up live.
           result.inventory = await withDB(async (db) => {
@@ -470,17 +472,38 @@ export async function hydrateFromCloud(force = false): Promise<HydrateResult> {
                       ? localDeletedAt
                       : remoteDeletedAt;
 
+              const remoteUpdated = doc.updatedAt || doc.updated_at || '';
+              // If the local copy was modified more recently than the cloud row
+              // (a sale/adjustment that has not been uploaded yet), keep local
+              // stock/minStock/costPerUnit instead of letting a stale cloud row
+              // wipe the change. Same guard inventoryService.getAll uses.
+              const localWinsStock =
+                !!local &&
+                !effectiveDeletedAt &&
+                !remoteDeletedAt &&
+                !!local.updatedAt &&
+                !!remoteUpdated &&
+                new Date(local.updatedAt).getTime() > new Date(remoteUpdated).getTime();
+
               const merged = {
                 ...(local || {}),
                 id,
                 name: doc.name || local?.name || 'عنصر',
                 unit: doc.unit || local?.unit || 'وحدة',
-                stock: optionalNumber(doc.stock) ?? local?.stock ?? 0,
-                minStock: optionalNumber(doc.minStock) ?? local?.minStock ?? 0,
-                costPerUnit: optionalNumber(doc.costPerUnit) ?? local?.costPerUnit ?? 0,
+                stock: localWinsStock
+                  ? (local?.stock ?? 0)
+                  : (optionalNumber(doc.stock) ?? local?.stock ?? 0),
+                minStock: localWinsStock
+                  ? (local?.minStock ?? 0)
+                  : (optionalNumber(doc.minStock) ?? local?.minStock ?? 0),
+                costPerUnit: localWinsStock
+                  ? (local?.costPerUnit ?? 0)
+                  : (optionalNumber(doc.costPerUnit) ?? local?.costPerUnit ?? 0),
                 branchId: doc.branch_id || doc.branchId || local?.branchId,
                 createdAt: doc.createdAt || doc.created_at || local?.createdAt || new Date().toISOString(),
-                updatedAt: doc.updatedAt || doc.updated_at || local?.updatedAt || new Date().toISOString(),
+                updatedAt: localWinsStock
+                  ? local.updatedAt
+                  : (remoteUpdated || local?.updatedAt || new Date().toISOString()),
                 deletedAt: effectiveDeletedAt || undefined,
               };
               try {

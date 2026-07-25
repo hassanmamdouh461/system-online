@@ -134,40 +134,23 @@ export const inventoryService = {
           const { cloudGetCollection } = await import('./cloudConfig');
           const remoteDocs = await cloudGetCollection('inventory');
           if (remoteDocs && remoteDocs.length > 0) {
-            // Read pending queue outside the inventory write tx
+            // Read pending queue outside the inventory write tx. A pending row is
+            // a pending tombstone when its data carries deletedAt — the action can
+            // be either 'delete' (legacy hard-delete path) or 'update' (tombstone
+            // path). Either way we must not let a stale cloud row resurrect it.
             let pendingCreateIds = new Set<string>();
-            try {
-              const pending = await withDB((db) => db.getAll('sync_queue'));
-              pendingCreateIds = new Set(
-                (pending || [])
-                  .filter(
-                    (q: any) =>
-                      q?.type === 'inventory' &&
-                      (q.action === 'create' || q.action === 'update') &&
-                      q.synced === 0
-                  )
-                  .map((q: any) => q?.data?.id)
-                  .filter(Boolean)
-              );
-            } catch {
-              // ignore
-            }
-
-            // Also read pending DELETE queue items so we don't resurrect them
             let pendingDeleteIds = new Set<string>();
             try {
-              const pendingAll = await withDB((db) => db.getAll('sync_queue'));
-              pendingDeleteIds = new Set(
-                (pendingAll || [])
-                  .filter(
-                    (q: any) =>
-                      q?.type === 'inventory' &&
-                      q.action === 'delete' &&
-                      q.synced === 0
-                  )
-                  .map((q: any) => q?.data?.id)
-                  .filter(Boolean)
-              );
+              const pending = await withDB((db) => db.getAll('sync_queue'));
+              for (const q of (pending || []) as any[]) {
+                if (!q || q.type !== 'inventory' || q.synced === 1) continue;
+                const qid = q?.data?.id || q?.data?.documentId;
+                if (!qid) continue;
+                pendingCreateIds.add(qid);
+                if (q?.data?.deletedAt || q.action === 'delete') {
+                  pendingDeleteIds.add(qid);
+                }
+              }
             } catch {
               // ignore
             }
@@ -408,39 +391,42 @@ export const inventoryService = {
       // Soft-delete: write a tombstone row (deletedAt) locally AND push it to the cloud.
       // The tombstone propagates to every device and prevents the item from coming back
       // via hydrate/sync, even if the hard cloud DELETE races or a stale copy lingers.
-      await enqueueWrite(async () => {
-        await withDB(async (db) => {
+      const tombstone: InventoryItem = await enqueueWrite(async () => {
+        return withDB(async (db) => {
           const existing = await db.get('inventory', id) as InventoryItem | undefined;
-          const tombstone: InventoryItem = {
+          const ts: InventoryItem = {
             ...(existing || { id, name: 'deleted', unit: 'unit', stock: 0, minStock: 0, costPerUnit: 0, createdAt: now } as InventoryItem),
             id,
             deletedAt: now,
             updatedAt: now,
           };
-          await db.put('inventory', tombstone);
+          await db.put('inventory', ts);
           try {
             await db.put('sync_queue', {
               id: `sync_inv_del_${id}_${Date.now()}`,
               type: 'inventory',
-              action: 'delete',
-              data: { id, deletedAt: now, updatedAt: now },
+              action: 'update',
+              data: ts,
               timestamp: now,
               synced: 0,
             });
           } catch {
             // ignore
           }
+          return ts;
         });
       });
 
-      // Push tombstone to cloud so other devices / hydration see it as deleted.
-      // Also attempt hard cloud delete as a belt-and-suspenders approach.
+      // Push the FULL tombstone to the cloud so it persists in D1 and every
+      // device learns the item was deleted. The tombstone must carry the
+      // NOT NULL columns (unit/minStock/costPerUnit/created_at) and deleted_at,
+      // otherwise the worker's INSERT ... ON CONFLICT fails the NOT NULL check
+      // and the tombstone is never stored — letting any later device UPDATE
+      // resurrect the deleted item. Do NOT hard-delete afterwards: that would
+      // wipe the very tombstone we just wrote.
       try {
-        const { cloudUpsert, cloudDeleteDocument, ackSyncQueueForEntity } = await import('./cloudConfig');
-        // First upsert the tombstone so it persists in D1 even if hard delete fails
-        await cloudUpsert('inventory', id, { id, deletedAt: now, updatedAt: now, name: 'deleted', stock: 0 });
-        // Then try hard delete
-        const ok = await cloudDeleteDocument('inventory', id);
+        const { cloudUpsert, ackSyncQueueForEntity } = await import('./cloudConfig');
+        const ok = await cloudUpsert('inventory', id, tombstone);
         if (ok) await ackSyncQueueForEntity(id);
         else void syncService.syncPendingData();
       } catch {

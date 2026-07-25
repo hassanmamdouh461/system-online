@@ -45,7 +45,7 @@ const ALLOWED_COLUMNS: Record<string, Set<string>> = {
   ]),
   customers: new Set(["id", "name", "phone", "points", "company_id", "tags", "notes", "createdAt", "updated_at", "branch_id"]),
   companies: new Set(["id", "name", "tags", "phone", "notes", "createdAt", "updated_at", "branch_id"]),
-  inventory: new Set(["id", "name", "unit", "stock", "minStock", "costPerUnit", "branch_id", "created_at", "updated_at"]),
+  inventory: new Set(["id", "name", "unit", "stock", "minStock", "costPerUnit", "branch_id", "created_at", "updated_at", "deleted_at"]),
   settings: new Set(["id", "key", "value", "branch_id", "updated_at"]),
   recipes: new Set(["id", "menu_item_id", "inventory_item_id", "quantity", "unit", "branch_id", "updated_at"]),
   inventory_transactions: new Set(["id", "item_id", "item_name", "type", "quantity", "unit", "reference_id", "notes", "branch_id", "created_at"]),
@@ -538,6 +538,12 @@ function normalizeData(table: string, data: any) {
       normalized.updated_at = normalized.updatedAt;
       delete normalized.updatedAt;
     }
+    // Soft-delete tombstone (matches menu_items). Without this the column
+    // stayed NULL and deleted items got resurrected by any later device UPDATE.
+    if ('deletedAt' in normalized) {
+      normalized.deleted_at = normalized.deletedAt || null;
+      delete normalized.deletedAt;
+    }
     delete normalized.branchId;
     delete normalized.isSynced;
   }
@@ -692,6 +698,9 @@ function denormalizeData(table: string, row: any) {
     doc.costPerUnit = Number(row.costPerUnit) || 0;
     doc.createdAt = row.created_at || row.createdAt || created;
     doc.updatedAt = row.updated_at || row.updatedAt || updated;
+    // Echo the soft-delete tombstone back to clients (matches menu_items).
+    doc.deleted_at = row.deleted_at || null;
+    doc.deletedAt = doc.deleted_at;
   }
 
   if (table === 'settings') {
