@@ -10,7 +10,6 @@
 [![Vite](https://img.shields.io/badge/Vite-5-646CFF?style=for-the-badge&logo=vite&logoColor=white)](https://vitejs.dev/)
 [![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-3-06B6D4?style=for-the-badge&logo=tailwindcss&logoColor=white)](https://tailwindcss.com/)
 [![Cloudflare D1](https://img.shields.io/badge/Cloudflare-D1-F38020?style=for-the-badge&logo=cloudflare&logoColor=white)](https://developers.cloudflare.com/d1/)
-[![Electron](https://img.shields.io/badge/Electron-29-47848F?style=for-the-badge&logo=electron&logoColor=white)](https://www.electronjs.org/)
 [![Framer Motion](https://img.shields.io/badge/Framer_Motion-Animations-0055FF?style=for-the-badge&logo=framer&logoColor=white)](https://www.framer.com/motion/)
 
 </div>
@@ -27,12 +26,12 @@
 - **Inventory + Recipes** — Stock levels, auto-deduct on sales, low-stock alerts
 - **Manager Analytics** — Multi-branch aware reports (Paid orders only)
 - **Public QR Menu** — Customer-facing menu at `/public-menu`
-- **Telegram reports** — Optional daily sales reports (Electron)
+- **Telegram reports** — Optional sales reports via a configured bot (Settings → Telegram)
 - **Bilingual UI** — Arabic / English with RTL support
 - **Responsive** — Desktop sidebar, tablet breakpoints, mobile bottom-nav
 
 ### ⚙️ Technical Features
-- **Offline-first** — IndexedDB (web) / SQLite (Electron) with sync queue
+- **Offline-first** — IndexedDB (via `idb`) with a durable sync queue
 - **Cloud sync** — Cloudflare Worker + D1 via `POST /api/sync`
 - **Atomic local writes** — Order + sync-queue entry in one IndexedDB transaction
 - **Bounded retries** — Exponential backoff on failed sync (no infinite hammering)
@@ -70,11 +69,10 @@ Most café POS systems treat *"order status"* and *"payment status"* as the same
 
 > 💡 **Revenue is never recognized until `paymentStatus === "Paid"`** — regardless of kitchen status.
 
-### Runtime paths
+### Runtime path
 
 ```
-Web:      React UI → services → IndexedDB → sync_queue → Cloudflare Worker → D1
-Desktop:  React UI → electronAPI → SQLite (brewmaster.db) → sync engine → Worker → D1
+Web:  React UI → services → IndexedDB → sync_queue → Cloudflare Worker → D1
 ```
 
 ---
@@ -115,7 +113,6 @@ const groupedOrders = useMemo(() => {
 | **Styling** | Tailwind CSS v3 | Coffee-themed utility UI |
 | **Animations** | Framer Motion | Cards, modals, transitions |
 | **Web storage** | IndexedDB (`idb`) | Offline-first browser DB |
-| **Desktop** | Electron 29 + better-sqlite3 | Local SQLite POS |
 | **Cloud** | Cloudflare Workers + D1 | Edge API + SQLite at the edge |
 | **State** | React Context + hooks | Lightweight global state |
 | **Deploy** | Netlify / Vercel / Cloudflare Pages | SPA hosting |
@@ -127,7 +124,6 @@ const groupedOrders = useMemo(() => {
 ### Prerequisites
 - Node.js `>= 18`
 - (Optional) Cloudflare account — for cloud sync via Worker + D1
-- (Optional, desktop) Build tools for native modules if using Electron (`better-sqlite3`)
 
 ### Installation
 
@@ -140,7 +136,7 @@ npm install
 Copy the example env and set your Worker URL:
 
 ```bash
-copy .env.example .env
+cp .env.example .env      # Windows: copy .env.example .env
 ```
 
 ```env
@@ -159,34 +155,19 @@ Open [http://localhost:5173](http://localhost:5173).
 
 Default login: username `admin` / password `123` (change in Settings).
 
-### Run (Electron desktop)
-
-```bash
-npm run electron:dev
-```
-
-Or double-click `run.bat` / `scripts\run.bat` (prepends portable Node path if present).
-
-```bash
-# Production-style Electron (loads dist/)
-npm run build
-npm run electron:start
-```
-
-**Electron native module note:** desktop mode needs `better-sqlite3` (listed under `optionalDependencies`). On Windows this requires [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) with the **Desktop development with C++** workload, then:
-
-```bash
-npm install better-sqlite3
-# rebuild for Electron's Node ABI if needed:
-npx electron-rebuild -f -w better-sqlite3
-```
-
-Web mode (`npm run dev`) does **not** need `better-sqlite3` — it uses IndexedDB.
 ### Build SPA
 
 ```bash
 npm run build
 npm run preview
+```
+
+### Quality checks
+
+```bash
+npm run typecheck   # TypeScript, no emit
+npm run lint        # ESLint
+npm run test        # Vitest unit tests
 ```
 
 ---
@@ -228,9 +209,8 @@ online-system/
 │   ├── services/          # Business layer + syncService
 │   ├── types/             # Order, Menu, Customer, Company, …
 │   └── utils/             # settings, receipts, helpers
-├── electron/              # Desktop shell, SQLite, IPC, Telegram
 ├── cloudflare-worker/     # D1 schema + Worker API
-├── scripts/               # Launch helpers
+├── scripts/               # Operational / infra helper scripts
 ├── .env.example           # Worker URL template
 └── package.json
 ```
@@ -239,8 +219,8 @@ online-system/
 
 ## 🔐 Notes
 
-- Auth is client-side for demo/local POS use — change the default password before any real deployment.
-- Worker currently allows broad CORS for ease of integration; add auth before production internet exposure.
+- **Auth is client-side** for demo/local POS use — change the default password before any real deployment. Passwords are stored **hashed** (PBKDF2 / SHA-256 / random salt via Web Crypto); the one-time `123` bootstrap password only works until a real password is set, after which it is permanently disabled.
+- **The Cloudflare Worker is fail-closed.** It refuses every request with `503` unless an `API_KEY` secret is configured, rejects requests whose `X-API-Key` header does not match (`401`), and only emits CORS headers for origins listed in `ALLOWED_ORIGINS` (no wildcard reflection). Configure both secrets before exposing it to the internet.
 - Seed data (menu + inventory) is applied automatically on first IndexedDB open — no separate seed script required.
 
 ---
