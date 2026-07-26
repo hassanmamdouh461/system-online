@@ -128,6 +128,36 @@ export function getSessionRole(): 'manager' | 'cashier' | null {
 }
 
 /**
+ * Ask the Worker which role the current session cookie actually carries.
+ *
+ * getSessionRole() only reflects the last in-memory mint, so after a page reload
+ * (cookie still valid, but the in-memory password is gone) it returns null even
+ * for a manager. This probes GET /v1/session, which rides the existing HttpOnly
+ * cookie via credentials:'include', so it returns the real server-verified role
+ * without needing a credential to re-mint. Caches the result. Best-effort: on any
+ * failure it returns whatever role we already had, so callers degrade gracefully.
+ */
+export async function refreshCloudSessionRole(): Promise<'manager' | 'cashier' | null> {
+  const base = getWorkerUrl();
+  if (!base) return sessionRole;
+  if (typeof navigator !== 'undefined' && !navigator.onLine) return sessionRole;
+  try {
+    const res = await fetch(`${base}${SESSION_PATH}`, {
+      method: 'GET',
+      credentials: 'include',
+    });
+    if (!res.ok) return sessionRole;
+    const json = await res.json();
+    if (json && (json.role === 'manager' || json.role === 'cashier')) {
+      sessionRole = json.role;
+    }
+  } catch {
+    // best-effort — keep whatever role we had
+  }
+  return sessionRole;
+}
+
+/**
  * Ensure a cloud session cookie exists. Concurrent callers share one in-flight
  * mint. Best-effort: with no in-memory credential this resolves false WITHOUT
  * erroring, so an existing (valid) cookie from a prior page-load still rides the
@@ -453,7 +483,8 @@ export async function cloudGetPublicMenu(): Promise<any[] | null> {
 export async function cloudUpsert(
   collection: string,
   id: string,
-  data: Record<string, any>
+  data: Record<string, any>,
+  opts?: { refundPin?: string }
 ): Promise<boolean> {
   if (!id) return false;
   const payload: Record<string, any> = { ...data, id };
@@ -461,12 +492,19 @@ export async function cloudUpsert(
   payload.branch_id = MAIN_BRANCH_ID;
   payload.branchId = MAIN_BRANCH_ID;
   try {
+    // A cashier refund is escalated server-side by the double-checked
+    // X-Refund-PIN header (Worker: refundEscalated → permissions.canWriteOrder).
+    // Managers omit it. cloudFetch re-reads init.headers on its re-mint retry, so
+    // the PIN survives a 401 / CSRF re-mint without being dropped.
+    const extraHeaders: Record<string, string> = {};
+    if (opts?.refundPin) extraHeaders['X-Refund-PIN'] = opts.refundPin;
     const res = await cloudFetch(
       `/v1/databases/default/collections/${collection}/documents`,
       {
         method: 'POST',
         timeoutMs: DEFAULT_TIMEOUT_MS,
         body: JSON.stringify({ documentId: id, data: payload }),
+        headers: extraHeaders,
       }
     );
     if (!res) return false;
