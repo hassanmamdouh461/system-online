@@ -68,7 +68,7 @@ export function OrderDetails({ order, onClose, onUpdateStatus, type = 'all' }: O
                 className="lg:hidden flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-900 tap-highlight-none active:bg-gray-100 transition-colors"
               >
                 <ArrowLeft size={16} />
-                Back to Orders
+                {t('Back to Orders')}
               </button>
 
               {/* Header */}
@@ -78,7 +78,7 @@ export function OrderDetails({ order, onClose, onUpdateStatus, type = 'all' }: O
                     {language === 'ar' ? 'طلب' : 'Order'} #{formatOrderNumber(order)}
                   </h2>
                   <p className="text-sm text-gray-500">
-                    {order.tableId === 'Takeaway' || order.tableId === 'Dine-in' ? order.tableId : `Table ${order.tableId}`}
+                    {order.tableId === 'Takeaway' || order.tableId === 'Dine-in' ? t(order.tableId) : `${t('Table')} ${order.tableId}`}
                   </p>
                 </div>
                 <button 
@@ -97,30 +97,30 @@ export function OrderDetails({ order, onClose, onUpdateStatus, type = 'all' }: O
                     <div className="w-12 h-12 rounded-full bg-red-100 text-red-600 flex items-center justify-center">
                       <XCircle size={24} />
                     </div>
-                    <span className="text-sm font-bold text-red-600">Order Cancelled</span>
+                    <span className="text-sm font-bold text-red-600">{t('Order Cancelled')}</span>
                   </div>
                 ) : (
                 <div className="flex items-center justify-between text-sm">
                   <div className="flex flex-col items-center gap-2">
                     <div className={`w-8 h-8 md:w-10 md:h-10 rounded-full flex items-center justify-center text-sm md:text-base ${['New', 'Preparing', 'Ready', 'Completed'].includes(order.status) ? 'bg-mocha-700 text-white' : 'bg-gray-100'}`}>1</div>
-                    <span className="text-xs">New</span>
+                    <span className="text-xs">{t('New')}</span>
                   </div>
                   <div className="h-0.5 flex-1 bg-gray-200 mx-2" />
                   <div className="flex flex-col items-center gap-2">
                     <div className={`w-8 h-8 md:w-10 md:h-10 rounded-full flex items-center justify-center text-sm md:text-base ${['Preparing', 'Ready', 'Completed'].includes(order.status) ? 'bg-caramel text-white' : 'bg-gray-100'}`}>2</div>
-                    <span className="text-xs">Brewing</span>
+                    <span className="text-xs">{t('Brewing')}</span>
                   </div>
                   <div className="h-0.5 flex-1 bg-gray-200 mx-2" />
                   <div className="flex flex-col items-center gap-2">
                     <div className={`w-8 h-8 md:w-10 md:h-10 rounded-full flex items-center justify-center text-sm md:text-base ${['Ready', 'Completed'].includes(order.status) ? 'bg-green-500 text-white' : 'bg-gray-100'}`}>3</div>
-                    <span className="text-xs">Ready</span>
+                    <span className="text-xs">{t('Ready')}</span>
                   </div>
                 </div>
                 )}
 
                 {/* Items List */}
                 <div className="space-y-4">
-                  <h3 className="font-semibold text-gray-900">Items</h3>
+                  <h3 className="font-semibold text-gray-900">{t('Items')}</h3>
                   {items.map((item) => (
                     <div key={item.id} className="flex items-center p-3 md:p-4 bg-gray-50 rounded-lg gap-3">
                       <span className="bg-white w-8 h-8 md:w-10 md:h-10 flex items-center justify-center rounded-md border border-gray-200 font-bold text-sm shrink-0">
@@ -141,7 +141,7 @@ export function OrderDetails({ order, onClose, onUpdateStatus, type = 'all' }: O
                     onClick={() => onUpdateStatus(order.id, 'Preparing')}
                     className="mobile-touch-target col-span-2 bg-mocha-700 text-white py-3 md:py-4 rounded-xl font-semibold flex items-center justify-center gap-2 hover:bg-mocha-800 tap-highlight-none active:scale-95 transition-transform"
                   >
-                    Start Brewing ☕ <ArrowRight size={18} />
+                    {t('Start Brewing ☕')} <ArrowRight size={18} />
                   </button>
                 )}
                 {order.status === 'Preparing' && (
@@ -149,7 +149,7 @@ export function OrderDetails({ order, onClose, onUpdateStatus, type = 'all' }: O
                     onClick={() => onUpdateStatus(order.id, 'Ready')}
                     className="mobile-touch-target col-span-2 bg-caramel text-white py-3 md:py-4 rounded-xl font-semibold flex items-center justify-center gap-2 hover:bg-caramel-dark tap-highlight-none active:scale-95 transition-transform"
                   >
-                    Mark as Ready 🛎️ <CheckCircle2 size={18} />
+                    {t('Mark as Ready 🛎️')} <CheckCircle2 size={18} />
                   </button>
                 )}
                 {order.status === 'Ready' && (
@@ -157,7 +157,7 @@ export function OrderDetails({ order, onClose, onUpdateStatus, type = 'all' }: O
                     onClick={() => onUpdateStatus(order.id, 'Completed')}
                     className="mobile-touch-target col-span-2 bg-green-600 text-white py-3 md:py-4 rounded-xl font-semibold flex items-center justify-center gap-2 hover:bg-green-700 tap-highlight-none active:scale-95 transition-transform"
                   >
-                    Complete Order ✅ <CheckCircle2 size={18} />
+                    {t('Complete Order ✅')} <CheckCircle2 size={18} />
                   </button>
                 )}
               </div>
@@ -166,11 +166,11 @@ export function OrderDetails({ order, onClose, onUpdateStatus, type = 'all' }: O
                 {order.status !== 'Cancelled' && order.status !== 'Completed' && (
                   <button 
                     onClick={() => {
-                        if(confirm('Cancel this order?')) onUpdateStatus(order.id, 'Cancelled');
+                        if(confirm(t('Cancel this order?'))) onUpdateStatus(order.id, 'Cancelled');
                     }}
                     className="mobile-touch-target flex-1 px-4 py-3 border border-red-200 text-red-600 rounded-xl font-semibold hover:bg-red-50 flex items-center justify-center gap-2 tap-highlight-none active:scale-95 transition-transform"
                   >
-                    <XCircle size={18} /> Cancel Order
+                    <XCircle size={18} /> {t('Cancel Order')}
                   </button>
                 )}
               </div>
