@@ -146,16 +146,20 @@ const CASHIER_READONLY_TABLES: readonly string[] = [
 /**
  * Resolve the caller's role from the presented secret.
  *
- * Order matters: the manager key is checked first so that if an operator
- * mistakenly sets both secrets to the same string, the result is the *lower*
- * privilege — no. It must be the opposite: identical secrets are a
- * misconfiguration, and we must not silently downgrade a manager. We therefore
- * check manager first and treat an exact duplicate as manager, while the deploy
- * doc requires two distinct keys.
+ * Returns null when the token matches nothing, which the caller turns into a
+ * 401. There is deliberately no "default role" — an unrecognized key gets no
+ * access at all.
  *
- * `LEGACY_API_KEY` keeps existing installs alive during rollout: revoking it
- * instantly would break every device already in the field. It maps to manager
- * and must be removed once real keys are distributed.
+ * Setting both secrets to the same string is a misconfiguration that would make
+ * every device a manager and silently defeat the split. SECURITY-DEPLOY.md
+ * requires two distinct keys; the manager branch is evaluated first so the
+ * outcome of such a mistake is at least deterministic rather than
+ * order-dependent.
+ *
+ * The deprecated `API_KEY` keeps installs already in the field alive during
+ * rollout — revoking it at deploy time would break every till at once. It maps
+ * to manager and is reported via `viaLegacyKey` so the caller can log a warning;
+ * it must be deleted once real keys are distributed.
  */
 export function resolveRole(
   presentedToken: string | null,
