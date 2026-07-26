@@ -1,8 +1,7 @@
-import React, { useState, useEffect, Suspense } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, Outlet, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { DataProvider } from './context/DataContext';
-import { LoadingScreen } from './components/ui/LoadingScreen';
 import { InlinePageSpinner } from './components/ui/InlinePageSpinner';
 import { LanguageProvider } from './context/LanguageContext';
 import { ToastProvider } from './components/ui/Toast';
@@ -12,6 +11,7 @@ import { hydrateFromCloud, resetHydrateCache } from './services/cloudHydrate';
 import { DashboardLayout } from './components/layout/DashboardLayout';
 import { ErrorBoundary } from './components/ui/ErrorBoundary';
 import { mustChangePassword } from './utils/settingsConfig';
+import { checkCloudHealth, isCloudConfigured } from './services/cloudConfig';
 
 // Direct eager imports for 100% instant navigation without chunk pauses or splash screens
 import Login from './pages/Login';
@@ -44,6 +44,104 @@ function NotFound() {
           ← الرجوع للوحة التحكم
         </a>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Persistent alarm shown when the cloud backup has silently stopped working.
+ *
+ * The settings-page badge is only seen by someone who opens settings. A backup
+ * outage is exactly the failure an operator will not go looking for — the POS
+ * keeps working normally because writes queue into IndexedDB — so the warning
+ * has to follow them onto every screen.
+ *
+ * Deliberately conservative: it stays silent unless there is real evidence of a
+ * problem, because a banner that cries wolf gets ignored. It shows only when a
+ * worker URL is configured (cloud is meant to be on) AND either the health probe
+ * failed or the last successful write is older than the threshold.
+ */
+const BACKUP_STALE_AFTER_MS = 6 * 60 * 60 * 1000;
+const BACKUP_CHECK_INTERVAL_MS = 5 * 60 * 1000;
+
+function BackupHealthBanner() {
+  const [problem, setProblem] = useState<null | { kind: 'down' | 'stale'; detail: string }>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const formatAge = (iso: string): string => {
+      const hours = Math.floor((Date.now() - new Date(iso).getTime()) / 3_600_000);
+      if (hours < 24) return `${hours} ساعة`;
+      return `${Math.floor(hours / 24)} يوم`;
+    };
+
+    const check = async () => {
+      // Not configured at all is a deployment choice, not a regression — the
+      // settings badge reports it and this banner stays out of the way.
+      if (!isCloudConfigured()) {
+        if (!cancelled) setProblem(null);
+        return;
+      }
+
+      const [health, sync] = await Promise.all([
+        checkCloudHealth(),
+        syncService.getHealth().catch(() => null),
+      ]);
+      if (cancelled) return;
+
+      if (!health.ok) {
+        setProblem({
+          kind: 'down',
+          detail: health.db === 'unreachable' ? 'الوركر مش بيرد' : 'قاعدة البيانات السحابية مش بتستجيب',
+        });
+        return;
+      }
+
+      const lastGood = sync?.lastSuccessAt || health.lastWriteAt || null;
+      if (lastGood && Date.now() - new Date(lastGood).getTime() > BACKUP_STALE_AFTER_MS) {
+        setProblem({ kind: 'stale', detail: formatAge(lastGood) });
+        return;
+      }
+
+      setProblem(null);
+    };
+
+    void check();
+    const interval = setInterval(() => void check(), BACKUP_CHECK_INTERVAL_MS);
+    // Re-check the moment the operator comes back to the tab or regains
+    // connectivity, so recovery clears the banner without waiting for the timer.
+    const onFocus = () => void check();
+    window.addEventListener('focus', onFocus);
+    window.addEventListener('online', onFocus);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+      window.removeEventListener('focus', onFocus);
+      window.removeEventListener('online', onFocus);
+    };
+  }, []);
+
+  if (!problem) return null;
+
+  return (
+    <div className="bg-red-600 text-white text-sm font-bold px-4 py-2 text-center">
+      {problem.kind === 'down' ? (
+        <>
+          🔴 النسخ الاحتياطي السحابي متوقف ({problem.detail}). الأوردرات بتتحفظ على الجهاز دا بس —
+          لو الجهاز ضاع البيانات تضيع معاه.{' '}
+          <a href="/settings" className="underline hover:text-red-100">
+            راجع الإعدادات
+          </a>
+        </>
+      ) : (
+        <>
+          🔴 آخر نسخة احتياطية ناجحة بقالها {problem.detail}. يعني البيانات الجديدة مش واصلة السحاب.{' '}
+          <a href="/settings" className="underline hover:text-red-100">
+            راجع الإعدادات
+          </a>
+        </>
+      )}
     </div>
   );
 }
@@ -85,6 +183,7 @@ function ProtectedRoute() {
   return (
     <DataProvider>
       <DefaultPasswordBanner />
+      <BackupHealthBanner />
       <Outlet />
     </DataProvider>
   );

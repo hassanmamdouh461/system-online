@@ -17,7 +17,7 @@ export default function Menu() {
   const isManager = user?.role === 'manager';
 
   // Use local SQLite database for data persistence
-  const { items, loading, error, addItem, updateItem, deleteItem, toggleAvailability } = useMenu();
+  const { items, error, addItem, updateItem, deleteItem, toggleAvailability } = useMenu();
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [searchQuery, setSearchQuery] = useState('');
   

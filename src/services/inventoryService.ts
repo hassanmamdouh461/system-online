@@ -1,5 +1,5 @@
 import { InventoryItem, InventoryTransaction, RecipeIngredient } from '../types/inventory';
-import { getDB, withDB, enqueueWrite } from '../repositories/indexeddb/db';
+import { withDB, enqueueWrite } from '../repositories/indexeddb/db';
 import { syncService } from './syncService';
 import { multiplyMoney, sumMoneyBy } from '../utils/money';
 
@@ -151,7 +151,7 @@ export const inventoryService = {
             // A queued row is a pending tombstone when its data carries deletedAt
             // or its action is the legacy 'delete'. We must not let a stale cloud
             // row resurrect a locally-deleted item.
-            let pendingDeleteIds = new Set<string>();
+            const pendingDeleteIds = new Set<string>();
             try {
               const pending = await withDB((db) => db.getAll('sync_queue'));
               for (const q of (pending || []) as any[]) {
@@ -450,13 +450,76 @@ export const inventoryService = {
     }
   },
 
+  /**
+   * Atomically apply a signed delta to an item's stock.
+   *
+   * The current-stock READ, the clamp, and the WRITE all happen inside ONE
+   * serialized `enqueueWrite` critical section, so two concurrent callers can
+   * never both read the same pre-change stock and then each overwrite it with a
+   * value computed from that stale read (a lost update). Previously deductStock
+   * read via getByIdLocal() OUTSIDE the write chain and then wrote a
+   * pre-computed value via update(): two sales of the same ingredient racing
+   * each other both read e.g. stock=10 and wrote 10-3 and 10-4, leaving 6
+   * instead of 3 — silently overstating stock. This is reachable in normal use:
+   * DataContext.addOrder fires applyOrderInventory() WITHOUT await, so two
+   * orders that share an ingredient run deductStock concurrently.
+   *
+   * Returns the updated item (for transaction logging) or null when the item is
+   * missing / soft-deleted. Resolution mirrors getByIdLocal (exact id first,
+   * then a live-item fallback by id or name).
+   */
+  async applyStockDelta(itemId: string, delta: number): Promise<InventoryItem | null> {
+    const updated = await enqueueWrite(async () => {
+      return withDB(async (db) => {
+        // Resolve the target INSIDE the lock so the value we mutate is fresh.
+        let item = (await db.get('inventory', itemId)) as InventoryItem | undefined;
+        if (item && item.deletedAt) return null; // never touch a soft-deleted item
+        if (!item) {
+          const all = (await db.getAll('inventory')) as InventoryItem[];
+          item = all.find((i) => !i.deletedAt && (i.id === itemId || i.name === itemId));
+        }
+        if (!item) return null;
+
+        const now = new Date().toISOString();
+        const newStock = Math.max(0, (Number(item.stock) || 0) + delta);
+        const next: InventoryItem = { ...item, stock: newStock, updatedAt: now };
+        await db.put('inventory', next);
+
+        // Queue the change for sync inside the same serialized section.
+        try {
+          await db.put('sync_queue', {
+            id: `sync_inv_${next.id}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+            type: 'inventory',
+            action: 'update',
+            data: next,
+            timestamp: now,
+            synced: 0,
+          });
+        } catch (e) {
+          console.warn('[inventory] sync_queue stock delta failed:', e);
+        }
+        return next;
+      });
+    });
+
+    if (!updated) return null;
+
+    // Cloud-first push (same pattern as update()).
+    try {
+      const { cloudUpsert, ackSyncQueueForEntity } = await import('./cloudConfig');
+      const ok = await cloudUpsert('inventory', updated.id, updated);
+      if (ok) await ackSyncQueueForEntity(updated.id);
+      else void syncService.syncPendingData();
+    } catch {
+      void syncService.syncPendingData();
+    }
+    return updated;
+  },
+
   async deductStock(itemId: string, quantityDeducted: number, notes?: string, referenceId?: string): Promise<void> {
     try {
-      const target = await this.getByIdLocal(itemId);
+      const target = await this.applyStockDelta(itemId, -quantityDeducted);
       if (target) {
-        const newStock = Math.max(0, target.stock - quantityDeducted);
-        await this.update(target.id, { stock: newStock });
-
         await this.createTransaction({
           itemId: target.id,
           itemName: target.name,
@@ -477,11 +540,8 @@ export const inventoryService = {
   async restoreStock(itemId: string, quantityRestored: number, notes?: string, referenceId?: string): Promise<void> {
     try {
       if (quantityRestored <= 0) return;
-      const target = await this.getByIdLocal(itemId);
+      const target = await this.applyStockDelta(itemId, quantityRestored);
       if (target) {
-        const newStock = target.stock + quantityRestored;
-        await this.update(target.id, { stock: newStock });
-
         await this.createTransaction({
           itemId: target.id,
           itemName: target.name,
@@ -557,7 +617,7 @@ export const inventoryService = {
   async getMenuItemRecipe(menuItemId: string): Promise<RecipeIngredient[]> {
     try {
       const store = getWebRecipeStore();
-      let ingredients: RecipeIngredient[] = store[menuItemId] || [];
+      const ingredients: RecipeIngredient[] = store[menuItemId] || [];
 
       // No hardcoded fallback — a menu item with no configured recipe simply yields no deductions.
 

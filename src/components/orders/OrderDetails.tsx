@@ -1,8 +1,7 @@
-import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Order, OrderStatus } from '../../types/order';
-import { X, Clock, CheckCircle2, XCircle, ArrowRight, ArrowLeft, Printer } from 'lucide-react';
+import { X, CheckCircle2, XCircle, ArrowRight, ArrowLeft, Printer } from 'lucide-react';
 import { useSwipe } from '../../hooks/useSwipe';
 import { useIsMobile } from '../../hooks/useIsMobile';
 import { filterItemsBySection } from '../../utils/orderSection';

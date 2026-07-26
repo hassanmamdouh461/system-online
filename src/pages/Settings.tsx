@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import {
   User,
   LogOut,
   Store,
   QrCode,
   Send,
+  KeyRound,
   Settings as SettingsIcon,
 } from 'lucide-react';
 import { motion } from 'framer-motion';
@@ -17,13 +18,14 @@ import { StoreConfigModal } from '../components/settings/StoreConfigModal';
 
 import { QrMenuModal } from '../components/settings/QrMenuModal';
 import { TelegramConfigModal } from '../components/settings/TelegramConfigModal';
+import { CloudKeysModal } from '../components/settings/CloudKeysModal';
 
-type ModalKey = 'profile' | 'store' | 'qr' | 'telegram' | null;
+type ModalKey = 'profile' | 'store' | 'qr' | 'telegram' | 'cloudKeys' | null;
 
 export default function Settings() {
   const [openModal, setOpenModal] = useState<ModalKey>(null);
   const { logout } = useAuth();
-  const { t, language } = useLanguage();
+  const { language } = useLanguage();
 
   const sections = [
     {
@@ -64,6 +66,20 @@ export default function Settings() {
           label: language === 'ar' ? 'تقارير تيليجرام' : 'Telegram Reports',
           desc: language === 'ar' ? 'تقارير المبيعات اليومية' : 'Daily sales report notifications',
           onClick: () => setOpenModal('telegram'),
+        },
+      ],
+    },
+    {
+      title: language === 'ar' ? 'المزامنة السحابية' : 'Cloud Sync',
+      items: [
+        {
+          icon: KeyRound,
+          label: language === 'ar' ? 'مفاتيح المزامنة' : 'Sync Keys',
+          desc:
+            language === 'ar'
+              ? 'رابط الـ Worker ومفتاح الكاشير/المدير'
+              : 'Worker URL and cashier/manager key',
+          onClick: () => setOpenModal('cloudKeys'),
         },
       ],
     },
@@ -141,6 +157,7 @@ export default function Settings() {
 
       <QrMenuModal isOpen={openModal === 'qr'} onClose={() => setOpenModal(null)} />
       <TelegramConfigModal isOpen={openModal === 'telegram'} onClose={() => setOpenModal(null)} />
+      <CloudKeysModal isOpen={openModal === 'cloudKeys'} onClose={() => setOpenModal(null)} />
     </div>
   );
 }

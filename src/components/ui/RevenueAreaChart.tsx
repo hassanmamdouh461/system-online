@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 export interface ChartDataPoint {
@@ -74,7 +74,6 @@ function generateAreaPath(points: { x: number; y: number }[], bottomY: number): 
 export function RevenueAreaChart({
   data,
   currencyStr = 'ج.م',
-  isRtl = true,
   ordersText = 'طلبات',
   height = 280,
 }: RevenueAreaChartProps) {

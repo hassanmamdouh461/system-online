@@ -24,7 +24,6 @@ import { customersService } from '../services/customersService';
 import { companiesService } from '../services/companiesService';
 import { Customer } from '../types/customer';
 import { Company } from '../types/company';
-import { useToast } from '../components/ui/Toast';
 import { isCompanyBilledOrder } from '../utils/accountBalance';
 import { formatOrderNumber, orderSeqSortValue } from '../utils/orderNumber';
 import { printCompanyStatement, printCustomerReceipt } from '../utils/printReceipts';
@@ -228,7 +227,6 @@ function holderMatchesSearch(
 }
 
 export default function Payment() {
-  const toast = useToast();
   const { t, isRtl, language } = useLanguage();
   const { orders: allOrders, error, completeWithPayment, refundOrder } = useOrders();
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
@@ -514,16 +512,6 @@ export default function Payment() {
     } catch (err) {
       console.error('Failed to complete payment:', err);
       alert(t('Failed to complete payment'));
-    }
-  };
-
-  const handleRefund = async (orderId: string, reason: string) => {
-    try {
-      await refundOrder(orderId, reason);
-    } catch (err) {
-      console.error('Refund failed:', err);
-      toast.error(language === 'ar' ? 'فشل الاسترجاع' : 'Refund failed');
-      throw err;
     }
   };
 

@@ -135,7 +135,6 @@ export function printCustomerReceipt(order: Order, lang: 'en' | 'ar' = 'ar') {
   const totalLabel = isRtl ? 'الإجمالي المدفوع' : 'TOTAL PAID';
   const totalUnpaidLabel = isRtl ? 'المطلوب سداده' : 'TOTAL DUE';
   const paymentMethodLabel = isRtl ? 'طريقة الدفع' : 'Payment Method';
-  const statusLabel = isRtl ? 'الحالة' : 'Status';
   const thankYou = isRtl ? 'شكراً لزيارتكم! بالهناء والشفاء ☕' : 'Thank you for your visit! Enjoy ☕';
   const cashierStamp =
     order.paymentStatus === 'Paid'

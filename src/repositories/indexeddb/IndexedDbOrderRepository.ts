@@ -382,7 +382,17 @@ export class IndexedDbOrderRepository implements IOrderRepository {
     });
   }
 
-  async update(id: string, data: Partial<Omit<Order, 'id'>>): Promise<Order> {
+  /**
+   * @param opts.refundPin Refund escalation PIN, verified by the WORKER against
+   *   its own REFUND_PIN secret. A cashier-key device needs it to write refund
+   *   fields; a manager-key device does not. Passed straight to the network call
+   *   and never persisted to IndexedDB.
+   */
+  async update(
+    id: string,
+    data: Partial<Omit<Order, 'id'>>,
+    opts?: { refundPin?: string }
+  ): Promise<Order> {
     return enqueueWrite(async () => {
       return withDB(async (db) => {
         const existing = await db.get('orders', id);
@@ -413,7 +423,7 @@ export class IndexedDbOrderRepository implements IOrderRepository {
         }
 
         void import('../../services/cloudConfig').then(({ cloudUpsert }) =>
-          cloudUpsert('orders', updated.id, updated).then((ok) => {
+          cloudUpsert('orders', updated.id, updated, { refundPin: opts?.refundPin }).then((ok) => {
             if (!ok) void syncService.syncPendingData();
           })
         ).catch(() => void syncService.syncPendingData());

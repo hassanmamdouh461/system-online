@@ -2,10 +2,10 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  Users, Building2, Plus, Search, Phone, Tag, X, Save,
-  ShoppingBag, Trash2, Edit3, UserCircle, BarChart3, Printer,
-  Wallet, DollarSign, Star, ChevronLeft, ChevronRight, FileText,
-  AlertCircle, Check, Award, Undo2
+  Users, Building2, Plus, Search, Phone, X, Save,
+  ShoppingBag, Trash2, Edit3, Printer,
+  Wallet, Star,
+  AlertCircle, Check, Undo2
 } from 'lucide-react';
 import { customersService } from '../services/customersService';
 import { companiesService } from '../services/companiesService';
@@ -85,9 +85,9 @@ function getAvatarGradient(name: string): string {
   return AVATAR_COLORS[index];
 }
 
-export default function CustomersPage({ managerMode = false }: CustomersPageProps) {
+export default function CustomersPage(_props: CustomersPageProps) {
   const { t, language, isRtl } = useLanguage();
-  const { user, branch } = useAuth();
+  const { branch } = useAuth();
   const { orders, deleteOrder, refundOrder } = useOrders();
 
   const taxRate = getTaxRate();
@@ -1009,7 +1009,12 @@ function CustomerProfileDetail({
   language: string;
   allOrders: Order[];
   onDeleteOrder: (id: string) => Promise<void>;
-  onRefundOrder: (id: string, reason?: string) => Promise<void>;
+  /**
+   * Refund from the customer statement view. This surface has no PIN prompt, so
+   * it only succeeds on a manager-key device — a cashier-key device gets a 403
+   * from the worker with a clear Arabic reason, which is the intended behaviour.
+   */
+  onRefundOrder: (id: string, reason?: string, refundPin?: string) => Promise<void>;
 }) {
   const { user } = useAuth();
   const [refundTarget, setRefundTarget] = useState<Order | null>(null);
