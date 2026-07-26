@@ -5,7 +5,11 @@
  */
 import { getDB, enqueueWrite, withDB } from '../repositories/indexeddb/db';
 import { cloudGetCollection, isCloudConfigured, optionalNumber } from './cloudConfig';
-import { hydrateSettingsFromCloud, pushAllLocalSettingsToCloud } from './settingsCloudService';
+import {
+  hydrateSettingsFromCloud,
+  pushAllLocalSettingsToCloud,
+  cleanupUnsyncableSettingQueue,
+} from './settingsCloudService';
 import type { Order } from '../types/order';
 import type { MenuItem } from '../types/menu';
 import type { Customer } from '../types/customer';
@@ -251,8 +255,16 @@ export async function hydrateFromCloud(force = false): Promise<HydrateResult> {
     try {
       await getDB();
 
-      // Settings first so tax/PIN/branch restore before UI reads them
+      // Settings first so tax/PIN/branch restore before UI reads them.
+      // Returns -1 when the read itself failed (unauthorized/offline) vs 0 when
+      // the cloud genuinely has no settings yet — the two are treated differently
+      // for the bootstrap push below.
       const settingsCount = await hydrateSettingsFromCloud();
+
+      // Housekeeping: a cashier till accumulates dead queue rows for manager-only
+      // settings (server 403). Clear them so the "failed" sync badge reflects only
+      // real failures. No-op for manager / not-yet-authenticated sessions.
+      void cleanupUnsyncableSettingQueue();
 
       const [orders, menu, customers, companies, inventory, recipes, transactions] =
         await Promise.all([
@@ -273,7 +285,7 @@ export async function hydrateFromCloud(force = false): Promise<HydrateResult> {
         customers: 0,
         companies: 0,
         inventory: 0,
-        settings: settingsCount,
+        settings: Math.max(settingsCount, 0),
         recipes: 0,
         transactions: 0,
       };
@@ -550,7 +562,11 @@ export async function hydrateFromCloud(force = false): Promise<HydrateResult> {
       // Bootstrap reverse push disabled — menu items sync individually on create/update/delete.
       // This prevents wiped cloud data from being re-uploaded from stale local caches.
 
-      // If no settings on cloud but local has durable keys, push them
+      // If the cloud genuinely has NO settings yet, push local durable keys to
+      // bootstrap it. Deliberately gated on `=== 0`: a failed read returns -1 and
+      // must NOT trigger a push (that would re-upload stale local rows over a
+      // cloud we simply could not read). pushAllLocalSettingsToCloud itself only
+      // sends keys the current role may write.
       if (settingsCount === 0) {
         void pushAllLocalSettingsToCloud();
       }
