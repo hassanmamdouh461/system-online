@@ -128,14 +128,28 @@ export const inventoryService = {
 
       if (typeof navigator !== 'undefined' && navigator.onLine) {
         try {
-          const { cloudGetCollection } = await import('./cloudConfig');
-          const remoteDocs = await cloudGetCollection('inventory');
+          const {
+            cloudGetCollection,
+            getCloudSyncSince,
+            setCloudSyncSince,
+            newestRemoteTimestamp,
+          } = await import('./cloudConfig');
+
+          // Incremental sync: pull only rows changed since our last successful
+          // merge (?since=) instead of the whole table on every poll. A small
+          // overlap absorbs cross-device clock skew; first run pulls everything.
+          const OVERLAP_MS = 2 * 60_000;
+          const storedSince = getCloudSyncSince('inventory');
+          const since = storedSince
+            ? new Date(new Date(storedSince).getTime() - OVERLAP_MS).toISOString()
+            : undefined;
+
+          const remoteDocs = await cloudGetCollection('inventory', since ? { since } : undefined);
+          // null => network/HTTP failure: never mutate local from a failed read.
           if (remoteDocs && remoteDocs.length > 0) {
-            // Read pending queue outside the inventory write tx. A pending row is
-            // a pending tombstone when its data carries deletedAt — the action can
-            // be either 'delete' (legacy hard-delete path) or 'update' (tombstone
-            // path). Either way we must not let a stale cloud row resurrect it.
-            let pendingCreateIds = new Set<string>();
+            // A queued row is a pending tombstone when its data carries deletedAt
+            // or its action is the legacy 'delete'. We must not let a stale cloud
+            // row resurrect a locally-deleted item.
             let pendingDeleteIds = new Set<string>();
             try {
               const pending = await withDB((db) => db.getAll('sync_queue'));
@@ -143,7 +157,6 @@ export const inventoryService = {
                 if (!q || q.type !== 'inventory' || q.synced === 1) continue;
                 const qid = q?.data?.id || q?.data?.documentId;
                 if (!qid) continue;
-                pendingCreateIds.add(qid);
                 if (q?.data?.deletedAt || q.action === 'delete') {
                   pendingDeleteIds.add(qid);
                 }
@@ -157,11 +170,9 @@ export const inventoryService = {
                 const tx = db.transaction('inventory', 'readwrite');
                 const localAll = (await tx.store.getAll()) as InventoryItem[];
                 const localById = new Map(localAll.map((i) => [i.id, i]));
-                const remoteIds = new Set<string>();
 
                 for (const doc of remoteDocs) {
                   const id = String(doc.id || doc.$id);
-                  remoteIds.add(id);
 
                   const local = localById.get(id);
                   const localDeletedAt = local?.deletedAt;
@@ -216,27 +227,25 @@ export const inventoryService = {
                   });
                 }
 
-                // Tombstone (don't hard-delete) local inventory rows the cloud
-                // no longer knows about, so they stay restorable if the cloud
-                // later brings them back. 60s grace window tolerates sync lag.
-                for (const local of localAll) {
-                  if (!remoteIds.has(local.id) && !pendingCreateIds.has(local.id)) {
-                    const ageMs =
-                      Date.now() - new Date(local.createdAt || 0).getTime();
-                    if (ageMs > 60_000 && !local.deletedAt) {
-                      const nowIso = new Date().toISOString();
-                      await tx.store.put({
-                        ...local,
-                        deletedAt: nowIso,
-                        updatedAt: nowIso,
-                      });
-                    }
-                  }
-                }
+                // We deliberately do NOT tombstone local rows absent from this
+                // response. With ?since= the payload is a partial delta, and even
+                // a full snapshot can be truncated by a mid-flight timeout —
+                // treating "absent" as "deleted" would soft-delete valid local
+                // items (data loss). Real deletions arrive as explicit deleted_at
+                // tombstone rows and are applied by the merge above.
                 await tx.done;
               });
             });
+
+            // Advance the high-water mark only after a successful merge.
+            const newest = newestRemoteTimestamp(remoteDocs);
+            if (newest) setCloudSyncSince('inventory', newest);
+
             localItems = await withDB((db) => db.getAll('inventory'));
+          } else if (remoteDocs && remoteDocs.length === 0 && !storedSince) {
+            // First read returned an empty collection: stamp the mark so we
+            // switch to delta mode instead of repeating full reads forever.
+            setCloudSyncSince('inventory', new Date().toISOString());
           }
         } catch (e) {
           console.warn('[inventoryService] remote merge skipped:', e);

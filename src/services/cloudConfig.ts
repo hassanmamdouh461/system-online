@@ -170,10 +170,90 @@ export async function cloudFetch(
   }
 }
 
-export async function cloudGetCollection(collection: string): Promise<any[] | null> {
+/**
+ * Incremental-sync high-water marks. We persist the newest change timestamp we
+ * have merged for a collection so the next read can ask the worker for ONLY the
+ * rows changed since then (?since=), instead of pulling the whole table on every
+ * poll. Two invariants callers must respect:
+ *   1. A read that fails (returns null) MUST NOT advance the mark.
+ *   2. A row being ABSENT from a ?since= response is NOT a deletion — the
+ *      response is a partial delta. Deletions arrive as explicit deleted_at
+ *      tombstone rows and must be applied from the payload, never inferred.
+ */
+const SYNC_SINCE_PREFIX = 'cloud_sync_since:';
+
+export function getCloudSyncSince(collection: string): string | undefined {
   try {
+    return localStorage.getItem(SYNC_SINCE_PREFIX + collection) || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export function setCloudSyncSince(collection: string, iso: string): void {
+  try {
+    const prev = localStorage.getItem(SYNC_SINCE_PREFIX + collection);
+    // Only ever move the mark forward.
+    if (!prev || new Date(iso).getTime() > new Date(prev).getTime()) {
+      localStorage.setItem(SYNC_SINCE_PREFIX + collection, iso);
+    }
+  } catch {
+    // ignore storage failures — we simply fall back to a full read next time
+  }
+}
+
+/**
+ * Newest change timestamp across a batch of remote docs (considers updated_at,
+ * deleted_at and created_at in snake/camel form). Used to advance the ?since=
+ * mark after a successful merge.
+ */
+export function newestRemoteTimestamp(docs: any[]): string | undefined {
+  let maxMs = 0;
+  let maxIso: string | undefined;
+  for (const d of docs || []) {
+    for (const v of [
+      d?.updated_at,
+      d?.updatedAt,
+      d?.deleted_at,
+      d?.deletedAt,
+      d?.created_at,
+      d?.createdAt,
+    ]) {
+      if (!v) continue;
+      const ms = new Date(v).getTime();
+      if (Number.isFinite(ms) && ms > maxMs) {
+        maxMs = ms;
+        maxIso = typeof v === 'string' ? v : new Date(ms).toISOString();
+      }
+    }
+  }
+  return maxIso;
+}
+
+/**
+ * Read a collection's documents from the cloud.
+ *
+ * @param opts.since Return only rows updated after this ISO timestamp (delta /
+ *        incremental sync). Omit for a full snapshot. The worker maps this to
+ *        `WHERE updated_at > ?`, so the caller owns the high-water mark.
+ * @param opts.limit Cap the number of rows returned (worker ceiling: 5000).
+ */
+export async function cloudGetCollection(
+  collection: string,
+  opts?: { since?: string; limit?: number }
+): Promise<any[] | null> {
+  try {
+    let path = `/v1/databases/default/collections/${collection}/documents`;
+    const qs = new URLSearchParams();
+    if (opts?.since) qs.set('since', opts.since);
+    if (typeof opts?.limit === 'number' && Number.isFinite(opts.limit) && opts.limit > 0) {
+      qs.set('limit', String(Math.floor(opts.limit)));
+    }
+    const query = qs.toString();
+    if (query) path += `?${query}`;
+
     const res = await cloudFetch(
-      `/v1/databases/default/collections/${collection}/documents`,
+      path,
       { method: 'GET', timeoutMs: DEFAULT_TIMEOUT_MS }
     );
     if (!res) return null;

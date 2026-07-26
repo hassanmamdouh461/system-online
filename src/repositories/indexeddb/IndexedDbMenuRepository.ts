@@ -2,7 +2,13 @@ import { IMenuRepository } from '../types';
 import { MenuItem } from '../../types/menu';
 import { withDB, enqueueWrite } from './db';
 import { syncService } from '../../services/syncService';
-import { cloudGetCollection, cloudUpsert } from '../../services/cloudConfig';
+import {
+  cloudGetCollection,
+  cloudUpsert,
+  getCloudSyncSince,
+  setCloudSyncSince,
+  newestRemoteTimestamp,
+} from '../../services/cloudConfig';
 
 function mapRemoteMenu(doc: any): MenuItem {
   return {
@@ -101,70 +107,64 @@ export class IndexedDbMenuRepository implements IMenuRepository {
 
     if (typeof navigator !== 'undefined' && navigator.onLine) {
       try {
-        const remoteDocs = await cloudGetCollection('menu_items');
-        if (remoteDocs && remoteDocs.length > 0) {
-          // Read pending queue to know which local ids have an in-flight create/update
-          let pendingCreates = new Map<string, string>();
-          try {
-            const pending = await withDB((db) => db.getAll('sync_queue'));
-            for (const q of pending as any[]) {
-              if (
-                q?.type === 'menu' &&
-                (q.action === 'create' || q.action === 'update') &&
-                q.synced === 0 &&
-                q?.data?.id
-              ) {
-                pendingCreates.set(q.data.id, q.timestamp || q.data.updatedAt || '');
-              }
-            }
-          } catch {
-            // ignore
-          }
+        // Incremental sync: pull only rows changed since our last successful
+        // merge (?since=) instead of the whole table on every 10s poll. A small
+        // overlap absorbs cross-device clock skew; the first run (no mark) pulls
+        // everything and seeds the mark.
+        const OVERLAP_MS = 2 * 60_000;
+        const storedSince = getCloudSyncSince('menu_items');
+        const since = storedSince
+          ? new Date(new Date(storedSince).getTime() - OVERLAP_MS).toISOString()
+          : undefined;
 
-          await enqueueWrite(async () => {
-            await withDB(async (db) => {
-              const tx = db.transaction('menu_items', 'readwrite');
-              const localAll = (await tx.store.getAll()) as MenuItem[];
-              const remoteIds = new Set<string>();
+        const remoteDocs = await cloudGetCollection('menu_items', since ? { since } : undefined);
+        // null => network/HTTP failure: never mutate local from a failed read.
+        if (remoteDocs) {
+          if (remoteDocs.length > 0) {
+            await enqueueWrite(async () => {
+              await withDB(async (db) => {
+                const tx = db.transaction('menu_items', 'readwrite');
+                const localAll = (await tx.store.getAll()) as MenuItem[];
 
-              for (const doc of remoteDocs) {
-                const remote = mapRemoteMenu(doc);
-                const id = remote.id;
-                if (!id) continue;
-                remoteIds.add(id);
+                for (const doc of remoteDocs) {
+                  const remote = mapRemoteMenu(doc);
+                  const id = remote.id;
+                  if (!id) continue;
 
-                const existing = localAll.find((l) => l.id === id);
-                const effectiveDeletedAt = resolveEffectiveDeletedAt(existing, remote);
+                  const existing = localAll.find((l) => l.id === id);
+                  const effectiveDeletedAt = resolveEffectiveDeletedAt(existing, remote);
 
-                const merged: MenuItem = {
-                  ...(existing || ({} as MenuItem)),
-                  ...remote,
-                  id,
-                  branchId: remote.branchId || existing?.branchId,
-                  deletedAt: effectiveDeletedAt,
-                };
-                await tx.store.put(merged);
-              }
-
-              // For local rows that the cloud no longer knows about, write a
-              // tombstone instead of hard-deleting. This way the item stays
-              // restorable if the cloud brings it back later, and it is hidden
-              // from consumers via the deletedAt filter at the end of getAll.
-              // Use a 60s grace window so brief sync lag never tombstones a
-              // brand-new item that simply hasn't propagated yet.
-              for (const local of localAll) {
-                if (!remoteIds.has(local.id) && !pendingCreates.has(local.id)) {
-                  const ageMs = Date.now() - new Date(local.createdAt || 0).getTime();
-                  if (ageMs > 60_000 && !local.deletedAt) {
-                    const now = new Date().toISOString();
-                    await tx.store.put({ ...local, deletedAt: now, updatedAt: now, available: false });
-                  }
+                  const merged: MenuItem = {
+                    ...(existing || ({} as MenuItem)),
+                    ...remote,
+                    id,
+                    branchId: remote.branchId || existing?.branchId,
+                    deletedAt: effectiveDeletedAt,
+                  };
+                  await tx.store.put(merged);
                 }
-              }
-              await tx.done;
+
+                // We deliberately do NOT tombstone local rows that are absent
+                // from this response. With ?since= the payload is a partial
+                // delta, and even a full snapshot can be truncated by a
+                // mid-flight timeout — treating "absent" as "deleted" would
+                // soft-delete valid local items (data loss). Real deletions
+                // arrive as explicit deleted_at tombstone rows and are applied
+                // by the merge above.
+                await tx.done;
+              });
             });
-          });
-          localItems = (await withDB((db) => db.getAll('menu_items'))) as MenuItem[];
+
+            // Advance the high-water mark only after a successful merge.
+            const newest = newestRemoteTimestamp(remoteDocs);
+            if (newest) setCloudSyncSince('menu_items', newest);
+
+            localItems = (await withDB((db) => db.getAll('menu_items'))) as MenuItem[];
+          } else if (!storedSince) {
+            // First read returned an empty collection: stamp the mark so we
+            // switch to delta mode instead of repeating full reads forever.
+            setCloudSyncSince('menu_items', new Date().toISOString());
+          }
         }
       } catch (e) {
         console.warn('[IndexedDbMenuRepository] remote merge skipped:', e);
