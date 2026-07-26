@@ -15,7 +15,7 @@ import { MenuItem } from '../../types/menu';
 import { Order } from '../../types/order';
 import { Customer } from '../../types/customer';
 import { Company } from '../../types/company';
-import { InventoryItem } from '../../global';
+import { InventoryItem } from '../../types/inventory';
 
 export interface SyncRecord {
   id: string;

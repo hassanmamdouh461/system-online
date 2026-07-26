@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { MenuItem } from '../../types/menu';
 import { useLanguage } from '../../context/LanguageContext';
 import { inventoryService } from '../../services/inventoryService';
-import { InventoryItem } from '../../global';
+import { InventoryItem } from '../../types/inventory';
 import { useEditingGuard } from '../../hooks/useEditingGuard';
 import { getIngredientBaseQty } from '../../utils/units';
 import { persistSetting } from '../../services/settingsCloudService';

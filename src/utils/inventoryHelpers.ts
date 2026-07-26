@@ -1,4 +1,4 @@
-import { InventoryItem } from '../global';
+import { InventoryItem } from '../types/inventory';
 
 /**
  * Shared helper to resolve inventory item by ID or legacy 1-indexed fallback ID.

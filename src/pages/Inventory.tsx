@@ -9,7 +9,7 @@ import {
 import { useLanguage } from '../context/LanguageContext';
 import { inventoryService } from '../services/inventoryService';
 import { menuService } from '../services/menuService';
-import { InventoryItem, InventoryTransaction, RecipeIngredient } from '../global';
+import { InventoryItem, InventoryTransaction, RecipeIngredient } from '../types/inventory';
 import { MenuItem } from '../types/menu';
 import { resolveInvItem } from '../utils/inventoryHelpers';
 import { useToast } from '../components/ui/Toast';

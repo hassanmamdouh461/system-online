@@ -1,4 +1,4 @@
-import { InventoryItem, InventoryTransaction, RecipeIngredient } from '../global';
+import { InventoryItem, InventoryTransaction, RecipeIngredient } from '../types/inventory';
 import { getDB, withDB, enqueueWrite } from '../repositories/indexeddb/db';
 import { syncService } from './syncService';
 

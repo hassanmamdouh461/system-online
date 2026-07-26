@@ -18,7 +18,7 @@ import { resolveInvItem } from '../utils/inventoryHelpers';
 import { telegramService, escapeTelegramHtml } from '../services/telegramService';
 import { menuService } from '../services/menuService';
 import { isCloudConfigured, getWorkerUrl } from '../services/cloudConfig';
-import { RecipeIngredient } from '../global';
+import { RecipeIngredient } from '../types/inventory';
 import { lazy, Suspense } from 'react';
 import { LoadingScreen } from '../components/ui/LoadingScreen';
 import { getIngredientBaseQty } from '../utils/units';
