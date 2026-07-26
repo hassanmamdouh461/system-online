@@ -193,6 +193,23 @@ export function mergeOrderRecords(local: OrderLike | undefined, remote: OrderLik
     taxRate: remote.taxRate ?? local.taxRate,
     taxAmount: remote.taxAmount ?? local.taxAmount,
     grandTotal: remote.grandTotal ?? local.grandTotal,
+    // Refund metadata must follow the SAME winner as paymentStatus below.
+    // Previously refundedAt/refundReason were not resolved here, so they fell
+    // through the `...remote` spread: a stale remote copy (refund not uploaded
+    // yet) overwrote a fresh local refund's date/reason with undefined while
+    // paymentStatus still resolved to 'Refunded' — leaving an order shown as
+    // refunded with no record of WHEN or WHY. Resolve them like the other
+    // payment fields, preferring a non-empty value so a refund is never wiped.
+    refundedAt: localWinsPayment
+      ? (local.refundedAt ?? remote.refundedAt)
+      : remoteWinsState
+        ? (remote.refundedAt ?? local.refundedAt)
+        : (local.refundedAt ?? remote.refundedAt),
+    refundReason: localWinsPayment
+      ? (local.refundReason ?? remote.refundReason)
+      : remoteWinsState
+        ? (remote.refundReason ?? local.refundReason)
+        : (local.refundReason ?? remote.refundReason),
     // Payment state: local wins when it paid locally; otherwise prefer remote
     // when remote is clearly newer (e.g. a refund landed in D1 first).
     paymentStatus: localWinsPayment
@@ -229,6 +246,8 @@ type OrderLike = {
   paymentStatus?: string;
   paymentMethod?: string;
   paidAt?: string;
+  refundedAt?: string;
+  refundReason?: string;
   updatedAt?: string;
   deletedAt?: string;
   items?: any[];
