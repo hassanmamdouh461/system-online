@@ -1,5 +1,23 @@
 import { MenuItem } from '../types/menu';
 import { menuRepository } from '../repositories';
+import { cloudGetPublicMenu } from './cloudConfig';
+
+/** Map a worker `/public/menu` document to a MenuItem (mirrors the repository's
+ *  remote mapper, but for the unauthenticated public payload). */
+function mapPublicMenuDoc(doc: any): MenuItem {
+  return {
+    id: String(doc.id || doc.$id),
+    name: doc.name || 'صنف',
+    price: Number(doc.price) || 0,
+    category: doc.category || 'عام',
+    description: doc.description,
+    image: doc.image,
+    available: doc.available !== false && doc.available !== 0,
+    branchId: doc.branch_id || doc.branchId,
+    createdAt: doc.created_at || doc.createdAt,
+    updatedAt: doc.updated_at || doc.updatedAt,
+  };
+}
 
 /**
  * Menu Service - Handles CRUD for Menu Items using repository (IndexedDB for Web)
@@ -12,6 +30,21 @@ export const menuService = {
       console.error('[menuService] Error fetching menu:', error);
       return [];
     }
+  },
+
+  /**
+   * Public, key-less menu read for the customer-facing QR page (/public-menu).
+   * Reads straight from the worker's unauthenticated /public/menu route and does
+   * NOT touch IndexedDB — a guest device has an empty local store and we must not
+   * write tombstones into it. Throws on network/worker failure so the page can
+   * show a retry state instead of a silently empty menu.
+   */
+  async getPublicMenu(): Promise<MenuItem[]> {
+    const docs = await cloudGetPublicMenu();
+    if (docs === null) {
+      throw new Error('Failed to load public menu');
+    }
+    return docs.map(mapPublicMenuDoc);
   },
 
   async create(item: Omit<MenuItem, 'id'>, branchId?: string): Promise<MenuItem> {

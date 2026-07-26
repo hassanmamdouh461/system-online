@@ -190,6 +190,36 @@ export async function cloudGetCollection(collection: string): Promise<any[] | nu
 }
 
 /**
+ * PUBLIC menu read for the customer-facing QR page (/public-menu).
+ *
+ * Anonymous visitors have no API key in localStorage, so the authenticated
+ * collections endpoint returns 401 and the menu renders empty. This hits the
+ * worker's unauthenticated `/public/menu` route instead, which returns only the
+ * live, available items. `cloudFetch` still attaches the key when an operator
+ * happens to be signed in, but the endpoint does not require it, so a guest with
+ * no key gets a clean 200. Returns null on failure so the caller can surface an
+ * error state instead of silently showing an empty menu.
+ */
+export async function cloudGetPublicMenu(): Promise<any[] | null> {
+  try {
+    const res = await cloudFetch('/public/menu', {
+      method: 'GET',
+      timeoutMs: DEFAULT_TIMEOUT_MS,
+    });
+    if (!res) return null;
+    if (!res.ok) {
+      console.warn(`[cloud] GET public menu failed: HTTP ${res.status}`);
+      return null;
+    }
+    const json = await res.json();
+    return Array.isArray(json?.documents) ? json.documents : [];
+  } catch (err) {
+    console.warn('[cloud] GET public menu error:', err);
+    return null;
+  }
+}
+
+/**
  * Immediate upsert to D1 (Cloud-first path).
  * Returns true on success, false on offline/failure (caller should queue).
  */

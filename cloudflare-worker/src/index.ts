@@ -85,6 +85,43 @@ export default {
       });
     }
 
+    // 2b. PUBLIC, UNAUTHENTICATED read path for the customer-facing QR menu.
+    //
+    // /public-menu is served OUTSIDE ProtectedRoute, so a guest who scans the QR
+    // code has no API key in localStorage. Routing their request through the
+    // authenticated /v1/.../collections path returned 401 and the guest saw an
+    // empty menu. This endpoint returns ONLY live, available menu items — no other
+    // collections, no customer data, no tombstoned/unavailable rows — so a guest
+    // can read the menu without a key. Deliberately handled before the token check.
+    if (request.method === "GET") {
+      const publicPath = new URL(request.url).pathname.replace(/\/+$/, "");
+      if (publicPath === "/public/menu" || publicPath === "/public/menu_items") {
+        try {
+          const { results } = await env.DB
+            .prepare(
+              "SELECT * FROM menu_items WHERE (deleted_at IS NULL OR deleted_at = '') AND available = 1"
+            )
+            .all();
+          const documents = (results || []).map((row) => denormalizeData("menu_items", row));
+          return new Response(JSON.stringify({ documents }), {
+            status: 200,
+            headers: {
+              "Content-Type": "application/json",
+              // Brief edge cache so a burst of QR scans doesn't hammer D1.
+              "Cache-Control": "public, max-age=30",
+              ...corsHeaders
+            }
+          });
+        } catch (err: any) {
+          console.error("[worker] public menu read failed:", err?.message || err);
+          return new Response(
+            JSON.stringify({ error: "Internal Error", message: "Failed to load public menu" }),
+            { status: 500, headers: { "Content-Type": "application/json", ...corsHeaders } }
+          );
+        }
+      }
+    }
+
     {
       const authHeader = request.headers.get("Authorization");
       const apiKeyHeader = request.headers.get("X-API-Key");

@@ -116,7 +116,7 @@ export default function PublicMenu() {
     async function loadMenu() {
       try {
         setLoading(true);
-        const fetchedItems = await menuService.getAll();
+        const fetchedItems = await menuService.getPublicMenu();
         const categorizedItems = fetchedItems.map(smartCategorize);
         setItems(categorizedItems);
       } catch (err) {
