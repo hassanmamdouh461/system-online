@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, ReactNode } from 'react';
+import { createContext, useContext, useState, ReactNode } from 'react';
 import { verifyAdminCredentials, verifyManagerCredentials } from '../utils/settingsConfig';
 
 const LS_SESSION_KEY = 'auth_session_system_online';

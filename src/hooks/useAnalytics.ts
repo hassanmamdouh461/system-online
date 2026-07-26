@@ -72,13 +72,6 @@ const CHART_CONFIG: Record<AnalyticsPeriod, {
   },
 };
 
-// ─── Top Items ───────────────────────────────────────────────────────────────
-const TOP_ITEMS_BOOST: Record<AnalyticsPeriod, TopItem[]> = {
-  'Today': [],
-  'This Week': [],
-  'This Month': [],
-  'This Year': [],
-};
 
 // ─── Period filter ────────────────────────────────────────────────────────────
 // Day bucketing now lives in src/utils/businessDay.ts (inBusinessPeriod), so a

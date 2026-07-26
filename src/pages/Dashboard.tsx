@@ -1,17 +1,13 @@
-import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useLanguage } from '../context/LanguageContext';
 import { useAuth } from '../context/AuthContext';
 import { motion } from 'framer-motion';
 import { 
-  LayoutDashboard, 
   ClipboardList, 
   CreditCard, 
   UtensilsCrossed, 
-  Users, 
   BarChart3, 
   Settings,
-  Languages,
   Coffee,
   Building2,
   Package
@@ -29,7 +25,7 @@ const descMap: Record<string, { en: string, ar: string }> = {
 
 export default function Dashboard() {
   const navigate = useNavigate();
-  const { t, language, toggleLanguage } = useLanguage();
+  const { t, language } = useLanguage();
   const { user, branch } = useAuth();
 
   const allNavItems = [
@@ -112,7 +108,7 @@ export default function Dashboard() {
       {/* Grid of Pages */}
       <div className="flex-1 flex items-center justify-center">
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4 md:gap-6 w-full max-w-5xl">
-          {navItems.map((item, index) => {
+          {navItems.map((item) => {
             const Icon = item.icon;
             const desc = descMap[item.key][language as 'en' | 'ar'];
             

@@ -16,7 +16,15 @@ export interface IOrderRepository {
   /** Local IndexedDB only — no cloud merge (use after renumber / offline UI). */
   getAllLocal?(branchId?: string): Promise<Order[]>;
   create(order: Omit<Order, 'id'>, branchId?: string): Promise<Order>;
-  update(id: string, data: Partial<Omit<Order, 'id'>>): Promise<Order>;
+  /**
+   * @param opts.refundPin Refund escalation PIN verified server-side by the
+   *   worker. Needed only when a cashier-key device writes refund fields.
+   */
+  update(
+    id: string,
+    data: Partial<Omit<Order, 'id'>>,
+    opts?: { refundPin?: string }
+  ): Promise<Order>;
   updateStatus(id: string, status: OrderStatus): Promise<Order>;
   completeWithPayment(id: string, method: 'Cash' | 'Card' | 'OnAccount', patch?: Partial<Omit<Order, 'id'>>): Promise<Order>;
   delete(id: string): Promise<void>;

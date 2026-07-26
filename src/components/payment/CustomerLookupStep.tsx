@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import {
   Phone, Search, UserPlus, UserCheck, SkipForward, Loader2,
-  Building2, Coins, CheckCircle2
+  Building2, CheckCircle2
 } from 'lucide-react';
 import { customersService } from '../../services/customersService';
 import { companiesService } from '../../services/companiesService';
@@ -52,7 +52,7 @@ export function CustomerLookupStep({
   const [phase, setPhase] = useState<Phase>('input');
   const [found, setFound] = useState<Customer | null>(null);
   const [foundCompany, setFoundCompany] = useState<Company | null>(null);
-  const [source, setSource] = useState<'local' | 'server' | 'none'>('none');
+  const [, setSource] = useState<'local' | 'server' | 'none'>('none');
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const [allCustomers, setAllCustomers] = useState<Customer[]>([]);

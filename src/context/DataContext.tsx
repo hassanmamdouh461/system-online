@@ -29,7 +29,11 @@ interface OrdersState {
   addOrder: (order: Omit<Order, 'id'>) => Promise<Order | null>;
   updateOrderStatus: (id: string, status: OrderStatus) => Promise<void>;
   completeWithPayment: (id: string, method?: 'Cash' | 'Card' | 'OnAccount', patch?: Partial<Omit<Order, 'id'>>) => Promise<void>;
-  refundOrder: (id: string, reason?: string) => Promise<void>;
+  /**
+   * @param refundPin Escalation PIN verified by the worker. Required when the
+   *   device holds only a cashier key; managers may omit it.
+   */
+  refundOrder: (id: string, reason?: string, refundPin?: string) => Promise<void>;
   updateOrder: (id: string, data: Partial<Omit<Order, 'id'>>) => Promise<void>;
   deleteOrder: (id: string) => Promise<void>;
   refetch: () => Promise<void>;
@@ -360,7 +364,7 @@ async function applyOrderInventory(
    * Void/refund a paid order: mark payment Refunded, restore inventory,
    * keep kitchen history but stop counting revenue.
    */
-  const refundOrder = useCallback(async (id: string, reason?: string) => {
+  const refundOrder = useCallback(async (id: string, reason?: string, refundPin?: string) => {
     const existing = ordersListRef.current.find(o => o.id === id);
     if (!existing) throw new Error('Order not found');
     if (existing.paymentStatus !== 'Paid') {
@@ -370,12 +374,15 @@ async function applyOrderInventory(
       // still allow refund path
     }
 
+    // `refundPin` is forwarded to the worker, which verifies it against its own
+    // REFUND_PIN secret. The old client-side-only PIN check was bypassable with
+    // curl and editable from DevTools; this makes the escalation real.
     const updatedOrder = await orderRepository.update(id, {
       paymentStatus: 'Refunded',
       refundedAt: new Date().toISOString(),
       refundReason: reason || 'Refund / void',
       status: existing.status === 'Cancelled' ? existing.status : 'Cancelled',
-    });
+    }, { refundPin });
     setOrdersList(prev => prev.map(o => (o.id === id ? updatedOrder : o)));
     try {
       await applyOrderInventory(existing, 'restore');

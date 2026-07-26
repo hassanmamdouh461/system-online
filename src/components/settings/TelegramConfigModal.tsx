@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { X, Send, Key, Hash, Clock, ShieldCheck, AlertCircle, ToggleLeft, ToggleRight } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';

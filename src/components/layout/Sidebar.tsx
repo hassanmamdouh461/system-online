@@ -1,12 +1,10 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { 
-  LayoutDashboard, 
   ClipboardList, 
   CreditCard, 
   BarChart3, 
   Settings, 
   Coffee,
-  ChefHat,
   ChevronLeft,
   ChevronRight,
   X,

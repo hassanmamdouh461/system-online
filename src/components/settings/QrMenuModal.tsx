@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { X, Copy, Check, Printer, Download, QrCode } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';

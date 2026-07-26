@@ -63,7 +63,7 @@ export default function PublicMenu() {
     
     const nameLower = (item.name || '').toLowerCase();
     let menuCategory = 'Hot Coffee';
-    let prepDest = 'Bar';
+    const prepDest = 'Bar';
     
     const frappeKw = ['frappe', 'frappé'];
     const milkshakeKw = ['milkshake', 'milk shake'];

@@ -129,7 +129,6 @@ export function MenuModal({ isOpen, onClose, onSave, initialData, existingItems 
   // - initialData?.id === undefined  → "new item" form
   // - initialData?.id === <someId>   → "edit item" form for that id
   // Closing/reopening without changing the id keeps the draft intact.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   const editedItemId = initialData?.id;
   useEffect(() => {
     if (!isOpen) return;

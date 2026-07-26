@@ -44,30 +44,77 @@ export function getWorkerUrl(): string {
   return '';
 }
 
-export function getApiKey(): string {
-  // SECURITY: API key must NEVER be read from import.meta.env (VITE_* vars are
-  // inlined into the client bundle and would leak to any user opening devtools).
-  // The key is stored only in localStorage and entered by the operator via
-  // Settings → Cloud Sync. Electron reads it directly from the .env file.
-  if (typeof window !== 'undefined') {
-    try {
-      return String(localStorage.getItem('brewmaster_d1_api_key') || '').trim();
-    } catch {
-      return '';
-    }
+/**
+ * Role-scoped worker keys.
+ *
+ * The worker derives the caller's role from WHICH key is presented, so a till
+ * holding only the cashier key cannot perform manager operations even if the
+ * local React session has been tampered with to claim `role: 'manager'`.
+ *
+ * SECURITY: neither key may be read from import.meta.env — VITE_* vars are
+ * inlined into the client bundle and would leak to anyone opening devtools.
+ * Both are stored only in localStorage, entered by the operator in
+ * Settings → Cloud Sync.
+ */
+const LS_CASHIER_KEY = 'brewmaster_d1_api_key';
+const LS_MANAGER_KEY = 'brewmaster_d1_manager_key';
+
+function readLocal(key: string): string {
+  if (typeof window === 'undefined') return '';
+  try {
+    return String(localStorage.getItem(key) || '').trim();
+  } catch {
+    return '';
   }
-  return '';
 }
 
-/** Persist the Cloudflare Worker API key to localStorage only (never bundled). */
+/**
+ * The key used to authenticate outbound requests.
+ *
+ * Prefers the manager key when this device has one: a manager needs manager
+ * rights for everything it does, including background sync of menu and
+ * inventory edits. A till that was never given a manager key falls back to the
+ * cashier key and is therefore constrained by the server-side matrix.
+ */
+export function getApiKey(): string {
+  const managerKey = readLocal(LS_MANAGER_KEY);
+  if (managerKey) return managerKey;
+  return readLocal(LS_CASHIER_KEY);
+}
+
+/** True when this device holds a manager-scoped key. */
+export function hasManagerKey(): boolean {
+  return !!readLocal(LS_MANAGER_KEY);
+}
+
+export function getManagerKey(): string {
+  return readLocal(LS_MANAGER_KEY);
+}
+
+/** Persist the manager-scoped worker key. Pass '' to remove it. */
+export function setManagerKey(key: string): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const trimmed = String(key || '').trim();
+    if (trimmed) {
+      localStorage.setItem(LS_MANAGER_KEY, trimmed);
+    } else {
+      localStorage.removeItem(LS_MANAGER_KEY);
+    }
+  } catch {
+    // ignore
+  }
+}
+
+/** Persist the cashier-scoped Worker API key to localStorage only (never bundled). */
 export function setApiKey(key: string): void {
   if (typeof window === 'undefined') return;
   try {
     const trimmed = String(key || '').trim();
     if (trimmed) {
-      localStorage.setItem('brewmaster_d1_api_key', trimmed);
+      localStorage.setItem(LS_CASHIER_KEY, trimmed);
     } else {
-      localStorage.removeItem('brewmaster_d1_api_key');
+      localStorage.removeItem(LS_CASHIER_KEY);
     }
   } catch {
     // ignore
@@ -112,8 +159,156 @@ export function normalizeBranchId(_branchId?: string): string {
   return MAIN_BRANCH_ID;
 }
 
+/**
+ * Whether a worker URL is present. This is a CONFIGURATION check only — it says
+ * nothing about whether that worker answers. Do not use it to tell the operator
+ * that backups are working; use checkCloudHealth() / getLastGoodHealth().
+ */
 export function isCloudConfigured(): boolean {
   return !!getWorkerUrl();
+}
+
+/**
+ * Whether the cloud is configured AND actually verified reachable.
+ *
+ * `isCloudConfigured()` returns true as soon as a URL string exists, so a typo'd
+ * or torn-down worker still read as "configured" and the UI reported the cloud
+ * as healthy while nothing was being backed up. This requires a real, recent
+ * successful /api/health round-trip.
+ *
+ * Currently "verified" means a live D1 probe. Once server-side sessions land
+ * (feat/server-side-auth), this is the natural place to also require a valid
+ * session, since an authenticated probe proves more than an anonymous one.
+ */
+export function isCloudVerified(): boolean {
+  if (!getWorkerUrl()) return false;
+  const last = getLastGoodHealth();
+  if (!last) return false;
+  return Date.now() - new Date(last.checkedAt).getTime() < HEALTH_TRUST_WINDOW_MS;
+}
+
+// ─── Cloud health probe ───────────────────────────────────────────────────────
+
+/** A cached successful probe older than this is no longer trusted. */
+const HEALTH_TRUST_WINDOW_MS = 5 * 60 * 1000;
+
+/**
+ * Health probes must fail FAST. The operator has to see a red badge within a
+ * minute of the worker dying, and DatabaseStatus polls once a minute, so an
+ * 8s default would leave the stale state on screen far too long.
+ */
+const HEALTH_TIMEOUT_MS = 5000;
+
+const LAST_GOOD_HEALTH_KEY = 'cloud_health_last_good';
+
+export interface CloudHealth {
+  /** True only when the worker answered AND its D1 probe succeeded. */
+  ok: boolean;
+  /** 'ok' | 'error' | 'unconfigured' | 'unreachable' | 'unauthorized' */
+  db: string;
+  /** Newest write timestamp the worker can see, when known. */
+  lastWriteAt?: string | null;
+  orderCount?: number | null;
+  /** When the client completed this probe (ISO). */
+  checkedAt: string;
+  message?: string;
+}
+
+/**
+ * Ask the worker whether it can really reach D1.
+ *
+ * Never throws: a network failure is a health *result* (`unreachable`), not an
+ * exception, because the whole point is to report the outage rather than let a
+ * caller's try/catch swallow it into a success path.
+ */
+export async function checkCloudHealth(): Promise<CloudHealth> {
+  const now = () => new Date().toISOString();
+  const base = getWorkerUrl();
+
+  if (!base) {
+    return { ok: false, db: 'unconfigured', checkedAt: now() };
+  }
+  if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    return { ok: false, db: 'unreachable', message: 'offline', checkedAt: now() };
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), HEALTH_TIMEOUT_MS);
+  try {
+    // No auth header on purpose: /api/health sits in front of the worker's token
+    // gate so an expired key cannot masquerade as a dead database.
+    const res = await fetch(`${base}/api/health`, {
+      method: 'GET',
+      cache: 'no-store',
+      signal: controller.signal,
+    });
+
+    let body: any = null;
+    try {
+      body = await res.json();
+    } catch {
+      // Non-JSON reply (HTML error page, proxy interstitial) — treat as down.
+    }
+
+    if (res.ok && body?.ok === true) {
+      const health: CloudHealth = {
+        ok: true,
+        db: 'ok',
+        lastWriteAt: body.lastWriteAt ?? null,
+        orderCount: typeof body.orderCount === 'number' ? body.orderCount : null,
+        checkedAt: now(),
+      };
+      rememberGoodHealth(health);
+      return health;
+    }
+
+    if (res.status === 401 || res.status === 403) {
+      return { ok: false, db: 'unauthorized', checkedAt: now() };
+    }
+
+    return {
+      ok: false,
+      db: body?.db || 'error',
+      message: body?.message || `HTTP ${res.status}`,
+      checkedAt: now(),
+    };
+  } catch (err: any) {
+    const aborted = err?.name === 'AbortError';
+    return {
+      ok: false,
+      db: 'unreachable',
+      message: aborted ? `timeout after ${HEALTH_TIMEOUT_MS}ms` : err?.message || 'fetch failed',
+      checkedAt: now(),
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function rememberGoodHealth(health: CloudHealth): void {
+  try {
+    localStorage.setItem(LAST_GOOD_HEALTH_KEY, JSON.stringify(health));
+  } catch {
+    // Storage full / disabled — the in-memory result is still returned.
+  }
+}
+
+/**
+ * The last probe that actually succeeded, or null.
+ *
+ * Persisted so a page reload does not reset the operator's view of when the
+ * cloud was last confirmed healthy.
+ */
+export function getLastGoodHealth(): CloudHealth | null {
+  try {
+    const raw = localStorage.getItem(LAST_GOOD_HEALTH_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed?.checkedAt || Number.isNaN(new Date(parsed.checkedAt).getTime())) return null;
+    return parsed as CloudHealth;
+  } catch {
+    return null;
+  }
 }
 
 export function buildCloudHeaders(extra?: Record<string, string>): Record<string, string> {
@@ -128,6 +323,22 @@ export function buildCloudHeaders(extra?: Record<string, string>): Record<string
     headers['X-API-Key'] = key;
   }
   return headers;
+}
+
+/**
+ * Refund escalation header.
+ *
+ * A cashier key cannot write refund fields on its own. To perform a refund the
+ * cashier must present the refund PIN, which the WORKER verifies against its
+ * own REFUND_PIN secret. The old flow checked the PIN in PaymentModal against
+ * localStorage, which `curl` bypassed completely and DevTools could overwrite.
+ *
+ * The PIN is attached per-request and never persisted here.
+ */
+export function buildRefundHeaders(pin: string): Record<string, string> {
+  const trimmed = String(pin || '').trim();
+  if (!trimmed) return buildCloudHeaders();
+  return buildCloudHeaders({ 'X-Refund-PIN': trimmed });
 }
 
 /** Parse number from cloud payloads without turning null into 0. */
@@ -306,7 +517,8 @@ export async function cloudGetPublicMenu(): Promise<any[] | null> {
 export async function cloudUpsert(
   collection: string,
   id: string,
-  data: Record<string, any>
+  data: Record<string, any>,
+  opts?: { refundPin?: string }
 ): Promise<boolean> {
   if (!id) return false;
   const payload: Record<string, any> = { ...data, id };
@@ -320,6 +532,10 @@ export async function cloudUpsert(
         method: 'POST',
         timeoutMs: DEFAULT_TIMEOUT_MS,
         body: JSON.stringify({ documentId: id, data: payload }),
+        // Refund escalation travels only on this direct, online call. A queued
+        // replay cannot carry it (we must never persist a PIN to IndexedDB), so
+        // a cashier refund requires connectivity at the moment of refund.
+        ...(opts?.refundPin ? { headers: { 'X-Refund-PIN': opts.refundPin } } : {}),
       }
     );
     if (!res) return false;
