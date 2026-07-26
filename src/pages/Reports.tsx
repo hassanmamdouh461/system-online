@@ -259,6 +259,15 @@ export default function Reports() {
     return { takeaway, dineIn, total };
   }, [analytics.periodOrders, dateRange]);
 
+  // Outstanding receivables: lifetime (all on-account invoices still open),
+  // matching ManagerDashboard's receivablesData semantics.
+  // NOTE: must stay above the early returns below — Rules of Hooks.
+  const totalReceivables = useMemo(() => {
+    return (allOrders || [])
+      .filter(o => o.paymentStatus === 'OnAccount' && o.status !== 'Cancelled')
+      .reduce((sum, o) => sum + getOrderGrandTotal(o, taxRate), 0);
+  }, [allOrders, taxRate]);
+
   if (analytics.loading) return <LoadingScreen />;
   if (analytics.error) {
     return (
@@ -276,14 +285,6 @@ export default function Reports() {
   const currencyStr = language === 'ar' ? 'ج.م' : 'EGP';
   const maxSale     = Math.max(1, ...(chartData || []).map(d => d.value));
   const maxItemCount = Math.max(1, ...(topItems || []).map(i => i.count));
-
-  // Outstanding receivables: lifetime (all on-account invoices still open),
-  // matching ManagerDashboard's receivablesData semantics.
-  const totalReceivables = useMemo(() => {
-    return (allOrders || [])
-      .filter(o => o.paymentStatus === 'OnAccount' && o.status !== 'Cancelled')
-      .reduce((sum, o) => sum + getOrderGrandTotal(o, taxRate), 0);
-  }, [allOrders, taxRate]);
 
   // Stat cards — when dateRange = 'Today', these equal Dashboard's values exactly
   const statCards = [
