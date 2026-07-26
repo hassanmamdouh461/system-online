@@ -94,6 +94,65 @@ export const CASHIER_ALLOWED_SETTING_KEYS: readonly string[] = [
 ];
 
 /**
+ * Settings keys a cashier may never READ.
+ *
+ * This closes the leak the old worker left wide open. `permissions.can()` blocked
+ * cashier WRITES to these keys, but every GET returned ALLOW for all roles, so a
+ * cashier tab could simply:
+ *
+ *   fetch('/v1/.../collections/settings/documents/global::brewmaster_manager_creds_v1',
+ *         { credentials: 'include' }).then(r => r.json())
+ *
+ * ...and read the manager PBKDF2 hash + salt (the privilege-escalation target),
+ * the refund PIN hash, and — worst — the Telegram bot token IN PLAINTEXT. A read
+ * of these is a real breach, so cashier GET responses are filtered against this
+ * list in index.ts.
+ *
+ * NOTE — this is deliberately NARROWER than CASHIER_FORBIDDEN_SETTING_KEYS:
+ *   • The cashier's OWN credential (brewmaster_admin_creds_v2) stays readable so
+ *     the client can still verify a cashier login; a cashier reading their own
+ *     password hash is not an escalation.
+ *   • Operational config a cashier needs during a shift (tax rate, store/branch
+ *     config for receipts) stays readable.
+ * Manager login on a cashier device no longer depends on the cashier being able
+ * to read the manager hash — the client falls back to the Worker's server-side
+ * password verification (auth.ts resolvePasswordRole), which reads D1 directly.
+ */
+export const CASHIER_FORBIDDEN_READ_SETTING_KEYS: readonly string[] = [
+  "brewmaster_manager_creds_v1",
+  "brewmaster_admin_pin",
+  "brewmaster_telegram_config",
+  "brewmaster_telegram_bot_token",
+  "brewmaster_telegram_chat_id",
+];
+
+/**
+ * Tables whose rows a cashier may not READ at all.
+ *
+ * A `snapshots` row embeds the ENTIRE settings blob (see snapshotService
+ * buildSnapshotPayload → collectLocalSettings), so it carries the manager hash,
+ * the refund PIN and the Telegram token inside its JSON payload. Filtering the
+ * `settings` collection but leaving `snapshots` open would just move the leak one
+ * endpoint over. Nothing on a cashier device reads snapshots (getLatestSnapshot
+ * is unused and restoreFromSnapshotIfNeeded is a no-op), so denying the read is
+ * zero-impact — a cashier device still WRITES its backups normally.
+ */
+export const CASHIER_UNREADABLE_TABLES: readonly string[] = ["snapshots"];
+
+/** May this role read a given settings key? Managers read everything. */
+export function canReadSettingKey(role: Role, key: string | null | undefined): boolean {
+  if (role === "manager") return true;
+  if (!key) return true; // rows with no resolvable key are non-sensitive by construction
+  return !CASHIER_FORBIDDEN_READ_SETTING_KEYS.includes(String(key).trim());
+}
+
+/** May this role read ANY row of a table? Managers read everything. */
+export function canReadTable(role: Role, table: string): boolean {
+  if (role === "manager") return true;
+  return !CASHIER_UNREADABLE_TABLES.includes(table);
+}
+
+/**
  * Order fields a cashier may never CHANGE.
  *
  * `refundedAt`/`refundReason` are the refund mechanism itself — without this a
