@@ -1,6 +1,12 @@
 import { createContext, useContext, useState, ReactNode } from 'react';
 import { verifyAdminCredentials, verifyManagerCredentials } from '../utils/settingsConfig';
-import { setSessionCredential, ensureCloudSession, clearCloudSession } from '../services/cloudConfig';
+import {
+  setSessionCredential,
+  ensureCloudSession,
+  clearCloudSession,
+  getSessionRole,
+  isCloudConfigured,
+} from '../services/cloudConfig';
 
 const LS_SESSION_KEY = 'auth_session_system_online';
 
@@ -75,9 +81,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const isManager = resolveManagerIntent(role);
 
-    const isValid = isManager 
+    let isValid = isManager
       ? await verifyManagerCredentials('manager', password)
       : await verifyAdminCredentials('admin', password);
+
+    // Server-authoritative fallback. Client-side verification reads the credential
+    // hash from local/cloud settings, but a cashier session is (correctly) no
+    // longer allowed to read the MANAGER credential row from the Worker — so on a
+    // shared or fresh till the local check can fail for a perfectly valid manager
+    // password. The Worker verifies the password directly against the D1 hashes and
+    // mints a role-bearing session, so a server role that matches the login intent
+    // is authoritative. Both sides use the same KDF (PBKDF2-100k), so they never
+    // disagree on a password that is actually correct.
+    if (!isValid && isCloudConfigured()) {
+      setSessionCredential(password);
+      const minted = await ensureCloudSession(true);
+      const serverRole = getSessionRole();
+      if (minted && ((isManager && serverRole === 'manager') || (!isManager && serverRole === 'cashier'))) {
+        isValid = true;
+      } else {
+        // Wrong password, or the OTHER role's password typed on this screen: drop
+        // any session the mint attempt may have established so we fail cleanly.
+        void clearCloudSession();
+      }
+    }
 
     if (!isValid) {
       throw new Error('كلمة المرور غير صحيحة');

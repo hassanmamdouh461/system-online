@@ -12,7 +12,22 @@ import {
 import { withDB, enqueueWrite, SyncRecord } from '../repositories/indexeddb/db';
 import { syncService } from './syncService';
 
-/** Settings that must survive browser wipe */
+/**
+ * Settings that must survive browser wipe (synced to Cloudflare D1).
+ *
+ * SECURITY: the Telegram keys (brewmaster_telegram_config / _bot_token /
+ * _chat_id) are intentionally NOT here. The bot token is a plaintext credential;
+ * syncing it put it in a shared D1 row that every authenticated device could read
+ * and that got copied verbatim into every snapshot payload. It now lives only in
+ * localStorage on the device that configured it (the manager's), which is where
+ * the daily report is sent from anyway. Long term it belongs in a Worker
+ * `wrangler secret` with server-side sending.
+ *
+ * The credential HASHES (admin/manager creds, admin PIN) DO stay here: the Worker
+ * needs them in D1 to verify passwords server-side (auth.ts resolvePasswordRole)
+ * and other devices hydrate them to log in. They are PBKDF2-100k hashes, and the
+ * Worker now blocks cashier reads of them (permissions.ts read filter).
+ */
 export const DURABLE_SETTING_KEYS = [
   'brewmaster_tax_rate',
   'brewmaster_admin_creds_v2',
@@ -20,9 +35,6 @@ export const DURABLE_SETTING_KEYS = [
   'brewmaster_admin_pin',
   'brewmaster_branch_config',
   'brewmaster_store_config',
-  'brewmaster_telegram_config',
-  'brewmaster_telegram_bot_token',
-  'brewmaster_telegram_chat_id',
   'brewmaster_language',
   'pos_tables_list',
   'removed_menu_categories',

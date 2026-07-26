@@ -374,17 +374,26 @@ export function getTelegramConfig(): TelegramConfig {
 }
 
 export function setTelegramConfig(config: TelegramConfig): void {
-  const payload = JSON.stringify(config);
-  localStorage.setItem(LS_TELEGRAM_CONFIG_KEY, payload);
-  cloudPersist(LS_TELEGRAM_CONFIG_KEY, payload);
-  // Also mirror legacy keys used by telegramService
+  // SECURITY: the Telegram bot token is a plaintext credential. It is stored
+  // DEVICE-LOCAL only and is deliberately NOT pushed to Cloudflare D1 — a synced
+  // token sat in a shared settings row that every authenticated device (incl. a
+  // cashier till) could read, and it was copied into every snapshot payload. The
+  // daily report is sent from the manager's own device, which reads these
+  // localStorage values directly, so keeping them local does not break sending.
+  // (These keys were also removed from DURABLE_SETTING_KEYS so persist/hydrate/
+  // snapshot never carry them to the cloud.) There is intentionally no cloudPersist
+  // here anymore.
+  localStorage.setItem(LS_TELEGRAM_CONFIG_KEY, JSON.stringify(config));
+  // Mirror the legacy flat keys read by telegramService.getStoredConfig().
   if (config.botToken) {
     localStorage.setItem('brewmaster_telegram_bot_token', config.botToken);
-    cloudPersist('brewmaster_telegram_bot_token', config.botToken);
+  } else {
+    localStorage.removeItem('brewmaster_telegram_bot_token');
   }
   if (config.chatId) {
     localStorage.setItem('brewmaster_telegram_chat_id', config.chatId);
-    cloudPersist('brewmaster_telegram_chat_id', config.chatId);
+  } else {
+    localStorage.removeItem('brewmaster_telegram_chat_id');
   }
 }
 
