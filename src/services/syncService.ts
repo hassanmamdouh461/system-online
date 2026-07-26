@@ -108,6 +108,22 @@ export class SyncService {
         const failed = open.filter((r) => r.dead || (r.attempts || 0) >= MAX_ATTEMPTS).length;
         const lastErr =
           open.map((r) => r.lastError).filter(Boolean).slice(-1)[0] || this.lastError;
+        // this.lastSuccessAt only covers writes made since this tab loaded, so
+        // after a refresh it is null and a caller cannot tell "never synced"
+        // apart from "synced five minutes ago". syncedAt is already persisted on
+        // every successful record, so recover the real high-water mark from the
+        // queue and keep whichever is newer.
+        let lastSuccessAt = this.lastSuccessAt;
+        for (const r of all) {
+          if (r.synced === 1 && r.syncedAt) {
+            if (
+              !lastSuccessAt ||
+              new Date(r.syncedAt).getTime() > new Date(lastSuccessAt).getTime()
+            ) {
+              lastSuccessAt = r.syncedAt;
+            }
+          }
+        }
         return {
           configured: !!workerUrl,
           workerUrl,
@@ -115,7 +131,7 @@ export class SyncService {
           pending,
           failed,
           lastError: lastErr || null,
-          lastSuccessAt: this.lastSuccessAt,
+          lastSuccessAt,
         };
       });
     } catch {
@@ -229,6 +245,28 @@ export class SyncService {
       }
 
       const errBody = await response.text().catch(() => '');
+
+      // A 403 that is NOT a CSRF failure is a DETERMINISTIC, per-record permission
+      // denial from the server-side matrix (cloudflare-worker/src/permissions.ts):
+      // retrying the identical payload can only fail again. Retire it immediately
+      // with an operator-readable reason instead of burning retries and stalling
+      // every legitimate record queued behind it. (CSRF-failed 403s were already
+      // re-minted + retried above and fall through to normal backoff here.)
+      const csrfFailed = response.headers.get('X-CSRF-Failed') === '1';
+      if (response.status === 403 && !csrfFailed) {
+        const reason = this.extractServerMessage(errBody);
+        const msg = reason || 'العملية غير مسموحة بصلاحيتك الحالية (403)';
+        this.lastError = msg;
+        console.warn(
+          '[SyncService] Write refused by server permissions:',
+          record.type,
+          record.action,
+          msg
+        );
+        await this.retirePermanently(record, msg);
+        return;
+      }
+
       const msg = `HTTP ${response.status}: ${errBody.slice(0, 200)}`;
       this.lastError = msg;
       if (response.status === 401 || response.status === 403 || response.status === 404) {
@@ -241,6 +279,34 @@ export class SyncService {
       this.lastError = msg;
       await this.scheduleRetry(record, msg);
     }
+  }
+
+  /** Pull the worker's Arabic `message` out of a JSON error body. */
+  private extractServerMessage(body: string): string | null {
+    try {
+      const parsed = JSON.parse(body);
+      const msg = parsed?.message;
+      return typeof msg === 'string' && msg.trim() ? msg.trim() : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Retire a record that can never succeed as-is (a permission denial).
+   *
+   * Marked dead WITHOUT consuming retry attempts, so it shows up in the `failed`
+   * count in getHealth() and the operator can see exactly why in `lastError`,
+   * while the rest of the queue keeps flowing. A manual reset can re-arm it once
+   * the device is authenticated with the right role.
+   */
+  private async retirePermanently(record: SyncRecord, errorMessage: string): Promise<void> {
+    await withDB(async (db) => {
+      record.lastError = errorMessage;
+      record.nextRetryAt = undefined;
+      record.dead = true;
+      await db.put('sync_queue', record);
+    });
   }
 
   private async scheduleRetry(record: SyncRecord, errorMessage: string): Promise<void> {

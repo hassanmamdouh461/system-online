@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { Order, OrderStatus, OrderItem } from '../types/order';
 import { OrderCard } from '../components/orders/OrderCard';
 import { OrderDetails } from '../components/orders/OrderDetails';
@@ -6,10 +6,8 @@ import { NewOrderModal } from '../components/orders/NewOrderModal';
 import { useIsMobile } from '../hooks/useIsMobile';
 import { useOrders } from '../hooks/useOrders';
 import { useMenu } from '../hooks/useMenu';
-import { LayoutGrid, ListOrdered } from 'lucide-react';
 import { AnimatePresence } from 'framer-motion';
 import { useLanguage } from '../context/LanguageContext';
-import { clsx } from 'clsx';
 import { POSView } from '../components/orders/POSView';
 
 import { filterItemsBySection, getOrderStatusForSection } from '../utils/orderSection';
@@ -27,7 +25,7 @@ export default function Orders({ type = 'all' }: OrdersProps) {
   const { t, language } = useLanguage();
   const { items: menuItems } = useMenu();
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
-  const [activeView, setActiveView] = useState<'pos' | 'tracker'>(type === 'all' ? 'pos' : 'tracker');
+  const [activeView] = useState<'pos' | 'tracker'>(type === 'all' ? 'pos' : 'tracker');
   const [isNewOrderOpen, setIsNewOrderOpen] = useState(false);
   const isMobile = useIsMobile();
 
@@ -194,26 +192,11 @@ export default function Orders({ type = 'all' }: OrdersProps) {
     }
   };
 
-  if (error) {
-    return (
-      <div className="flex items-center justify-center h-96">
-        <div className="text-center">
-          <p className="text-red-600 font-semibold mb-2">
-            {language === 'ar' ? 'فشل تحميل الطلبات' : 'Failed to load orders'}
-          </p>
-          <p className="text-gray-500 text-sm">{error.message}</p>
-        </div>
-      </div>
-    );
-  }
-
-  const columns: { title: string; status: OrderStatus; color: string }[] = [
-    { title: 'New Orders', status: 'New', color: 'bg-mocha-100 text-mocha-800' },
-    { title: 'Brewing ☕', status: 'Preparing', color: 'bg-caramel-light text-coffee-dark' },
-    { title: 'Ready for Pickup 🛎️', status: 'Ready', color: 'bg-green-50 text-green-700' },
-    { title: 'Cancelled ✕', status: 'Cancelled', color: 'bg-red-50 text-red-600' },
-  ];
-
+  // Hooks must run unconditionally before any early return (Rules of Hooks).
+  // groupedOrders was previously declared *after* the `if (error) return`
+  // below, so it was skipped on error renders — a real hooks-order violation
+  // that can crash React when `error` toggles. Computing it here is otherwise
+  // behavior-neutral (the value is only consumed by the JSX further down).
   const groupedOrders = useMemo(() => {
     const map: Record<string, Order[]> = {
       New: [],
@@ -236,6 +219,26 @@ export default function Orders({ type = 'all' }: OrdersProps) {
     );
     return map;
   }, [sectionOrders, type]);
+
+  if (error) {
+    return (
+      <div className="flex items-center justify-center h-96">
+        <div className="text-center">
+          <p className="text-red-600 font-semibold mb-2">
+            {language === 'ar' ? 'فشل تحميل الطلبات' : 'Failed to load orders'}
+          </p>
+          <p className="text-gray-500 text-sm">{error.message}</p>
+        </div>
+      </div>
+    );
+  }
+
+  const columns: { title: string; status: OrderStatus; color: string }[] = [
+    { title: 'New Orders', status: 'New', color: 'bg-mocha-100 text-mocha-800' },
+    { title: 'Brewing ☕', status: 'Preparing', color: 'bg-caramel-light text-coffee-dark' },
+    { title: 'Ready for Pickup 🛎️', status: 'Ready', color: 'bg-green-50 text-green-700' },
+    { title: 'Cancelled ✕', status: 'Cancelled', color: 'bg-red-50 text-red-600' },
+  ];
 
   const titleMap = {
     all: { title: 'Cashier Board' },

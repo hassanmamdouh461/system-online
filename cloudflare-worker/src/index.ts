@@ -128,6 +128,80 @@ export default {
       });
     }
 
+    // 1a. LIVENESS PROBE — GET /api/health (public, no auth).
+    //
+    // Handled BEFORE the auth gate so the client can tell three states apart:
+    //   * worker unreachable          -> fetch() rejects / times out client-side
+    //   * worker up but misconfigured -> { ok: false, db: "unconfigured" }
+    //   * worker up, D1 broken        -> { ok: false, db: "error" }
+    // Behind the auth gate a bad/missing session would be indistinguishable from
+    // a dead database and the "backups are working" badge could not be honest.
+    // Exposes no data: a liveness flag, a row count, and a timestamp.
+    if (request.method === "GET") {
+      const healthPath = new URL(request.url).pathname.replace(/\/+$/, "");
+      if (healthPath === "/api/health") {
+        const base = {
+          "Content-Type": "application/json",
+          // Never cache: a cached 200 would keep the badge green after an outage.
+          "Cache-Control": "no-store, no-cache, must-revalidate",
+          ...corsHeaders
+        };
+
+        if (!env.DB) {
+          return new Response(
+            JSON.stringify({ ok: false, db: "unconfigured", checkedAt: new Date().toISOString() }),
+            { status: 503, headers: base }
+          );
+        }
+
+        try {
+          // A real round-trip to D1. `SELECT 1` proves the binding answers (the
+          // liveness signal). The orders probe is the freshness signal: orders is
+          // the continuously-written table, so its newest updatedAt is the closest
+          // thing to "when did a real write last land in the cloud".
+          await env.DB.prepare("SELECT 1").first();
+
+          let lastWriteAt: string | null = null;
+          let orderCount: number | null = null;
+          try {
+            const row: any = await env.DB
+              .prepare(
+                "SELECT COUNT(*) AS n, MAX(COALESCE(updatedAt, createdAt)) AS last FROM orders"
+              )
+              .first();
+            orderCount = typeof row?.n === "number" ? row.n : null;
+            lastWriteAt = row?.last || null;
+          } catch {
+            // Liveness already proved. A missing/renamed orders table must not
+            // turn a healthy database into a red badge, so report freshness as
+            // unknown (null) rather than failing the whole probe.
+          }
+
+          return new Response(
+            JSON.stringify({
+              ok: true,
+              db: "ok",
+              lastWriteAt,
+              orderCount,
+              checkedAt: new Date().toISOString()
+            }),
+            { status: 200, headers: base }
+          );
+        } catch (err: any) {
+          console.error("[worker] health check failed:", err?.message || err);
+          return new Response(
+            JSON.stringify({
+              ok: false,
+              db: "error",
+              message: String(err?.message || err).slice(0, 200),
+              checkedAt: new Date().toISOString()
+            }),
+            { status: 503, headers: base }
+          );
+        }
+      }
+    }
+
     // 1b. CSRF defense (1 of 2): reject any state-changing request that carries a
     //     browser Origin which is not allowlisted. The cookie is SameSite=None, so
     //     it rides cross-site requests; CORS only stops the attacker from READING

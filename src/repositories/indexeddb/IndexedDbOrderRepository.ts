@@ -382,7 +382,10 @@ export class IndexedDbOrderRepository implements IOrderRepository {
     });
   }
 
-  async update(id: string, data: Partial<Omit<Order, 'id'>>): Promise<Order> {
+  async update(
+    id: string,
+    data: Partial<Omit<Order, 'id'>>
+  ): Promise<Order> {
     return enqueueWrite(async () => {
       return withDB(async (db) => {
         const existing = await db.get('orders', id);
