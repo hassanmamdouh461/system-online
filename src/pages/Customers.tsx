@@ -9,7 +9,7 @@ import {
 } from 'lucide-react';
 import { customersService } from '../services/customersService';
 import { companiesService } from '../services/companiesService';
-import { getSessionRole, ensureCloudSession } from '../services/cloudConfig';
+import { getSessionRole, ensureCloudSession, refreshCloudSessionRole } from '../services/cloudConfig';
 import { Customer } from '../types/customer';
 import { Company } from '../types/company';
 import { Order, getOrderGrandTotal } from '../types/order';
@@ -1022,9 +1022,14 @@ function CustomerProfileDetail({
   useEffect(() => {
     if (!refundTarget) return;
     let alive = true;
-    void ensureCloudSession().then(() => {
-      if (alive) setRefundAuthRole(getSessionRole());
-    });
+    void (async () => {
+      await ensureCloudSession();
+      // Probe the Worker when the in-memory role is null (e.g. after a reload)
+      // so a valid manager cookie still unlocks the refund button.
+      let r = getSessionRole();
+      if (r == null) r = await refreshCloudSessionRole();
+      if (alive) setRefundAuthRole(r);
+    })();
     return () => {
       alive = false;
     };
@@ -1308,7 +1313,8 @@ function CustomerProfileDetail({
                       // Fail-closed: only an authenticated manager may refund.
                       // The Worker enforces the same rule (cashier → 403).
                       await ensureCloudSession();
-                      const role = getSessionRole();
+                      let role = getSessionRole();
+                      if (role == null) role = await refreshCloudSessionRole();
                       setRefundAuthRole(role);
                       if (role !== 'manager') {
                         alert(language === 'ar'

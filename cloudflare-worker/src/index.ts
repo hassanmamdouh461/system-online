@@ -1,5 +1,5 @@
 import { authenticate, handleSessionRoutes, verifyCsrf, timingSafeEqual } from "./auth.ts";
-import { can } from "./permissions.ts";
+import { can, canReadSettingKey, canReadTable } from "./permissions.ts";
 import type { HttpMethod } from "./permissions.ts";
 
 interface Env {
@@ -486,7 +486,18 @@ export default {
           const params: any[] = [docId];
           const row = await env.DB.prepare(sql).bind(...params).first();
 
-          if (!row) {
+          // Read authorization (cashier). A forbidden read returns the SAME 404 as
+          // a missing row, so a cashier can neither read the secret nor even learn
+          // that it exists. Managers pass both checks unconditionally.
+          const settingKey =
+            table === "settings"
+              ? String((row as any)?.key ?? docId.split("::").pop() ?? "")
+              : null;
+          const readable =
+            canReadTable(role, table) &&
+            (table !== "settings" || canReadSettingKey(role, settingKey));
+
+          if (!row || !readable) {
             return new Response(JSON.stringify({ message: "Document not found" }), {
               status: 404,
               headers: { "Content-Type": "application/json", ...corsHeaders }
@@ -528,7 +539,18 @@ export default {
 
           const stmt = params.length > 0 ? env.DB.prepare(sql).bind(...params) : env.DB.prepare(sql);
           const { results } = await stmt.all();
-          const documents = (results || []).map(row => denormalizeData(table, row));
+          let documents = (results || []).map(row => denormalizeData(table, row));
+
+          // Read authorization (cashier). Drop rows the caller may not read so a
+          // cashier can never hydrate the manager credential hash, the refund PIN
+          // hash, or the plaintext Telegram token — neither directly from the
+          // `settings` collection nor bundled inside a `snapshots` payload.
+          // Managers are unaffected.
+          if (!canReadTable(role, table)) {
+            documents = [];
+          } else if (table === "settings") {
+            documents = documents.filter(doc => canReadSettingKey(role, (doc as any).key));
+          }
 
           return new Response(JSON.stringify({ documents }), {
             status: 200,

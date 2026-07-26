@@ -128,6 +128,39 @@ export function getSessionRole(): 'manager' | 'cashier' | null {
 }
 
 /**
+ * Resolve the session role from the Worker WITHOUT a password.
+ *
+ * After a page reload the in-memory credential and role are gone, but the 12h
+ * HttpOnly session cookie is still valid — so getSessionRole() returns null even
+ * though the operator is a signed-in manager. This probes GET /v1/session (which
+ * reads the cookie and reports { authenticated, role }), caches the result in
+ * memory, and returns it, so a role-gated action (e.g. a refund) can be authorized
+ * on the existing cookie alone. Returns null when there is no valid session.
+ */
+export async function refreshCloudSessionRole(): Promise<'manager' | 'cashier' | null> {
+  const base = getWorkerUrl();
+  if (!base) return null;
+  if (typeof navigator !== 'undefined' && !navigator.onLine) return null;
+  try {
+    const res = await fetch(`${base}${SESSION_PATH}`, {
+      method: 'GET',
+      credentials: 'include',
+    });
+    if (!res.ok) return null;
+    const json = await res.json();
+    const role = json?.role;
+    if (role === 'manager' || role === 'cashier') {
+      sessionRole = role;
+      return role;
+    }
+    return null;
+  } catch (err) {
+    console.warn('[cloud] session role probe failed:', err);
+    return null;
+  }
+}
+
+/**
  * Ensure a cloud session cookie exists. Concurrent callers share one in-flight
  * mint. Best-effort: with no in-memory credential this resolves false WITHOUT
  * erroring, so an existing (valid) cookie from a prior page-load still rides the

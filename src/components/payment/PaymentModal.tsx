@@ -20,7 +20,7 @@ import {
   getTaxRate,
   getStoreConfig,
 } from '../../utils/settingsConfig';
-import { getSessionRole, ensureCloudSession } from '../../services/cloudConfig';
+import { getSessionRole, ensureCloudSession, refreshCloudSessionRole } from '../../services/cloudConfig';
 import { printCustomerReceipt } from '../../utils/printReceipts';
 import { CustomerLookupStep, CustomerLookupResult } from './CustomerLookupStep';
 import { customersService } from '../../services/customersService';
@@ -333,9 +333,15 @@ export function PaymentModal({
   useEffect(() => {
     if (!isOpen || step !== 'refund') return;
     let alive = true;
-    void ensureCloudSession().then(() => {
-      if (alive) setRefundAuthRole(getSessionRole());
-    });
+    void (async () => {
+      await ensureCloudSession();
+      // getSessionRole() is null right after a reload (in-memory role is gone),
+      // even when the cookie is still valid — probe the Worker so a signed-in
+      // manager is not wrongly shown the "manager-only" gate.
+      let r = getSessionRole();
+      if (r == null) r = await refreshCloudSessionRole();
+      if (alive) setRefundAuthRole(r);
+    })();
     return () => {
       alive = false;
     };
@@ -354,7 +360,8 @@ export function PaymentModal({
       // is rejected with 403 — so this keeps the UI honest instead of showing a
       // Confirm button that would just fail.
       await ensureCloudSession();
-      const role = getSessionRole();
+      let role = getSessionRole();
+      if (role == null) role = await refreshCloudSessionRole();
       setRefundAuthRole(role);
       if (role !== 'manager') {
         setRefundError(
