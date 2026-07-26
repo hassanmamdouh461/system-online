@@ -243,10 +243,8 @@ export default function ManagerDashboard() {
     if (showToast) setIsRefreshing(true);
     setErrorInfo(null);
     try {
-      let ordersList: any[];
-      let customersList: any[];
       let invList: any[] = [];
-      let recList: any[] = [];
+      const recList: any[] = [];
 
       // Fetch live inventory, menu items, and recipes simultaneously
       const [liveInv, liveRec, liveMenuItems] = await Promise.all([
@@ -272,7 +270,7 @@ export default function ManagerDashboard() {
       const localOrders = await orderRepository.getAll(undefined);
       const localCustomers = await customerRepository.getAll(undefined);
 
-      ordersList = localOrders.map(o => ({
+      const ordersList: any[] = localOrders.map(o => ({
         $id: o.id,
         $createdAt: o.createdAt,
         branch_id: o.branchId || 'main_branch',
@@ -290,7 +288,7 @@ export default function ManagerDashboard() {
         grandTotal: o.grandTotal,
       }));
 
-      customersList = localCustomers.map(c => ({
+      const customersList: any[] = localCustomers.map(c => ({
         $id: c.id,
         name: c.name,
         phone: c.phone,

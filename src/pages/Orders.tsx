@@ -191,26 +191,11 @@ export default function Orders({ type = 'all' }: OrdersProps) {
     }
   };
 
-  if (error) {
-    return (
-      <div className="flex items-center justify-center h-96">
-        <div className="text-center">
-          <p className="text-red-600 font-semibold mb-2">
-            {language === 'ar' ? 'فشل تحميل الطلبات' : 'Failed to load orders'}
-          </p>
-          <p className="text-gray-500 text-sm">{error.message}</p>
-        </div>
-      </div>
-    );
-  }
-
-  const columns: { title: string; status: OrderStatus; color: string }[] = [
-    { title: 'New Orders', status: 'New', color: 'bg-mocha-100 text-mocha-800' },
-    { title: 'Brewing ☕', status: 'Preparing', color: 'bg-caramel-light text-coffee-dark' },
-    { title: 'Ready for Pickup 🛎️', status: 'Ready', color: 'bg-green-50 text-green-700' },
-    { title: 'Cancelled ✕', status: 'Cancelled', color: 'bg-red-50 text-red-600' },
-  ];
-
+  // Hooks must run unconditionally before any early return (Rules of Hooks).
+  // groupedOrders was previously declared *after* the `if (error) return`
+  // below, so it was skipped on error renders — a real hooks-order violation
+  // that can crash React when `error` toggles. Computing it here is otherwise
+  // behavior-neutral (the value is only consumed by the JSX further down).
   const groupedOrders = useMemo(() => {
     const map: Record<string, Order[]> = {
       New: [],
@@ -233,6 +218,26 @@ export default function Orders({ type = 'all' }: OrdersProps) {
     );
     return map;
   }, [sectionOrders, type]);
+
+  if (error) {
+    return (
+      <div className="flex items-center justify-center h-96">
+        <div className="text-center">
+          <p className="text-red-600 font-semibold mb-2">
+            {language === 'ar' ? 'فشل تحميل الطلبات' : 'Failed to load orders'}
+          </p>
+          <p className="text-gray-500 text-sm">{error.message}</p>
+        </div>
+      </div>
+    );
+  }
+
+  const columns: { title: string; status: OrderStatus; color: string }[] = [
+    { title: 'New Orders', status: 'New', color: 'bg-mocha-100 text-mocha-800' },
+    { title: 'Brewing ☕', status: 'Preparing', color: 'bg-caramel-light text-coffee-dark' },
+    { title: 'Ready for Pickup 🛎️', status: 'Ready', color: 'bg-green-50 text-green-700' },
+    { title: 'Cancelled ✕', status: 'Cancelled', color: 'bg-red-50 text-red-600' },
+  ];
 
   const titleMap = {
     all: { title: 'Cashier Board' },

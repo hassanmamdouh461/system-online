@@ -150,7 +150,7 @@ export const inventoryService = {
             // A queued row is a pending tombstone when its data carries deletedAt
             // or its action is the legacy 'delete'. We must not let a stale cloud
             // row resurrect a locally-deleted item.
-            let pendingDeleteIds = new Set<string>();
+            const pendingDeleteIds = new Set<string>();
             try {
               const pending = await withDB((db) => db.getAll('sync_queue'));
               for (const q of (pending || []) as any[]) {
@@ -556,7 +556,7 @@ export const inventoryService = {
   async getMenuItemRecipe(menuItemId: string): Promise<RecipeIngredient[]> {
     try {
       const store = getWebRecipeStore();
-      let ingredients: RecipeIngredient[] = store[menuItemId] || [];
+      const ingredients: RecipeIngredient[] = store[menuItemId] || [];
 
       // No hardcoded fallback — a menu item with no configured recipe simply yields no deductions.
 
