@@ -5,11 +5,12 @@ import {
   Users, Building2, Plus, Search, Phone, Tag, X, Save,
   ShoppingBag, Trash2, Edit3, UserCircle, BarChart3, Printer,
   Wallet, DollarSign, Star, ChevronLeft, ChevronRight, FileText,
-  AlertCircle, Check, Award, Undo2
+  AlertCircle, Check, Award, Undo2, Lock
 } from 'lucide-react';
 import { customersService } from '../services/customersService';
 import { companiesService } from '../services/companiesService';
-import { getSessionRole, ensureCloudSession } from '../services/cloudConfig';
+import { getSessionRole, ensureCloudSession, refreshCloudSessionRole } from '../services/cloudConfig';
+import { localizeRefundError } from '../utils/refundErrors';
 import { Customer } from '../types/customer';
 import { Company } from '../types/company';
 import { Order, getOrderGrandTotal } from '../types/order';
@@ -1010,21 +1011,28 @@ function CustomerProfileDetail({
   language: string;
   allOrders: Order[];
   onDeleteOrder: (id: string) => Promise<void>;
-  onRefundOrder: (id: string, reason?: string) => Promise<void>;
+  onRefundOrder: (id: string, reason?: string, pin?: string) => Promise<void>;
 }) {
   const { user } = useAuth();
   const [refundTarget, setRefundTarget] = useState<Order | null>(null);
   const [refundReason, setRefundReason] = useState('');
+  const [refundPin, setRefundPin] = useState('');
   const [refundBusy, setRefundBusy] = useState(false);
-  // Refund authority comes from the server-verified session role (manager), not
-  // the legacy client user model. Refresh it when a refund dialog opens.
+  // Refund authority comes from the server-verified session role: a manager
+  // refunds directly, a cashier escalates with a refund PIN the Worker checks.
+  // getSessionRole() is null after a reload, so fall back to a cookie probe so a
+  // manager is never wrongly asked for a PIN.
   const [refundAuthRole, setRefundAuthRole] = useState<'manager' | 'cashier' | null>(getSessionRole());
   useEffect(() => {
     if (!refundTarget) return;
     let alive = true;
-    void ensureCloudSession().then(() => {
-      if (alive) setRefundAuthRole(getSessionRole());
-    });
+    setRefundPin('');
+    void (async () => {
+      await ensureCloudSession();
+      let role = getSessionRole();
+      if (role == null) role = await refreshCloudSessionRole();
+      if (alive) setRefundAuthRole(role);
+    })();
     return () => {
       alive = false;
     };
@@ -1117,12 +1125,13 @@ function CustomerProfileDetail({
                   >
                     <Printer size={15} />
                   </button>
-                  {user?.role === 'manager' && o.paymentStatus === 'Paid' && (
+                  {o.paymentStatus === 'Paid' && (
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
                         setRefundTarget(o);
                         setRefundReason('');
+                        setRefundPin('');
                       }}
                       className="p-1.5 rounded-lg text-amber-600 hover:bg-amber-100 hover:text-amber-800 transition-colors"
                       title={language === 'ar' ? 'إرجاع الفاتورة' : 'Refund Invoice'}
@@ -1187,12 +1196,13 @@ function CustomerProfileDetail({
                   >
                     <Printer size={15} />
                   </button>
-                  {user?.role === 'manager' && o.paymentStatus === 'Paid' && (
+                  {o.paymentStatus === 'Paid' && (
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
                         setRefundTarget(o);
                         setRefundReason('');
+                        setRefundPin('');
                       }}
                       className="p-1.5 rounded-lg text-amber-500 hover:text-amber-700 hover:bg-amber-50 transition-colors"
                       title={language === 'ar' ? 'إرجاع الفاتورة' : 'Refund Invoice'}
@@ -1282,10 +1292,26 @@ function CustomerProfileDetail({
                 </div>
 
                 {refundAuthRole !== 'manager' && (
-                  <div className="bg-red-50 rounded-xl p-3 border border-red-200 text-xs text-red-700 font-medium leading-relaxed">
-                    {language === 'ar'
-                      ? 'الاسترجاع متاح لحساب المدير فقط. سجّل الدخول بحساب مدير لتأكيد الاسترجاع.'
-                      : 'Refunds are manager-only. Sign in as a manager to confirm this refund.'}
+                  <div>
+                    <label className="flex items-center gap-1.5 text-sm font-medium text-gray-700 mb-1">
+                      <Lock size={13} className="text-amber-600" />
+                      {language === 'ar' ? 'رمز تصعيد الاسترجاع (PIN)' : 'Refund escalation PIN'}
+                    </label>
+                    <input
+                      type="password"
+                      inputMode="numeric"
+                      autoComplete="off"
+                      value={refundPin}
+                      onChange={(e) => setRefundPin(e.target.value.replace(/\D/g, '').slice(0, 12))}
+                      disabled={refundBusy}
+                      className="w-full px-4 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-amber-400 focus:border-transparent transition-all bg-white text-gray-900 placeholder-gray-400 font-medium tracking-[0.3em]"
+                      placeholder={language === 'ar' ? 'أدخل رمز المدير للاسترجاع' : 'Enter manager PIN to refund'}
+                    />
+                    <p className="mt-1 text-[11px] text-gray-400 leading-relaxed">
+                      {language === 'ar'
+                        ? 'الاسترجاع بصلاحية كاشير يتطلب رمز تصعيد صحيح واتصالاً بالإنترنت.'
+                        : 'Cashier refunds require a valid escalation PIN and an internet connection.'}
+                    </p>
                   </div>
                 )}
               </div>
@@ -1301,27 +1327,22 @@ function CustomerProfileDetail({
                 </button>
                 <button
                   type="button"
-                  disabled={refundBusy || refundAuthRole !== 'manager'}
+                  disabled={refundBusy || (refundAuthRole !== 'manager' && refundPin.trim().length < 4)}
                   onClick={async () => {
                     setRefundBusy(true);
                     try {
-                      // Fail-closed: only an authenticated manager may refund.
-                      // The Worker enforces the same rule (cashier → 403).
-                      await ensureCloudSession();
-                      const role = getSessionRole();
-                      setRefundAuthRole(role);
-                      if (role !== 'manager') {
-                        alert(language === 'ar'
-                          ? 'الاسترجاع يتطلب صلاحية مدير. سجّل الدخول بحساب مدير.'
-                          : 'Refund requires manager authorization. Please sign in as a manager.');
-                        setRefundBusy(false);
-                        return;
-                      }
-                      await onRefundOrder(refundTarget.id, refundReason.trim() || undefined);
+                      // Manager refunds directly; a cashier escalates with the PIN
+                      // the Worker verifies (X-Refund-PIN). refundOrder performs the
+                      // escalated write and throws a coded error if it is rejected.
+                      await onRefundOrder(
+                        refundTarget.id,
+                        refundReason.trim() || undefined,
+                        refundAuthRole !== 'manager' ? refundPin.trim() : undefined
+                      );
                       setRefundTarget(null);
                     } catch (err) {
                       console.error('Refund failed:', err);
-                      alert(language === 'ar' ? 'فشل الإرجاع: ' + (err instanceof Error ? err.message : String(err)) : 'Refund failed: ' + (err instanceof Error ? err.message : String(err)));
+                      alert(localizeRefundError(err, language));
                     } finally {
                       setRefundBusy(false);
                     }

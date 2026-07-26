@@ -6,6 +6,13 @@ import { useAuth } from './AuthContext';
 import { inventoryService } from '../services/inventoryService';
 import { getIngredientBaseQty } from '../utils/units';
 import { syncService } from '../services/syncService';
+import {
+  cloudUpsert,
+  ensureCloudSession,
+  getSessionRole,
+  refreshCloudSessionRole,
+  isCloudConfigured,
+} from '../services/cloudConfig';
 import { useToast } from '../components/ui/Toast';
 
 
@@ -29,7 +36,7 @@ interface OrdersState {
   addOrder: (order: Omit<Order, 'id'>) => Promise<Order | null>;
   updateOrderStatus: (id: string, status: OrderStatus) => Promise<void>;
   completeWithPayment: (id: string, method?: 'Cash' | 'Card' | 'OnAccount', patch?: Partial<Omit<Order, 'id'>>) => Promise<void>;
-  refundOrder: (id: string, reason?: string) => Promise<void>;
+  refundOrder: (id: string, reason?: string, pin?: string) => Promise<void>;
   updateOrder: (id: string, data: Partial<Omit<Order, 'id'>>) => Promise<void>;
   deleteOrder: (id: string) => Promise<void>;
   refetch: () => Promise<void>;
@@ -359,23 +366,56 @@ async function applyOrderInventory(
   /**
    * Void/refund a paid order: mark payment Refunded, restore inventory,
    * keep kitchen history but stop counting revenue.
+   *
+   * Authority mirrors the Worker (permissions.canWriteOrder):
+   *   • manager  → refunds directly, no PIN.
+   *   • cashier  → must escalate with a server-verified refund PIN. Escalation is
+   *               online-only, so for a cashier we push the escalated cloud write
+   *               FIRST and commit locally only if the Worker accepts it. If we
+   *               committed first, the offline sync queue would later replay the
+   *               refund WITHOUT the PIN and the Worker would 403 it forever,
+   *               leaving this device "Refunded" while D1 stayed "Paid".
+   *
+   * Thrown error codes (localized by the caller): refund_pin_required,
+   * refund_offline, refund_escalation_failed.
    */
-  const refundOrder = useCallback(async (id: string, reason?: string) => {
+  const refundOrder = useCallback(async (id: string, reason?: string, pin?: string) => {
     const existing = ordersListRef.current.find(o => o.id === id);
     if (!existing) throw new Error('Order not found');
     if (existing.paymentStatus !== 'Paid') {
       throw new Error('Only paid orders can be refunded');
     }
-    if (existing.paymentStatus === 'Paid' && existing.status === 'Cancelled') {
-      // still allow refund path
-    }
 
-    const updatedOrder = await orderRepository.update(id, {
+    const refundPatch: Partial<Omit<Order, 'id'>> = {
       paymentStatus: 'Refunded',
       refundedAt: new Date().toISOString(),
       refundReason: reason || 'Refund / void',
       status: existing.status === 'Cancelled' ? existing.status : 'Cancelled',
-    });
+    };
+
+    // Cloud enforcement path. Skipped only for a local-only install (no Worker),
+    // where there is no server to escalate against.
+    if (isCloudConfigured()) {
+      await ensureCloudSession();
+      let role = getSessionRole();
+      if (role == null) role = await refreshCloudSessionRole();
+
+      if (role !== 'manager') {
+        const trimmedPin = (pin || '').trim();
+        if (!trimmedPin) throw new Error('refund_pin_required');
+        if (typeof navigator !== 'undefined' && !navigator.onLine) {
+          throw new Error('refund_offline');
+        }
+        // Escalated, immediate write. On success the Worker has already applied
+        // the refund, so the later queue replay is a no-op (fields unchanged).
+        const ok = await cloudUpsert('orders', id, refundPatch as Record<string, any>, {
+          refundPin: trimmedPin,
+        });
+        if (!ok) throw new Error('refund_escalation_failed');
+      }
+    }
+
+    const updatedOrder = await orderRepository.update(id, refundPatch);
     setOrdersList(prev => prev.map(o => (o.id === id ? updatedOrder : o)));
     try {
       await applyOrderInventory(existing, 'restore');
