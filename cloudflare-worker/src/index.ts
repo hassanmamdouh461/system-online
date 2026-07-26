@@ -1,7 +1,13 @@
+import { hasValidSession, handleSessionRoutes } from "./auth";
+
 interface Env {
   DB: D1Database;
+  /** Legacy shared key — optional now; still honored by auth.ts if set. */
   API_KEY?: string;
   ALLOWED_ORIGINS?: string;
+  /** HMAC secret for session cookies (see auth.ts / wrangler.toml). */
+  SESSION_SECRET?: string;
+  AUTH_TOKEN_SECRET?: string;
 }
 
 // Incremental-sync column per table (names are inconsistent across tables).
@@ -67,32 +73,21 @@ export default {
       });
     }
 
-    // 2. API Key Verification — FAIL CLOSED.
-    //
-    // This was previously `if (env.API_KEY) { ...check... }`, meaning that if
-    // the secret was never set (a manual `wrangler secret put` step, separate
-    // from deployment) every endpoint served unauthenticated traffic: any
-    // caller could read all customer phone numbers or DELETE every order.
-    // An unconfigured deployment must refuse service, not open the database.
-    if (!env.API_KEY) {
-      console.error("[worker] API_KEY secret is not configured — refusing all requests.");
-      return new Response(JSON.stringify({
-        error: "Service Unavailable",
-        message: "Server is not configured for authenticated access."
-      }), {
-        status: 503,
-        headers: { "Content-Type": "application/json", ...corsHeaders }
-      });
-    }
+    // 2. Session lifecycle routes (mint / clear / probe). Handled BEFORE the
+    //    auth gate: minting a cookie is exactly what an unauthenticated client
+    //    does first. No operator-entered key is involved — the Worker signs an
+    //    HttpOnly session cookie and the browser rides it from then on.
+    const sessionResponse = await handleSessionRoutes(request, env, corsHeaders);
+    if (sessionResponse) return sessionResponse;
 
     // 2b. PUBLIC, UNAUTHENTICATED read path for the customer-facing QR menu.
     //
     // /public-menu is served OUTSIDE ProtectedRoute, so a guest who scans the QR
-    // code has no API key in localStorage. Routing their request through the
-    // authenticated /v1/.../collections path returned 401 and the guest saw an
-    // empty menu. This endpoint returns ONLY live, available menu items — no other
-    // collections, no customer data, no tombstoned/unavailable rows — so a guest
-    // can read the menu without a key. Deliberately handled before the token check.
+    // code has no session cookie. Routing their request through the authenticated
+    // /v1/.../collections path returned 401 and the guest saw an empty menu. This
+    // endpoint returns ONLY live, available menu items — no other collections, no
+    // customer data, no tombstoned/unavailable rows — so a guest can read the menu
+    // with no session at all. Deliberately handled before the auth gate.
     if (request.method === "GET") {
       const publicPath = new URL(request.url).pathname.replace(/\/+$/, "");
       if (publicPath === "/public/menu" || publicPath === "/public/menu_items") {
@@ -122,16 +117,15 @@ export default {
       }
     }
 
-    {
-      const authHeader = request.headers.get("Authorization");
-      const apiKeyHeader = request.headers.get("X-API-Key");
-      const token = authHeader ? authHeader.replace(/^Bearer\s+/i, "") : apiKeyHeader;
-      if (!token || token !== env.API_KEY) {
-        return new Response(JSON.stringify({ error: "Unauthorized", message: "Invalid or missing API key" }), {
-          status: 401,
-          headers: { "Content-Type": "application/json", ...corsHeaders }
-        });
-      }
+    // 3. Auth gate — session cookie required (fail-closed).
+    //    Valid cookie → continue. Missing/expired/tampered → 401. (A legacy
+    //    shared API_KEY is still accepted here only if that secret is set on the
+    //    Worker; see auth.ts hasValidSession.)
+    if (!(await hasValidSession(request, env))) {
+      return new Response(JSON.stringify({ error: "Unauthorized", message: "Missing or invalid session" }), {
+        status: 401,
+        headers: { "Content-Type": "application/json", ...corsHeaders }
+      });
     }
 
     try {
@@ -142,7 +136,7 @@ export default {
       // intentionally ignored — reads are not scoped and writes always use
       // MAIN_BRANCH_ID.
 
-      // 3. Handle /api/sync endpoint for SyncService background sync
+      // 4. Handle /api/sync endpoint for SyncService background sync
       if (pathParts[0] === "api" && pathParts[1] === "sync" && request.method === "POST") {
         try {
           const body: any = await request.json();
@@ -221,7 +215,7 @@ export default {
         }
       }
 
-      // 4. Handle /v1 REST routes
+      // 5. Handle /v1 REST routes
       if (pathParts[0] !== "v1") {
         return new Response(JSON.stringify({ error: "Not Found", message: "Route not supported" }), {
           status: 404,
@@ -449,9 +443,14 @@ function getCorsHeaders(request: Request, env: Env) {
   if (!allowedRaw || !allowedRaw.trim()) {
     return {
       "Access-Control-Allow-Origin": "",
+      // Credentialed requests (the session cookie rides on credentials:'include')
+      // require this header AND a specific (non-*) origin, so the browser will
+      // both store the Set-Cookie and send it back on subsequent XHRs.
+      "Access-Control-Allow-Credentials": "true",
       "Access-Control-Allow-Methods": "GET, POST, PATCH, PUT, DELETE, OPTIONS",
       "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Branch-ID, X-Device-ID, X-API-Key",
-      "Access-Control-Max-Age": "86400"
+      "Access-Control-Max-Age": "86400",
+      "Vary": "Origin"
     };
   }
 
@@ -462,9 +461,12 @@ function getCorsHeaders(request: Request, env: Env) {
 
   return {
     "Access-Control-Allow-Origin": origin,
+    // See note above: mandatory for the cookie to be stored + replayed.
+    "Access-Control-Allow-Credentials": "true",
     "Access-Control-Allow-Methods": "GET, POST, PATCH, PUT, DELETE, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Branch-ID, X-Device-ID, X-API-Key",
-    "Access-Control-Max-Age": "86400"
+    "Access-Control-Max-Age": "86400",
+    "Vary": "Origin"
   };
 }
 

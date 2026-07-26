@@ -44,33 +44,69 @@ export function getWorkerUrl(): string {
   return '';
 }
 
-export function getApiKey(): string {
-  // SECURITY: API key must NEVER be read from import.meta.env (VITE_* vars are
-  // inlined into the client bundle and would leak to any user opening devtools).
-  // The key is stored only in localStorage and entered by the operator via
-  // Settings → Cloud Sync. Electron reads it directly from the .env file.
-  if (typeof window !== 'undefined') {
+/**
+ * Cloud session (cookie-based auth).
+ *
+ * There is NO operator-entered API key anymore. The old key lived in
+ * localStorage and was written by a Settings → Cloud Sync box that got deleted,
+ * so the key went permanently blank and every request 401'd (backup 100% dead).
+ *
+ * Instead, the Worker mints an HttpOnly session cookie at POST /v1/session. We
+ * establish it automatically on the first cloud call and re-mint on a 401, so
+ * every request just carries the cookie via `credentials: 'include'`. Because
+ * the cookie is HttpOnly it is invisible to this code — we only track whether a
+ * mint has succeeded this page-load, and never touch the token itself.
+ */
+const SESSION_PATH = '/v1/session';
+let sessionPromise: Promise<boolean> | null = null;
+
+/**
+ * Ensure a cloud session cookie exists. Concurrent callers share one in-flight
+ * mint. A failed mint is not cached, so the next call retries. Pass force=true
+ * to discard any cached result and mint anew (used after a 401 / on login).
+ */
+export function ensureCloudSession(force = false): Promise<boolean> {
+  if (force) sessionPromise = null;
+  if (sessionPromise) return sessionPromise;
+
+  const p = (async (): Promise<boolean> => {
+    const base = getWorkerUrl();
+    if (!base) return false;
+    if (typeof navigator !== 'undefined' && !navigator.onLine) return false;
     try {
-      return String(localStorage.getItem('brewmaster_d1_api_key') || '').trim();
-    } catch {
-      return '';
+      const res = await fetch(`${base}${SESSION_PATH}`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      return res.ok;
+    } catch (err) {
+      console.warn('[cloud] session mint failed:', err);
+      return false;
     }
-  }
-  return '';
+  })();
+
+  sessionPromise = p;
+  // Don't cache a failure — allow a later attempt to retry the mint.
+  void p.then((ok) => { if (!ok && sessionPromise === p) sessionPromise = null; })
+        .catch(() => { if (sessionPromise === p) sessionPromise = null; });
+  return p;
 }
 
-/** Persist the Cloudflare Worker API key to localStorage only (never bundled). */
-export function setApiKey(key: string): void {
-  if (typeof window === 'undefined') return;
+/** Forget the cached session so the next request re-mints (used on 401). */
+export function resetCloudSession(): void {
+  sessionPromise = null;
+}
+
+/** Drop the server session cookie (called on logout). Best-effort. */
+export async function clearCloudSession(): Promise<void> {
+  sessionPromise = null;
+  const base = getWorkerUrl();
+  if (!base) return;
   try {
-    const trimmed = String(key || '').trim();
-    if (trimmed) {
-      localStorage.setItem('brewmaster_d1_api_key', trimmed);
-    } else {
-      localStorage.removeItem('brewmaster_d1_api_key');
-    }
+    await fetch(`${base}${SESSION_PATH}`, { method: 'DELETE', credentials: 'include' });
   } catch {
-    // ignore
+    // ignore — cookie will lapse on its own
   }
 }
 
@@ -116,18 +152,17 @@ export function isCloudConfigured(): boolean {
   return !!getWorkerUrl();
 }
 
-export function buildCloudHeaders(extra?: Record<string, string>): Record<string, string> {
-  const headers: Record<string, string> = {
+/**
+ * Base headers for cloud requests. Authentication is carried by the HttpOnly
+ * session cookie (via credentials: 'include'), NOT by a header — so there is no
+ * Authorization / X-API-Key here anymore.
+ */
+export function cloudHeaders(extra?: Record<string, string>): Record<string, string> {
+  return {
     'Content-Type': 'application/json',
     'X-Branch-ID': getBranchIdHeader(),
     ...extra,
   };
-  const key = getApiKey();
-  if (key) {
-    headers['Authorization'] = `Bearer ${key}`;
-    headers['X-API-Key'] = key;
-  }
-  return headers;
 }
 
 /** Parse number from cloud payloads without turning null into 0. */
@@ -139,7 +174,7 @@ export function optionalNumber(value: unknown): number | undefined {
 
 export async function cloudFetch(
   path: string,
-  init?: RequestInit & { timeoutMs?: number }
+  init?: RequestInit & { timeoutMs?: number; skipSession?: boolean }
 ): Promise<Response | null> {
   const base = getWorkerUrl();
   if (!base) return null;
@@ -147,27 +182,45 @@ export async function cloudFetch(
 
   const url = `${base}${path.startsWith('/') ? path : `/${path}`}`;
   const timeoutMs = init?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const skipSession = init?.skipSession === true;
 
-  const headers = {
-    ...buildCloudHeaders(),
-    ...(init?.headers as Record<string, string> | undefined),
+  const headers = cloudHeaders(init?.headers as Record<string, string> | undefined);
+
+  // Single attempt with its own abort timer. Credentials are included so the
+  // HttpOnly session cookie rides along on every cloud request.
+  const attempt = async (): Promise<Response | null> => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const { timeoutMs: _t, signal: _s, skipSession: _skip, headers: _h, ...rest } = init || {};
+      return await fetch(url, {
+        ...rest,
+        credentials: 'include',
+        headers,
+        signal: controller.signal,
+      });
+    } catch (err) {
+      console.warn('[cloudFetch] failed:', path, err);
+      return null;
+    } finally {
+      clearTimeout(timer);
+    }
   };
 
-  try {
-    const { timeoutMs: _t, signal: _s, ...rest } = init || {};
-    return await fetch(url, {
-      ...rest,
-      headers,
-      signal: controller.signal,
-    });
-  } catch (err) {
-    console.warn('[cloudFetch] failed:', path, err);
-    return null;
-  } finally {
-    clearTimeout(timer);
+  // Public endpoints (the QR menu) need no session; everything else establishes
+  // the session cookie first, then rides it.
+  if (!skipSession) await ensureCloudSession();
+
+  let res = await attempt();
+
+  // Session missing/expired → re-mint once and retry the request a single time.
+  if (!skipSession && res && res.status === 401) {
+    resetCloudSession();
+    const ok = await ensureCloudSession(true);
+    if (ok) res = await attempt();
   }
+
+  return res;
 }
 
 /**
@@ -272,19 +325,22 @@ export async function cloudGetCollection(
 /**
  * PUBLIC menu read for the customer-facing QR page (/public-menu).
  *
- * Anonymous visitors have no API key in localStorage, so the authenticated
- * collections endpoint returns 401 and the menu renders empty. This hits the
- * worker's unauthenticated `/public/menu` route instead, which returns only the
- * live, available items. `cloudFetch` still attaches the key when an operator
- * happens to be signed in, but the endpoint does not require it, so a guest with
- * no key gets a clean 200. Returns null on failure so the caller can surface an
- * error state instead of silently showing an empty menu.
+ * Anonymous visitors have no session cookie, so the authenticated collections
+ * endpoint returns 401 and the menu renders empty. This hits the worker's
+ * unauthenticated `/public/menu` route instead, which returns only the live,
+ * available items. We pass skipSession so a guest never mints a session cookie;
+ * the endpoint does not require one, so a guest gets a clean 200. Returns null
+ * on failure so the caller can surface an error state instead of silently
+ * showing an empty menu.
  */
 export async function cloudGetPublicMenu(): Promise<any[] | null> {
   try {
     const res = await cloudFetch('/public/menu', {
       method: 'GET',
       timeoutMs: DEFAULT_TIMEOUT_MS,
+      // Anonymous QR guests: the /public/menu route is unauthenticated, so don't
+      // mint a session cookie for a visitor who will never write anything.
+      skipSession: true,
     });
     if (!res) return null;
     if (!res.ok) {

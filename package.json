@@ -8,7 +8,10 @@
     "build": "vite build",
     "lint": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:client": "node --experimental-strip-types --loader ./test/ts-loader.mjs src/services/__tests__/cloudSession.test.mts",
+    "test:worker": "npm --prefix cloudflare-worker test",
+    "test": "npm run test:worker && npm run test:client"
   },
   "dependencies": {
     "clsx": "^2.1.0",

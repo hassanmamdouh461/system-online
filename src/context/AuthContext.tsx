@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, ReactNode } from 'react';
 import { verifyAdminCredentials, verifyManagerCredentials } from '../utils/settingsConfig';
+import { ensureCloudSession, clearCloudSession } from '../services/cloudConfig';
 
 const LS_SESSION_KEY = 'auth_session_system_online';
 
@@ -111,6 +112,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const newSession: StoredSession = { user: userData, branch: branchSession };
     setSession(newSession);
     localStorage.setItem(LS_SESSION_KEY, JSON.stringify(newSession));
+
+    // Establish a fresh cloud (Worker) session on sign-in so backup/sync work
+    // immediately. Fire-and-forget: cloud auth is a device-level cookie and must
+    // never block or fail the local login. cloudFetch also self-heals on 401.
+    void ensureCloudSession(true);
+
     return userData;
   };
 
@@ -118,6 +125,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setSession(null);
     localStorage.removeItem(LS_SESSION_KEY);
     sessionStorage.removeItem(LS_SESSION_KEY);
+    // Drop the Worker session cookie too (best-effort).
+    void clearCloudSession();
   };
 
   return (

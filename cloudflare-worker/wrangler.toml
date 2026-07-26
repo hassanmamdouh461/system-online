@@ -10,6 +10,16 @@ compatibility_date = "2024-02-22"
 [vars]
 ALLOWED_ORIGINS = "https://pos.engaz.tech"
 
+# HMAC signing secret for the HttpOnly session cookie (see src/auth.ts). The
+# Worker mints and verifies anonymous device sessions with this — there is no
+# operator-entered API key anymore, so cloud backup works with zero setup.
+#
+# This default lets a fresh deploy authenticate out of the box. For production,
+# override it with a real secret so nobody who reads this repo can forge a cookie:
+#   npx wrangler secret put SESSION_SECRET
+# A `wrangler secret` value takes precedence over this [vars] entry.
+SESSION_SECRET = "ed63a5d38da7274fbe4aab974dd4cb29241db37a68381b9429d4186406483e67"
+
 [[d1_databases]]
 binding = "DB"
 database_name = "system-online-db"
