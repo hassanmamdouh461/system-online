@@ -1,7 +1,18 @@
+import {
+  authenticate,
+  handleAuthRoutes,
+  assertAuthorized,
+  filterSettingsForRole,
+  isSecretSettingKey,
+} from "./auth";
+
 interface Env {
   DB: D1Database;
   API_KEY?: string;
   ALLOWED_ORIGINS?: string;
+  AUTH_TOKEN_SECRET?: string;
+  BOOTSTRAP_SECRET?: string;
+  REQUIRE_SESSION_ONLY?: string;
 }
 
 // Incremental-sync column per table (names are inconsistent across tables).
@@ -122,16 +133,21 @@ export default {
       }
     }
 
-    {
-      const authHeader = request.headers.get("Authorization");
-      const apiKeyHeader = request.headers.get("X-API-Key");
-      const token = authHeader ? authHeader.replace(/^Bearer\s+/i, "") : apiKeyHeader;
-      if (!token || token !== env.API_KEY) {
-        return new Response(JSON.stringify({ error: "Unauthorized", message: "Invalid or missing API key" }), {
-          status: 401,
-          headers: { "Content-Type": "application/json", ...corsHeaders }
-        });
-      }
+    // 2c. Unauthenticated-by-default auth endpoints (login / bootstrap /
+    // change-password / me). Handled BEFORE the gate so a user with no token
+    // can sign in and obtain a session.
+    const authRouteResponse = await handleAuthRoutes(request, env, corsHeaders);
+    if (authRouteResponse) return authRouteResponse;
+
+    // 2d. AUTHENTICATE — a signed session token (preferred) or, during the
+    // migration window, the legacy shared API_KEY. Everything past here needs a
+    // session; role-based authorization below reads the role from D1.
+    const session = await authenticate(request, env);
+    if (!session) {
+      return new Response(JSON.stringify({ error: "Unauthorized", message: "Invalid or missing credentials" }), {
+        status: 401,
+        headers: { "Content-Type": "application/json", ...corsHeaders }
+      });
     }
 
     try {
@@ -167,6 +183,14 @@ export default {
           if (!docId) {
             return new Response(JSON.stringify({ error: "Bad Request", message: "Missing record id" }), {
               status: 400,
+              headers: { "Content-Type": "application/json", ...corsHeaders }
+            });
+          }
+
+          const syncAuthz = await assertAuthorized(session, table, "POST", action, data, env);
+          if (!syncAuthz.ok) {
+            return new Response(JSON.stringify({ error: "Forbidden", message: syncAuthz.message }), {
+              status: syncAuthz.status || 403,
               headers: { "Content-Type": "application/json", ...corsHeaders }
             });
           }
@@ -266,6 +290,14 @@ export default {
             });
           }
 
+          // Cashiers cannot read a secret settings row by id.
+          if (table === "settings" && session.role !== "manager" && isSecretSettingKey((row as any).key)) {
+            return new Response(JSON.stringify({ message: "Document not found" }), {
+              status: 404,
+              headers: { "Content-Type": "application/json", ...corsHeaders }
+            });
+          }
+
           return new Response(JSON.stringify(denormalizeData(table, row)), {
             status: 200,
             headers: { "Content-Type": "application/json", ...corsHeaders }
@@ -301,7 +333,12 @@ export default {
 
           const stmt = params.length > 0 ? env.DB.prepare(sql).bind(...params) : env.DB.prepare(sql);
           const { results } = await stmt.all();
-          const documents = (results || []).map(row => denormalizeData(table, row));
+          let documents = (results || []).map(row => denormalizeData(table, row));
+
+          // Cashiers get operational settings only — never credentials/secrets.
+          if (table === "settings") {
+            documents = filterSettingsForRole(session.role, documents);
+          }
 
           return new Response(JSON.stringify({ documents }), {
             status: 200,
@@ -314,6 +351,14 @@ export default {
         const body: any = await request.json();
         const documentId = body.documentId;
         const rawData = body.data || {};
+
+        const postAuthz = await assertAuthorized(session, table, "POST", "update", { ...rawData, id: documentId }, env);
+        if (!postAuthz.ok) {
+          return new Response(JSON.stringify({ error: "Forbidden", message: postAuthz.message }), {
+            status: postAuthz.status || 403,
+            headers: { "Content-Type": "application/json", ...corsHeaders }
+          });
+        }
 
         const data = sanitizeAndNormalize(table, rawData);
         data.id = documentId;
@@ -365,6 +410,15 @@ export default {
 
         const body: any = await request.json();
         const rawData = body.data || {};
+
+        const patchAuthz = await assertAuthorized(session, table, "PATCH", "update", { ...rawData, id: docId }, env);
+        if (!patchAuthz.ok) {
+          return new Response(JSON.stringify({ error: "Forbidden", message: patchAuthz.message }), {
+            status: patchAuthz.status || 403,
+            headers: { "Content-Type": "application/json", ...corsHeaders }
+          });
+        }
+
         const data = sanitizeAndNormalize(table, rawData);
 
         const keys = Object.keys(data);
@@ -400,6 +454,14 @@ export default {
         if (!docId) {
           return new Response(JSON.stringify({ error: "Bad Request", message: "Document ID missing" }), {
             status: 400,
+            headers: { "Content-Type": "application/json", ...corsHeaders }
+          });
+        }
+
+        const delAuthz = await assertAuthorized(session, table, "DELETE", "delete", { id: docId }, env);
+        if (!delAuthz.ok) {
+          return new Response(JSON.stringify({ error: "Forbidden", message: delAuthz.message }), {
+            status: delAuthz.status || 403,
             headers: { "Content-Type": "application/json", ...corsHeaders }
           });
         }
