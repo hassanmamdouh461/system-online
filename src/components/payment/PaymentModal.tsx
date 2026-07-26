@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Order } from '../../types/order';
+import { Order, getOrderMoney } from '../../types/order';
 import { Customer } from '../../types/customer';
 import {
   X,
@@ -29,6 +29,7 @@ import { companiesService } from '../../services/companiesService';
 import { Company } from '../../types/company';
 import { PaymentMethod } from '../../types/order';
 import { formatOrderNumber } from '../../utils/orderNumber';
+import { formatMoney, lineTotal } from '../../utils/money';
 
 export interface PaymentCompletePayload {
   orderId: string;
@@ -192,13 +193,14 @@ export function PaymentModal({
 
   if (!isOpen || !order) return null;
 
-  const subtotal = order.totalAmount;
-  const taxRate = typeof order.taxRate === 'number' ? order.taxRate : getTaxRate();
-  const tax = typeof order.taxAmount === 'number' ? order.taxAmount : subtotal * taxRate;
-  const total =
-    typeof order.grandTotal === 'number' && order.grandTotal > 0
-      ? order.grandTotal
-      : Math.max(0, subtotal + tax);
+  // Single piaster-exact resolution of the frozen money triple (see utils/money).
+  // These values are persisted by handlePaymentComplete, so they must be rounded.
+  const {
+    subtotal,
+    taxRate,
+    taxAmount: tax,
+    grandTotal: total,
+  } = getOrderMoney(order, getTaxRate());
 
   const handleCustomerResolved = async (result: CustomerLookupResult) => {
     if (result.skipped) {
@@ -540,7 +542,7 @@ export function PaymentModal({
                             <span className="font-medium">{t(item.name)}</span>
                           </div>
                           <span className="font-mono">
-                            {(item.price * item.quantity).toFixed(2)}{' '}
+                            {formatMoney(lineTotal(item.price, item.quantity))}{' '}
                             {language === 'ar' ? 'ج.م' : 'EGP'}
                           </span>
                         </div>
@@ -553,7 +555,7 @@ export function PaymentModal({
                     <div className="flex justify-between">
                       <span>{t('Subtotal')}</span>
                       <span className="font-mono">
-                        {subtotal.toFixed(2)} {language === 'ar' ? 'ج.م' : 'EGP'}
+                        {formatMoney(subtotal)} {language === 'ar' ? 'ج.م' : 'EGP'}
                       </span>
                     </div>
                     <div className="flex justify-between">
@@ -563,7 +565,7 @@ export function PaymentModal({
                           : `Tax (${taxRate * 100}%)`}
                       </span>
                       <span className="font-mono">
-                        {tax.toFixed(2)} {language === 'ar' ? 'ج.م' : 'EGP'}
+                        {formatMoney(tax)} {language === 'ar' ? 'ج.م' : 'EGP'}
                       </span>
                     </div>
                   </div>
@@ -571,7 +573,7 @@ export function PaymentModal({
                   <div className="flex justify-between items-center text-lg font-bold">
                     <span>{t('Total to Pay')}</span>
                     <span className="text-mocha-700">
-                      {total.toFixed(2)} {language === 'ar' ? 'ج.م' : 'EGP'}
+                      {formatMoney(total)} {language === 'ar' ? 'ج.م' : 'EGP'}
                     </span>
                   </div>
                 </div>
@@ -669,9 +671,9 @@ export function PaymentModal({
                     ? t('Processing...')
                     : paymentMethod === 'OnAccount'
                       ? (language === 'ar'
-                          ? `تسجيل على الحساب ${total.toFixed(2)} ج.م`
-                          : `Charge account ${total.toFixed(2)} EGP`)
-                      : `${t('Pay')} ${total.toFixed(2)} ${language === 'ar' ? 'ج.م' : 'EGP'}`}
+                          ? `تسجيل على الحساب ${formatMoney(total)} ج.م`
+                          : `Charge account ${formatMoney(total)} EGP`)
+                      : `${t('Pay')} ${formatMoney(total)} ${language === 'ar' ? 'ج.م' : 'EGP'}`}
                 </button>
               </div>
             ) : (
@@ -724,7 +726,7 @@ export function PaymentModal({
                           <span className="font-bold min-w-[20px]">{item.quantity}x</span>
                           <span className="break-words">{language === 'ar' ? ((item as any).nameAr || item.name) : ((item as any).nameEn || item.name)}</span>
                         </div>
-                        <span className="font-medium whitespace-nowrap">{(item.quantity * item.price).toFixed(2)}</span>
+                        <span className="font-medium whitespace-nowrap">{formatMoney(lineTotal(item.price, item.quantity))}</span>
                       </div>
                     ))}
                   </div>
@@ -733,18 +735,18 @@ export function PaymentModal({
                   <div className="space-y-1 mb-4 border-b border-gray-200 pb-4 text-xs text-gray-600">
                     <div className="flex justify-between">
                       <span>{t('Subtotal')}</span>
-                      <span>{subtotal.toFixed(2)}</span>
+                      <span>{formatMoney(subtotal)}</span>
                     </div>
                     {tax > 0 && (
                       <div className="flex justify-between">
                         <span>{t('Tax')} ({(taxRate * 100).toFixed(0)}%)</span>
-                        <span>{tax.toFixed(2)}</span>
+                        <span>{formatMoney(tax)}</span>
                       </div>
                     )}
                     {Boolean((order as any).discountAmount) && (order as any).discountAmount > 0 && (
                       <div className="flex justify-between text-red-600">
                         <span>{t('Discount')}</span>
-                        <span>-{((order as any).discountAmount).toFixed(2)}</span>
+                        <span>-{formatMoney((order as any).discountAmount)}</span>
                       </div>
                     )}
                   </div>
@@ -752,7 +754,7 @@ export function PaymentModal({
                   <div className="flex justify-between font-bold text-base">
                     <span>{t('TOTAL')}</span>
                     <span>
-                      {total.toFixed(2)} {language === 'ar' ? 'ج.م' : 'EGP'}
+                      {formatMoney(total)} {language === 'ar' ? 'ج.م' : 'EGP'}
                     </span>
                   </div>
                 </div>

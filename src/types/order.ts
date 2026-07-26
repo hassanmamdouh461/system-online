@@ -1,3 +1,5 @@
+import { calcGrandTotal, calcTax, isMoney, roundMoney, roundMoneyNonNegative } from '../utils/money';
+
 export type OrderStatus = 'New' | 'Preparing' | 'Ready' | 'Completed' | 'Cancelled';
 /**
  * Unpaid   = open bill (table/cashier)
@@ -68,21 +70,47 @@ export interface Order {
   isSynced?: boolean; // false = needs to be pushed to central server
 }
 
-/** Resolve order grand total using frozen tax fields when available. */
-export function getOrderGrandTotal(order: Pick<Order, 'totalAmount' | 'taxAmount' | 'grandTotal' | 'taxRate'>, fallbackTaxRate = 0): number {
+/**
+ * Resolve order grand total using frozen tax fields when available.
+ *
+ * All arithmetic routes through `utils/money` so historical orders whose stored
+ * fields already carry float drift (e.g. a grandTotal of 112.49999999999999)
+ * are normalised to the piaster on read. That keeps every consumer — receipts,
+ * reports, statements, balances — agreeing on the same figure.
+ */
+export function getOrderGrandTotal(
+  order: Pick<Order, 'totalAmount' | 'taxAmount' | 'grandTotal' | 'taxRate'>,
+  fallbackTaxRate = 0
+): number {
   // Only trust grandTotal when it's a real positive snapshot (null from D1 used to become 0)
-  if (typeof order.grandTotal === 'number' && Number.isFinite(order.grandTotal) && order.grandTotal > 0) {
-    return order.grandTotal;
+  if (isMoney(order.grandTotal) && order.grandTotal > 0) {
+    return roundMoneyNonNegative(order.grandTotal);
   }
-  const rate =
-    typeof order.taxRate === 'number' && Number.isFinite(order.taxRate)
-      ? order.taxRate
-      : fallbackTaxRate;
-  const tax =
-    typeof order.taxAmount === 'number' && Number.isFinite(order.taxAmount)
-      ? order.taxAmount
-      : order.totalAmount * rate;
-  const total = order.totalAmount + tax;
-  return Math.max(0, Number.isFinite(total) ? total : 0);
+  const rate = isMoney(order.taxRate) ? order.taxRate : fallbackTaxRate;
+  const tax = isMoney(order.taxAmount)
+    ? roundMoney(order.taxAmount)
+    : calcTax(order.totalAmount, rate);
+  return calcGrandTotal(order.totalAmount, tax);
+}
+
+/**
+ * Resolve the frozen money triple for an order in one pass, piaster-exact.
+ * Prefer this over recomputing subtotal/tax/total separately at each call site —
+ * that duplication is what let the four copies of this formula drift apart.
+ */
+export function getOrderMoney(
+  order: Pick<Order, 'totalAmount' | 'taxAmount' | 'grandTotal' | 'taxRate'>,
+  fallbackTaxRate = 0
+): { subtotal: number; taxRate: number; taxAmount: number; grandTotal: number } {
+  const subtotal = roundMoney(order.totalAmount);
+  const taxRate = isMoney(order.taxRate) ? order.taxRate : fallbackTaxRate;
+  const taxAmount = isMoney(order.taxAmount)
+    ? roundMoney(order.taxAmount)
+    : calcTax(subtotal, taxRate);
+  const grandTotal =
+    isMoney(order.grandTotal) && order.grandTotal > 0
+      ? roundMoneyNonNegative(order.grandTotal)
+      : calcGrandTotal(subtotal, taxAmount);
+  return { subtotal, taxRate, taxAmount, grandTotal };
 }
 

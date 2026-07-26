@@ -20,6 +20,7 @@ import { menuService } from '../services/menuService';
 import { MenuItem } from '../types/menu';
 import { getIngredientBaseQty } from '../utils/units';
 import { RevenueAreaChart } from '../components/ui/RevenueAreaChart';
+import { safeMoney, addMoney, subtractMoney, multiplyMoney, divideMoney, sumMoneyBy, averageMoney, maxMoney, moneyRatio, moneyPercent, formatMoney } from '../utils/money';
 
 
 // ─── Status display config (UI-only: icons & colours) ────────────────────────
@@ -77,7 +78,7 @@ export default function Reports() {
 
     const getUnitCost = (invItemId: string): number => {
       const found = resolveInvItem(invItemId, inventory);
-      return found ? Number(found.costPerUnit || 0) : 0;
+      return found ? safeMoney(found.costPerUnit) : 0;
     };
 
     const menuRecipeMap: Record<string, any[]> = {};
@@ -92,12 +93,13 @@ export default function Reports() {
 
     const menuTotalCostMap = new Map<string, number>();
     Object.entries(menuRecipeMap).forEach(([mId, ingList]) => {
-      const totalCost = ingList.reduce((sum, ing) => {
+      // baseQty is a quantity (multiplier), cost is money -> multiplyMoney(cost, baseQty)
+      const totalCost = sumMoneyBy(ingList, ing => {
         const invItem = resolveInvItem(ing.inventoryItemId, inventory);
-        const cost = invItem ? Number(invItem.costPerUnit || 0) : 0;
+        const cost = invItem ? safeMoney(invItem.costPerUnit) : 0;
         const baseQty = getIngredientBaseQty(ing.quantity, ing.unit || '', invItem?.unit || '');
-        return sum + (baseQty * cost);
-      }, 0);
+        return multiplyMoney(cost, baseQty);
+      });
       menuTotalCostMap.set(mId, totalCost > 0 ? totalCost : 1);
     });
 
@@ -119,7 +121,7 @@ export default function Reports() {
       const itemUnitCost = item.costPerUnit && item.costPerUnit > 0 ? item.costPerUnit : 1;
 
       if (itemRecipes.length === 0) {
-        yields[item.id] = itemUnitCost * 2.5;
+        yields[item.id] = multiplyMoney(itemUnitCost, 2.5);
         return;
       }
 
@@ -132,17 +134,18 @@ export default function Reports() {
         if (menuItem && rec.quantity > 0) {
           const baseQty = getIngredientBaseQty(rec.quantity, rec.unit || '', item.unit || '');
           if (baseQty > 0) {
-            const itemCostInRecipe = baseQty * itemUnitCost;
-            const costShareFraction = itemCostInRecipe / totalRecipeCost;
-            const allocatedRevenue = costShareFraction * menuItem.price;
-            const unitYield = allocatedRevenue / baseQty;
-            totalUnitYield += unitYield;
+            const itemCostInRecipe = multiplyMoney(itemUnitCost, baseQty);
+            // costShareFraction is a ratio (0-1), not money -> moneyRatio
+            const costShareFraction = moneyRatio(itemCostInRecipe, totalRecipeCost);
+            const allocatedRevenue = multiplyMoney(menuItem.price, costShareFraction);
+            const unitYield = divideMoney(allocatedRevenue, baseQty);
+            totalUnitYield = addMoney(totalUnitYield, unitYield);
             validCount++;
           }
         }
       });
 
-      yields[item.id] = validCount > 0 ? (totalUnitYield / validCount) : (itemUnitCost * 2.5);
+      yields[item.id] = validCount > 0 ? averageMoney(totalUnitYield, validCount) : multiplyMoney(itemUnitCost, 2.5);
     });
 
     return yields;
@@ -153,13 +156,15 @@ export default function Reports() {
     let totalProfit = 0;
 
     inventory.forEach(item => {
-      const costVal = item.stock * item.costPerUnit;
-      const avgYield = itemYields[item.id] || (item.costPerUnit * 2.5);
-      const potSales = item.stock * avgYield;
-      const potProfit = potSales > 0 ? Math.max(potSales - costVal, 0) : 0;
+      // item.stock is a quantity (multiplier), costPerUnit/avgYield are money
+      const costVal = multiplyMoney(item.costPerUnit, item.stock);
+      const avgYield = itemYields[item.id] || multiplyMoney(item.costPerUnit, 2.5);
+      const potSales = multiplyMoney(avgYield, item.stock);
+      // maxMoney clamps at 0 without changing the potSales > 0 gating logic
+      const potProfit = potSales > 0 ? maxMoney(subtractMoney(potSales, costVal), 0) : 0;
 
-      totalCost += costVal;
-      totalProfit += potProfit;
+      totalCost = addMoney(totalCost, costVal);
+      totalProfit = addMoney(totalProfit, potProfit);
     });
 
     return { totalCost, totalProfit };
@@ -178,7 +183,7 @@ export default function Reports() {
       const invItem = inventory.find(i => i.id === r.inventoryItemId);
       const itemCost = invItem ? invItem.costPerUnit : 0;
       const baseQty = getIngredientBaseQty(r.quantity, r.unit || '', invItem?.unit || '');
-      costMap[r.menuItemId] = (costMap[r.menuItemId] || 0) + (baseQty * itemCost);
+      costMap[r.menuItemId] = addMoney(costMap[r.menuItemId] || 0, multiplyMoney(itemCost, baseQty));
     }
     return costMap;
   }, [recipes, inventory]);
@@ -188,17 +193,18 @@ export default function Reports() {
     for (const order of analytics.completedPeriod) {
       for (const item of order.items) {
         const itemCost = recipeCosts[item.menuItemId || item.id] || 0;
-        totalCogs += itemCost * item.quantity;
+        // item.quantity is a count (multiplier), itemCost is money
+        totalCogs = addMoney(totalCogs, multiplyMoney(itemCost, item.quantity));
       }
     }
-    
+
     return totalCogs;
   }, [analytics.completedPeriod, recipeCosts, dateRange]);
 
   const netProfit = useMemo(() => {
     // totalRevenue is tax-inclusive (sum of grandTotal). Subtract the ACTUAL
     // collected tax from frozen snapshots — NOT revenue * taxRate (double-discount).
-    return Math.max(0, analytics.totalRevenue - analytics.totalTax - cogs);
+    return maxMoney(subtractMoney(analytics.totalRevenue, analytics.totalTax, cogs), 0);
   }, [analytics.totalRevenue, analytics.totalTax, cogs]);
 
   const lowStockItems = useMemo(() => {
@@ -215,12 +221,14 @@ export default function Reports() {
       o => o.paymentStatus === 'Paid'
     ).length;
     const openCount = validOrders.filter(o => o.paymentStatus === 'Unpaid' || o.paymentStatus === 'OnAccount').length;
-    const paidAmount = validOrders
-      .filter(o => o.paymentStatus === 'Paid')
-      .reduce((sum, o) => sum + getOrderGrandTotal(o, taxRate), 0);
-    const openAmount = validOrders
-      .filter(o => o.paymentStatus === 'Unpaid' || o.paymentStatus === 'OnAccount')
-      .reduce((sum, o) => sum + getOrderGrandTotal(o, taxRate), 0);
+    const paidAmount = sumMoneyBy(
+      validOrders.filter(o => o.paymentStatus === 'Paid'),
+      o => getOrderGrandTotal(o, taxRate)
+    );
+    const openAmount = sumMoneyBy(
+      validOrders.filter(o => o.paymentStatus === 'Unpaid' || o.paymentStatus === 'OnAccount'),
+      o => getOrderGrandTotal(o, taxRate)
+    );
     const totalCount = paidCount + openCount;
     return { paidCount, openCount, paidAmount, openAmount, totalCount };
   }, [analytics.periodOrders, taxRate]);
@@ -228,23 +236,25 @@ export default function Reports() {
   const paymentMethodStats = React.useMemo(() => {
     // Use canonical getOrderGrandTotal so totals match analytics revenue exactly
     // (respects frozen grandTotal snapshot)
-    const realCashAmount = analytics.completedPeriod
-      .filter(o => o.paymentMethod === 'Cash')
-      .reduce((sum, o) => sum + getOrderGrandTotal(o, taxRate), 0);
-    const realCardAmount = analytics.completedPeriod
-      .filter(o => o.paymentMethod === 'Card')
-      .reduce((sum, o) => sum + getOrderGrandTotal(o, taxRate), 0);
+    const realCashAmount = sumMoneyBy(
+      analytics.completedPeriod.filter(o => o.paymentMethod === 'Cash'),
+      o => getOrderGrandTotal(o, taxRate)
+    );
+    const realCardAmount = sumMoneyBy(
+      analytics.completedPeriod.filter(o => o.paymentMethod === 'Card'),
+      o => getOrderGrandTotal(o, taxRate)
+    );
 
     const totalCashAmount = realCashAmount;
     const totalCardAmount = realCardAmount;
-    const totalPaidAmount = totalCashAmount + totalCardAmount;
+    const totalPaidAmount = addMoney(totalCashAmount, totalCardAmount);
 
     return {
       cashAmount: totalCashAmount,
       cardAmount: totalCardAmount,
       totalAmount: totalPaidAmount,
-      cashPercentage: totalPaidAmount > 0 ? Math.round((totalCashAmount / totalPaidAmount) * 100) : 0,
-      cardPercentage: totalPaidAmount > 0 ? Math.round((totalCardAmount / totalPaidAmount) * 100) : 0,
+      cashPercentage: totalPaidAmount > 0 ? moneyPercent(totalCashAmount, totalPaidAmount) : 0,
+      cardPercentage: totalPaidAmount > 0 ? moneyPercent(totalCardAmount, totalPaidAmount) : 0,
     };
   }, [analytics.completedPeriod, dateRange, taxRate]);
 
@@ -263,9 +273,10 @@ export default function Reports() {
   // matching ManagerDashboard's receivablesData semantics.
   // NOTE: must stay above the early returns below — Rules of Hooks.
   const totalReceivables = useMemo(() => {
-    return (allOrders || [])
-      .filter(o => o.paymentStatus === 'OnAccount' && o.status !== 'Cancelled')
-      .reduce((sum, o) => sum + getOrderGrandTotal(o, taxRate), 0);
+    return sumMoneyBy(
+      (allOrders || []).filter(o => o.paymentStatus === 'OnAccount' && o.status !== 'Cancelled'),
+      o => getOrderGrandTotal(o, taxRate)
+    );
   }, [allOrders, taxRate]);
 
   if (analytics.loading) return <LoadingScreen />;
@@ -292,7 +303,7 @@ export default function Reports() {
       label: t('TOTAL REVENUE (INCL. TAX)'),
       value: `${analytics.totalRevenue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currencyStr}`,
       icon: DollarSign,
-      trend: analytics.realRevenue > 0 ? `+${analytics.realRevenue.toFixed(2)} ${currencyStr} ${pLabel}` : t('Lifetime total'),
+      trend: analytics.realRevenue > 0 ? `+${formatMoney(analytics.realRevenue)} ${currencyStr} ${pLabel}` : t('Lifetime total'),
       color: 'green',
     },
     {
@@ -418,7 +429,7 @@ export default function Reports() {
             <h2 className="text-sm md:text-lg font-bold text-gray-900">{t('Revenue Trend')}</h2>
             {analytics.realRevenue > 0 && (
               <span className="text-xs text-green-600 bg-green-50 px-2 py-1 rounded-full font-medium">
-                +{analytics.realRevenue.toFixed(2)} {currencyStr} {pLabel}
+                +{formatMoney(analytics.realRevenue)} {currencyStr} {pLabel}
               </span>
             )}
           </div>
@@ -462,7 +473,7 @@ export default function Reports() {
                       className="h-full bg-caramel rounded-full"
                     />
                   </div>
-                  <p className="text-[11px] text-gray-400">{item.revenue.toFixed(2)} {currencyStr} {t('revenue')}</p>
+                  <p className="text-[11px] text-gray-400">{formatMoney(item.revenue)} {currencyStr} {t('revenue')}</p>
                 </div>
               ))}
             </div>
@@ -562,7 +573,7 @@ export default function Reports() {
                   />
                 </div>
                 <p className="text-[10px] text-gray-400 text-left">
-                  {t('Total Paid')}: {invoiceStats.paidAmount.toFixed(2)} {language === 'ar' ? 'ج.م' : 'EGP'}
+                  {t('Total Paid')}: {formatMoney(invoiceStats.paidAmount)} {language === 'ar' ? 'ج.م' : 'EGP'}
                 </p>
               </div>
 
@@ -586,7 +597,7 @@ export default function Reports() {
                   />
                 </div>
                 <p className="text-[10px] text-gray-400 text-left">
-                  {t('Total Open')}: {invoiceStats.openAmount.toFixed(2)} {language === 'ar' ? 'ج.م' : 'EGP'}
+                  {t('Total Open')}: {formatMoney(invoiceStats.openAmount)} {language === 'ar' ? 'ج.م' : 'EGP'}
                 </p>
               </div>
 
@@ -620,7 +631,7 @@ export default function Reports() {
                   />
                 </div>
                 <p className="text-[10px] text-gray-400 text-left">
-                  {t('Total Cash')}: {paymentMethodStats.cashAmount.toFixed(2)} {language === 'ar' ? 'ج.م' : 'EGP'}
+                  {t('Total Cash')}: {formatMoney(paymentMethodStats.cashAmount)} {language === 'ar' ? 'ج.م' : 'EGP'}
                 </p>
               </div>
 
@@ -644,7 +655,7 @@ export default function Reports() {
                   />
                 </div>
                 <p className="text-[10px] text-gray-400 text-left">
-                  {t('Total Card')}: {paymentMethodStats.cardAmount.toFixed(2)} {language === 'ar' ? 'ج.م' : 'EGP'}
+                  {t('Total Card')}: {formatMoney(paymentMethodStats.cardAmount)} {language === 'ar' ? 'ج.م' : 'EGP'}
                 </p>
               </div>
             </div>
@@ -683,7 +694,7 @@ export default function Reports() {
                       </div>
                     </div>
                     <div className="text-right shrink-0">
-                      <p className="text-xs md:text-sm font-bold text-gray-900">{getOrderGrandTotal(order, taxRate).toFixed(2)} {language === 'ar' ? 'ج.م' : 'EGP'}</p>
+                      <p className="text-xs md:text-sm font-bold text-gray-900">{formatMoney(getOrderGrandTotal(order, taxRate))} {language === 'ar' ? 'ج.م' : 'EGP'}</p>
                       <p className="text-[11px] text-gray-400">{timeStr}</p>
                     </div>
                   </motion.div>

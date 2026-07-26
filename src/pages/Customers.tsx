@@ -12,6 +12,7 @@ import { companiesService } from '../services/companiesService';
 import { Customer } from '../types/customer';
 import { Company } from '../types/company';
 import { Order, getOrderGrandTotal } from '../types/order';
+import { addMoney, averageMoney, formatMoney, sumMoneyBy } from '../utils/money';
 
 import { useOrders } from '../hooks/useOrders';
 import { useLanguage } from '../context/LanguageContext';
@@ -50,12 +51,12 @@ function tagsToString(tags?: string[]): string {
 
 function orderStats(orders: Order[], taxRate: number) {
   const paid = orders.filter(o => o.paymentStatus === 'Paid');
-  const revenue = paid.reduce((s, o) => s + getOrderGrandTotal(o, taxRate), 0);
+  const revenue = sumMoneyBy(paid, o => getOrderGrandTotal(o, taxRate));
   return {
     totalOrders: orders.length,
     paidOrders: paid.length,
     revenue,
-    avgTicket: paid.length > 0 ? revenue / paid.length : 0,
+    avgTicket: averageMoney(revenue, paid.length),
   };
 }
 
@@ -187,19 +188,19 @@ export default function CustomersPage({ managerMode = false }: CustomersPageProp
 
   // Total Receivables calculated across all customers & companies
   const totalCustomerReceivables = useMemo(() => {
-    return customers.reduce((sum, c) => sum + getCustomerAccountBalance(orders, c, taxRate), 0);
+    return sumMoneyBy(customers, c => getCustomerAccountBalance(orders, c, taxRate));
   }, [customers, orders, taxRate]);
 
   const totalCompanyReceivables = useMemo(() => {
-    return companies.reduce((sum, co) => {
+    return sumMoneyBy(companies, co => {
       const members = companyMembers(co.id);
-      return sum + getCompanyAccountBalance(
+      return getCompanyAccountBalance(
         orders, co.id, taxRate,
         members.map(m => m.phone),
         members.map(m => m.id),
         false
       );
-    }, 0);
+    });
   }, [companies, orders, taxRate, companyMembers]);
 
   // ── Customer form state ──────────────────────────────────────────
@@ -403,7 +404,7 @@ export default function CustomersPage({ managerMode = false }: CustomersPageProp
         <StatCard
           icon={Wallet}
           title={language === 'ar' ? 'ديون آجل قائمة' : 'Total Receivables'}
-          value={`${(totalCustomerReceivables + totalCompanyReceivables).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`}
+          value={`${addMoney(totalCustomerReceivables, totalCompanyReceivables).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`}
           subtitle={language === 'ar' ? 'مستحقات آجل للعملاء والشركات' : 'Outstanding credit due'}
           gradient="from-rose-50 to-red-50/40 border-rose-100/80 text-rose-700"
           iconBg="bg-rose-100/80 text-rose-800"
@@ -1041,7 +1042,7 @@ function CustomerProfileDetail({
           {balance > 0 ? (
             <div className="bg-rose-50 border border-rose-200 px-3 py-1.5 rounded-xl text-right">
               <p className="text-xs font-extrabold text-rose-700">{language === 'ar' ? 'رصيد مستحق' : 'Due Balance'}</p>
-              <p className="text-base font-black text-rose-800">{balance.toFixed(2)} {currency}</p>
+              <p className="text-base font-black text-rose-800">{formatMoney(balance)} {currency}</p>
             </div>
           ) : (
             <div className="bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-xl text-right">
@@ -1094,7 +1095,7 @@ function CustomerProfileDetail({
                   <p className="text-[11px] text-gray-500 mt-0.5">{new Date(o.createdAt).toLocaleString()}</p>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="font-black text-rose-700 text-sm">{getOrderGrandTotal(o, taxRate).toFixed(2)} {currency}</span>
+                  <span className="font-black text-rose-700 text-sm">{formatMoney(getOrderGrandTotal(o, taxRate))} {currency}</span>
                   <button
                     onClick={() => printCustomerReceipt(o, language === 'ar' ? 'ar' : 'en')}
                     className="p-1.5 rounded-lg text-rose-700 hover:bg-rose-100 transition-colors"
@@ -1155,7 +1156,7 @@ function CustomerProfileDetail({
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                   <div className="text-right">
-                    <p className="font-extrabold text-gray-900">{getOrderGrandTotal(o, taxRate).toFixed(2)} {currency}</p>
+                    <p className="font-extrabold text-gray-900">{formatMoney(getOrderGrandTotal(o, taxRate))} {currency}</p>
                     <p className={clsx(
                       'text-[10px] font-extrabold mt-0.5',
                       o.paymentStatus === 'Paid' ? 'text-emerald-600'
@@ -1243,7 +1244,7 @@ function CustomerProfileDetail({
                   <p className="text-xs text-gray-500">{language === 'ar' ? 'فاتورة رقم' : 'Invoice'}</p>
                   <p className="font-black text-gray-900 text-lg">#{formatOrderNumber(refundTarget)}</p>
                   <p className="text-xs text-gray-400 mt-0.5">{new Date(refundTarget.createdAt).toLocaleString()}</p>
-                  <p className="text-sm font-bold text-emerald-600 mt-1">{getOrderGrandTotal(refundTarget, taxRate).toFixed(2)} {currency}</p>
+                  <p className="text-sm font-bold text-emerald-600 mt-1">{formatMoney(getOrderGrandTotal(refundTarget, taxRate))} {currency}</p>
                 </div>
 
                 <div>
@@ -1359,7 +1360,7 @@ function CompanyProfileDetail({
           {balance > 0 ? (
             <div className="bg-rose-50 border border-rose-200 px-3 py-1.5 rounded-xl text-right">
               <p className="text-xs font-extrabold text-rose-700">{language === 'ar' ? 'رصيد الشركة المستحق' : 'Due Company Balance'}</p>
-              <p className="text-base font-black text-rose-800">{balance.toFixed(2)} {currency}</p>
+              <p className="text-base font-black text-rose-800">{formatMoney(balance)} {currency}</p>
             </div>
           ) : (
             <div className="bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-xl text-right">
@@ -1394,7 +1395,7 @@ function CompanyProfileDetail({
                   </p>
                 </div>
                 <div className="flex items-center gap-3">
-                  <span className="font-black text-rose-700 text-sm">{getOrderGrandTotal(o, taxRate).toFixed(2)} {currency}</span>
+                  <span className="font-black text-rose-700 text-sm">{formatMoney(getOrderGrandTotal(o, taxRate))} {currency}</span>
                   <button
                     onClick={() => printCustomerReceipt(o, language === 'ar' ? 'ar' : 'en')}
                     className="p-1.5 rounded-lg text-rose-700 hover:bg-rose-100 transition-colors"

@@ -10,6 +10,7 @@ import { useEditingGuard } from '../../hooks/useEditingGuard';
 import { getIngredientBaseQty } from '../../utils/units';
 import { persistSetting } from '../../services/settingsCloudService';
 import { useToast } from '../ui/Toast';
+import { addMoney, formatMoney, moneyPercent, multiplyMoney, subtractMoney } from '../../utils/money';
 
 interface MenuModalProps {
 
@@ -174,14 +175,14 @@ export function MenuModal({ isOpen, onClose, onSave, initialData, existingItems 
       const invItem = inventoryItems.find(i => i.id === ing.inventoryItemId);
       if (!invItem) return sum;
       const baseQty = getIngredientBaseQty(ing.quantity, ing.unit || invItem.unit || 'كجم', invItem.unit || 'كجم');
-      return sum + (invItem.costPerUnit * baseQty);
+      return addMoney(sum, multiplyMoney(invItem.costPerUnit, baseQty));
     }, 0);
   }, [mappedIngredients, inventoryItems]);
 
   const marginStats = useMemo(() => {
     const price = parseFloat(formData.price) || 0;
-    const profit = price - calculatedCost;
-    const percentage = price > 0 ? (profit / price) * 100 : 0;
+    const profit = subtractMoney(price, calculatedCost);
+    const percentage = moneyPercent(profit, price);
     return { profit, percentage };
   }, [formData.price, calculatedCost]);
 
@@ -490,12 +491,12 @@ export function MenuModal({ isOpen, onClose, onSave, initialData, existingItems 
                   <div className="bg-mocha-50/50 rounded-xl p-3 border border-mocha-100 flex flex-col gap-1.5 text-xs text-mocha-900 mt-2">
                     <div className="flex justify-between items-center font-medium">
                       <span>{t('Recipe Cost')}:</span>
-                      <span className="font-bold text-gray-800">EGP {calculatedCost.toFixed(2)}</span>
+                      <span className="font-bold text-gray-800">EGP {formatMoney(calculatedCost)}</span>
                     </div>
                     <div className="flex justify-between items-center font-medium">
                       <span>{t('Potential Margin')}:</span>
                       <span className={`font-bold ${marginStats.profit >= 0 ? 'text-green-600' : 'text-red-500'}`}>
-                        EGP {marginStats.profit.toFixed(2)} ({marginStats.percentage.toFixed(0)}%)
+                        EGP {formatMoney(marginStats.profit)} ({marginStats.percentage.toFixed(0)}%)
                       </span>
                     </div>
                   </div>

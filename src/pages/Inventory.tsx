@@ -15,6 +15,7 @@ import { resolveInvItem } from '../utils/inventoryHelpers';
 import { useToast } from '../components/ui/Toast';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 import { getIngredientBaseQty } from '../utils/units';
+import { addMoney, divideMoney, formatMoney, maxMoney, moneyRatio, multiplyMoney, roundMoney, subtractMoney, sumMoneyBy } from '../utils/money';
 
 export default function Inventory() {
   const { t, isRtl } = useLanguage();
@@ -122,7 +123,7 @@ export default function Inventory() {
         if (!invItem) return sum; // Skip deleted items
         const cost = invItem.costPerUnit && invItem.costPerUnit > 0 ? invItem.costPerUnit : 1;
         const baseQty = getIngredientBaseQty(ing.quantity, ing.unit || '', invItem.unit || '');
-        return sum + (baseQty * cost);
+        return addMoney(sum, multiplyMoney(cost, baseQty));
       }, 0);
       menuTotalCostMap.set(mId, totalCost > 0 ? totalCost : 1);
     });
@@ -164,11 +165,11 @@ export default function Inventory() {
         if (menuItem && rec.quantity > 0) {
           const baseQty = getIngredientBaseQty(rec.quantity, rec.unit || '', item.unit || '');
           if (baseQty > 0) {
-            const itemCostInRecipe = baseQty * itemUnitCost;
-            const costShareFraction = itemCostInRecipe / totalRecipeCost;
-            const allocatedRevenue = costShareFraction * menuItem.price;
-            const unitYield = allocatedRevenue / baseQty;
-            totalUnitYield += unitYield;
+            const itemCostInRecipe = multiplyMoney(itemUnitCost, baseQty);
+            const costShareFraction = moneyRatio(itemCostInRecipe, totalRecipeCost);
+            const allocatedRevenue = multiplyMoney(menuItem.price, costShareFraction);
+            const unitYield = divideMoney(allocatedRevenue, baseQty);
+            totalUnitYield = addMoney(totalUnitYield, unitYield);
             validCount++;
           }
         }
@@ -214,7 +215,7 @@ export default function Inventory() {
 
   // Total Inventory Cost Value
   const totalValue = useMemo(() => {
-    return inventory.reduce((sum, item) => sum + (item.stock * item.costPerUnit), 0);
+    return sumMoneyBy(inventory, item => multiplyMoney(item.costPerUnit, item.stock));
   }, [inventory]);
 
   // Low stock warning count
@@ -226,9 +227,11 @@ export default function Inventory() {
   const totalPotentialProfit = useMemo(() => {
     return inventory.reduce((sum, item) => {
       const avgYield = itemYields[item.id] || 0;
-      const potSales = item.stock * avgYield;
-      const potProfit = potSales > 0 ? Math.max(potSales - (item.stock * item.costPerUnit), 0) : 0;
-      return sum + potProfit;
+      const potSales = multiplyMoney(avgYield, item.stock);
+      const potProfit = potSales > 0
+        ? maxMoney(subtractMoney(potSales, multiplyMoney(item.costPerUnit, item.stock)), 0)
+        : 0;
+      return addMoney(sum, potProfit);
     }, 0);
   }, [inventory, itemYields]);
 
@@ -266,7 +269,7 @@ export default function Inventory() {
         unit: itemForm.unit,
         stock: parseFloat(itemForm.stock) || 0,
         minStock: parseFloat(itemForm.minStock) || 0,
-        costPerUnit: parseFloat(itemForm.costPerUnit) || 0,
+        costPerUnit: roundMoney(itemForm.costPerUnit),
         branchId: selectedItem?.branchId || 'main_branch',
       };
 
@@ -549,8 +552,10 @@ export default function Inventory() {
                   {filteredStock.map((item) => {
                     const isLow = item.stock <= item.minStock;
                     const avgYield = itemYields[item.id] || 0;
-                    const potSales = item.stock * avgYield;
-                    const potProfit = potSales > 0 ? Math.max(potSales - (item.stock * item.costPerUnit), 0) : 0;
+                    const potSales = multiplyMoney(avgYield, item.stock);
+                    const potProfit = potSales > 0
+                      ? maxMoney(subtractMoney(potSales, multiplyMoney(item.costPerUnit, item.stock)), 0)
+                      : 0;
                     
                     return (
                       <tr key={item.id} className="hover:bg-gray-50/50 transition-colors">
@@ -561,15 +566,15 @@ export default function Inventory() {
                           {isLow && <span className="block text-[10px] text-red-500 font-semibold">{t('Low Stock')}</span>}
                         </td>
                         <td className="p-4 text-center text-gray-500">{item.minStock.toFixed(2)}</td>
-                        <td className="p-4 text-center font-medium text-gray-700">EGP {item.costPerUnit.toFixed(2)}</td>
+                        <td className="p-4 text-center font-medium text-gray-700">EGP {formatMoney(item.costPerUnit)}</td>
                         <td className="p-4 text-center font-bold text-gray-800">
-                          EGP {(item.stock * item.costPerUnit).toFixed(2)}
+                          EGP {formatMoney(multiplyMoney(item.costPerUnit, item.stock))}
                         </td>
                         <td className="p-4 text-center font-bold text-emerald-600">
-                          EGP {potSales.toFixed(2)}
+                          EGP {formatMoney(potSales)}
                         </td>
                         <td className="p-4 text-center font-bold text-sky-600">
-                          EGP {potProfit.toFixed(2)}
+                          EGP {formatMoney(potProfit)}
                         </td>
                         <td className="p-4 text-right">
                           <div className="flex justify-end items-center gap-1.5">
@@ -880,9 +885,11 @@ export default function Inventory() {
                   const itemCost = selectedItem.costPerUnit;
                   const itemYield = itemYields[selectedItem.id] || 0;
 
-                  const totalTxCost = qtyVal * itemCost;
-                  const totalTxSales = qtyVal * itemYield;
-                  const totalTxProfit = totalTxSales > 0 ? Math.max(totalTxSales - totalTxCost, 0) : 0;
+                  const totalTxCost = multiplyMoney(itemCost, qtyVal);
+                  const totalTxSales = multiplyMoney(itemYield, qtyVal);
+                  const totalTxProfit = totalTxSales > 0
+                    ? maxMoney(subtractMoney(totalTxSales, totalTxCost), 0)
+                    : 0;
 
                   if (qtyVal <= 0) return null;
 
@@ -891,11 +898,11 @@ export default function Inventory() {
                       <div className="bg-orange-50/50 border border-orange-100 p-4 rounded-xl space-y-2 text-xs">
                         <div className="flex justify-between font-bold text-gray-700">
                           <span>{t('Total Cost Value')}:</span>
-                          <span>EGP {totalTxCost.toFixed(2)}</span>
+                          <span>EGP {formatMoney(totalTxCost)}</span>
                         </div>
                         <div className="flex justify-between font-bold text-orange-700">
                           <span>{t('Potential Value Loss')}:</span>
-                          <span>EGP {totalTxSales.toFixed(2)}</span>
+                          <span>EGP {formatMoney(totalTxSales)}</span>
                         </div>
                       </div>
                     );
@@ -905,15 +912,15 @@ export default function Inventory() {
                     <div className="bg-emerald-50/50 border border-emerald-100 p-4 rounded-xl space-y-2 text-xs">
                       <div className="flex justify-between font-bold text-gray-700">
                         <span>{t('Total Cost Value')}:</span>
-                        <span>EGP {totalTxCost.toFixed(2)}</span>
+                        <span>EGP {formatMoney(totalTxCost)}</span>
                       </div>
                       <div className="flex justify-between font-bold text-emerald-700">
                         <span>{t('Potential Selling Value')}:</span>
-                        <span>EGP {totalTxSales.toFixed(2)}</span>
+                        <span>EGP {formatMoney(totalTxSales)}</span>
                       </div>
                       <div className="flex justify-between font-bold text-sky-700">
                         <span>{t('Expected Potential Profit')}:</span>
-                        <span>EGP {totalTxProfit.toFixed(2)}</span>
+                        <span>EGP {formatMoney(totalTxProfit)}</span>
                       </div>
                     </div>
                   );

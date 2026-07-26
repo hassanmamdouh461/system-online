@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Plus, Minus, ShoppingBag, Search, Trash2 } from 'lucide-react';
+import { formatMoney, lineTotal, sumLineTotals } from '../../utils/money';
 import { MenuItem } from '../../types/menu';
 import { OrderItem } from '../../types/order';
 import { useToast } from '../ui/Toast';
@@ -48,7 +49,7 @@ export function NewOrderModal({ isOpen, onClose, menuItems, onSubmit }: NewOrder
       });
   }, [cart, menuItems]);
 
-  const totalAmount = cartItems.reduce((sum, i) => sum + i.price * i.quantity, 0);
+  const totalAmount = sumLineTotals(cartItems);
 
   const setQty = (id: string, delta: number) => {
     setCart(prev => {
@@ -174,7 +175,7 @@ export function NewOrderModal({ isOpen, onClose, menuItems, onSubmit }: NewOrder
                       <div className="flex-1">
                         <p className="text-xs font-semibold text-gray-900 truncate">{item.name}</p>
                         <p className="text-[10px] text-gray-500 font-medium px-1.5 py-0.5 bg-gray-100 rounded-full w-max mt-0.5">{item.category}</p>
-                        <p className="text-xs text-mocha-700 font-bold mt-1">{item.price.toFixed(2)} {currency}</p>
+                        <p className="text-xs text-mocha-700 font-bold mt-1">{formatMoney(item.price)} {currency}</p>
                       </div>
                       <div className="flex items-center justify-between">
                         {qty === 0 ? (
@@ -254,10 +255,10 @@ export function NewOrderModal({ isOpen, onClose, menuItems, onSubmit }: NewOrder
                     <div key={item.id} className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2">
                       <div className="flex-1 min-w-0">
                         <p className="text-xs font-medium text-gray-800 truncate">{item.name}</p>
-                        <p className="text-xs text-gray-500">{item.price.toFixed(2)} {currency} × {item.quantity}</p>
+                        <p className="text-xs text-gray-500">{formatMoney(item.price)} {currency} × {item.quantity}</p>
                       </div>
                       <div className="flex items-center gap-1.5 shrink-0">
-                        <span className="text-xs font-bold text-mocha-700">{(item.price * item.quantity).toFixed(2)} {currency}</span>
+                        <span className="text-xs font-bold text-mocha-700">{formatMoney(lineTotal(item.price, item.quantity))} {currency}</span>
                         <button
                           onClick={() => setCart(prev => { const next = new Map(prev); next.delete(item.id); return next; })}
                           className="p-1 text-gray-400 hover:text-red-500 transition-colors"
@@ -274,7 +275,7 @@ export function NewOrderModal({ isOpen, onClose, menuItems, onSubmit }: NewOrder
               <div className="p-4 border-t border-gray-100 space-y-3 shrink-0">
                 <div className="flex justify-between text-sm font-bold">
                   <span>{t('Total')}</span>
-                  <span className="text-mocha-700">{totalAmount.toFixed(2)} {currency}</span>
+                  <span className="text-mocha-700">{formatMoney(totalAmount)} {currency}</span>
                 </div>
                 <button
                   onClick={handleSubmit}

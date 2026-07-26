@@ -2,6 +2,17 @@ import { Order, getOrderGrandTotal } from '../types/order';
 import { getTaxRate, getStoreConfig } from './settingsConfig';
 import { filterItemsBySection } from './orderSection';
 import { formatOrderNumber } from './orderNumber';
+import {
+  calcGrandTotal,
+  calcTax,
+  formatMoney,
+  isMoney,
+  lineTotal,
+  moneyEquals,
+  roundMoney,
+  sumLineTotals,
+  sumMoneyBy,
+} from './money';
 
 /**
  * Escape user/cloud-sourced text before interpolating it into receipt HTML.
@@ -92,14 +103,27 @@ export function printCustomerReceipt(order: Order, lang: 'en' | 'ar' = 'ar') {
   markOrderPrinted(order?.id);
   const isRtl = lang === 'ar';
   const ticketNo = escapeHtml(formatOrderNumber(order));
-  const subtotal = order.totalAmount;
+  // ── Receipt reconciliation invariant ────────────────────────────────────
+  // The printed lines MUST add up to the printed subtotal, and subtotal + tax
+  // MUST equal the printed total — to the millieme. So the subtotal we print is
+  // the exact sum of the same rounded line totals we render below, never a
+  // separately-computed float that can disagree with them.
+  const lineSubtotal = sumLineTotals(order.items);
+  const storedSubtotal = roundMoney(order.totalAmount);
+  const subtotal = order.items && order.items.length > 0 ? lineSubtotal : storedSubtotal;
+
   // Prefer frozen tax snapshot on the order (historical accuracy).
-  const taxRate = typeof order.taxRate === 'number' ? order.taxRate : getTaxRate();
-  const tax = typeof order.taxAmount === 'number' ? order.taxAmount : subtotal * taxRate;
+  const taxRate = isMoney(order.taxRate) ? order.taxRate : getTaxRate();
+  const tax = isMoney(order.taxAmount) ? roundMoney(order.taxAmount) : calcTax(subtotal, taxRate);
+
+  // Trust the frozen grand total only when it actually reconciles with what we
+  // are about to print. A legacy drifted snapshot gets re-derived instead of
+  // printing a receipt whose rows don't sum to its total.
+  const derivedGrandTotal = calcGrandTotal(subtotal, tax);
   const grandTotal =
-    typeof order.grandTotal === 'number'
-      ? order.grandTotal
-      : Math.max(0, subtotal + tax);
+    isMoney(order.grandTotal) && moneyEquals(order.grandTotal, derivedGrandTotal)
+      ? roundMoney(order.grandTotal)
+      : derivedGrandTotal;
 
   const title = isRtl ? 'فاتورة الدفع' : 'Payment Receipt';
   const tableLabel = isRtl ? 'الطاولة / نوع الطلب' : 'Table / Mode';
@@ -267,7 +291,7 @@ export function printCustomerReceipt(order: Order, lang: 'en' | 'ar' = 'ar') {
         ${order.items.map(item => `
           <div class="item">
             <span class="item-name">${item.quantity}x ${escapeHtml(item.name)}</span>
-            <span>${(item.price * item.quantity).toFixed(2)} ${isRtl ? 'ج.م' : 'EGP'}</span>
+            <span>${formatMoney(lineTotal(item.price, item.quantity))} ${isRtl ? 'ج.م' : 'EGP'}</span>
           </div>
         `).join('')}
       </div>
@@ -275,15 +299,15 @@ export function printCustomerReceipt(order: Order, lang: 'en' | 'ar' = 'ar') {
       <div class="totals">
         <div class="total-row">
           <span>${subtotalLabel}:</span>
-          <span>${subtotal.toFixed(2)} ${isRtl ? 'ج.م' : 'EGP'}</span>
+          <span>${formatMoney(subtotal)} ${isRtl ? 'ج.م' : 'EGP'}</span>
         </div>
         <div class="total-row">
           <span>${taxLabel}:</span>
-          <span>${tax.toFixed(2)} ${isRtl ? 'ج.م' : 'EGP'}</span>
+          <span>${formatMoney(tax)} ${isRtl ? 'ج.م' : 'EGP'}</span>
         </div>
         <div class="total-row grand">
           <span>${order.paymentStatus === 'Paid' ? totalLabel : totalUnpaidLabel}:</span>
-          <span>${grandTotal.toFixed(2)} ${isRtl ? 'ج.م' : 'EGP'}</span>
+          <span>${formatMoney(grandTotal)} ${isRtl ? 'ج.م' : 'EGP'}</span>
         </div>
       </div>
 
@@ -626,7 +650,7 @@ export function printCompanyStatement(opts: {
     .filter(o => o.paymentStatus === 'OnAccount' && o.status !== 'Cancelled')
     .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 
-  const total = open.reduce((s, o) => s + getOrderGrandTotal(o, fallbackTax), 0);
+  const total = sumMoneyBy(open, o => getOrderGrandTotal(o, fallbackTax));
 
   const title = isRtl ? 'كشف حساب شركة' : 'Company Account Statement';
   const dateLabel = isRtl ? 'التاريخ' : 'Date';
@@ -649,7 +673,7 @@ export function printCompanyStatement(opts: {
           <td style="padding:6px 4px;border-bottom:1px dashed #ccc;">#${no}</td>
           <td style="padding:6px 4px;border-bottom:1px dashed #ccc;">${new Date(o.createdAt).toLocaleString(isRtl ? 'ar-EG' : 'en-US')}</td>
           <td style="padding:6px 4px;border-bottom:1px dashed #ccc;">${who}</td>
-          <td style="padding:6px 4px;border-bottom:1px dashed #ccc;text-align:${isRtl ? 'left' : 'right'};font-weight:bold;">${amt.toFixed(2)}</td>
+          <td style="padding:6px 4px;border-bottom:1px dashed #ccc;text-align:${isRtl ? 'left' : 'right'};font-weight:bold;">${formatMoney(amt)}</td>
         </tr>`;
     })
     .join('');
@@ -701,7 +725,7 @@ export function printCompanyStatement(opts: {
       </table>
       <div class="total">
         <span>${totalLabel}</span>
-        <span>${total.toFixed(2)} ${isRtl ? 'ج.م' : 'EGP'}</span>
+        <span>${formatMoney(total)} ${isRtl ? 'ج.م' : 'EGP'}</span>
       </div>
       <div class="footer">
         <p>${storeName} POS</p>
@@ -732,7 +756,7 @@ export function printCustomerStatement(opts: {
     .filter(o => o.paymentStatus === 'OnAccount' && o.status !== 'Cancelled')
     .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 
-  const total = open.reduce((s, o) => s + getOrderGrandTotal(o, fallbackTax), 0);
+  const total = sumMoneyBy(open, o => getOrderGrandTotal(o, fallbackTax));
 
   const title = isRtl ? 'كشف حساب عميل' : 'Customer Account Statement';
   const dateLabel = isRtl ? 'التاريخ' : 'Date';
@@ -749,7 +773,7 @@ export function printCustomerStatement(opts: {
           <td style="padding:6px 4px;border-bottom:1px dashed #ccc;">#${no}</td>
           <td style="padding:6px 4px;border-bottom:1px dashed #ccc;">${new Date(o.createdAt).toLocaleString(isRtl ? 'ar-EG' : 'en-US')}</td>
           <td style="padding:6px 4px;border-bottom:1px dashed #ccc;">${escapeHtml(o.tableId || 'Takeaway')}</td>
-          <td style="padding:6px 4px;border-bottom:1px dashed #ccc;text-align:${isRtl ? 'left' : 'right'};font-weight:bold;">${amt.toFixed(2)}</td>
+          <td style="padding:6px 4px;border-bottom:1px dashed #ccc;text-align:${isRtl ? 'left' : 'right'};font-weight:bold;">${formatMoney(amt)}</td>
         </tr>`;
     })
     .join('');
@@ -801,7 +825,7 @@ export function printCustomerStatement(opts: {
       </table>
       <div class="total">
         <span>${totalLabel}</span>
-        <span>${total.toFixed(2)} ${isRtl ? 'ج.م' : 'EGP'}</span>
+        <span>${formatMoney(total)} ${isRtl ? 'ج.م' : 'EGP'}</span>
       </div>
       <div class="footer">
         <p>${storeName} POS</p>
