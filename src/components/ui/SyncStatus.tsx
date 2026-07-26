@@ -25,8 +25,6 @@ export function SyncStatus() {
     workerUrl: getWorkerUrl(),
   });
 
-  const isElectron = typeof window !== 'undefined' && !!window.electronAPI;
-
   const fetchWebQueueStatus = useCallback(async () => {
     try {
       if (!navigator.onLine) {
@@ -66,40 +64,12 @@ export function SyncStatus() {
   }, [language]);
 
   const fetchStatus = useCallback(async () => {
-    if (isElectron && window.electronAPI?.getSyncStatus) {
-      try {
-        const status = await window.electronAPI.getSyncStatus();
-        setSyncStatus({
-          state: status.state,
-          lastSyncAt: status.lastSyncAt,
-          pendingCount: status.pendingCount,
-          failedCount: 0,
-          lastError: status.lastError,
-          workerUrl: getWorkerUrl(),
-        });
-      } catch (err) {
-        console.error('Failed to get sync status:', err);
-      }
-      return;
-    }
     await fetchWebQueueStatus();
-  }, [isElectron, fetchWebQueueStatus]);
+  }, [fetchWebQueueStatus]);
 
   const handleSyncNow = async () => {
     setSyncStatus((prev) => ({ ...prev, state: 'syncing' }));
     try {
-      if (isElectron && window.electronAPI?.triggerSync) {
-        const status = await window.electronAPI.triggerSync();
-        setSyncStatus({
-          state: status.state,
-          lastSyncAt: status.lastSyncAt,
-          pendingCount: status.pendingCount,
-          failedCount: 0,
-          lastError: status.lastError,
-          workerUrl: getWorkerUrl(),
-        });
-        return;
-      }
       if (!isCloudConfigured()) {
         setSyncStatus((prev) => ({
           ...prev,
@@ -164,23 +134,6 @@ export function SyncStatus() {
     fetchStatus();
     const interval = setInterval(fetchStatus, 15_000);
 
-    if (isElectron && window.electronAPI?.onSyncStatusUpdate) {
-      const unsubscribe = window.electronAPI.onSyncStatusUpdate((status) => {
-        setSyncStatus({
-          state: status.state,
-          lastSyncAt: status.lastSyncAt,
-          pendingCount: status.pendingCount,
-          failedCount: 0,
-          lastError: status.lastError,
-          workerUrl: getWorkerUrl(),
-        });
-      });
-      return () => {
-        clearInterval(interval);
-        unsubscribe();
-      };
-    }
-
     const onOnline = () => fetchStatus();
     window.addEventListener('online', onOnline);
     window.addEventListener('offline', onOnline);
@@ -189,7 +142,7 @@ export function SyncStatus() {
       window.removeEventListener('online', onOnline);
       window.removeEventListener('offline', onOnline);
     };
-  }, [fetchStatus, isElectron]);
+  }, [fetchStatus]);
 
   const getStatusConfig = () => {
     switch (syncStatus.state) {

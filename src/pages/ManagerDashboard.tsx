@@ -258,68 +258,56 @@ export default function ManagerDashboard() {
       if (Array.isArray(liveRec)) setRecipes(liveRec);
       if (Array.isArray(liveMenuItems)) setMenuItems(liveMenuItems);
 
-      if (window.electronAPI?.getManagerOrders) {
-        // Desktop Electron app — fetch via Node main process
-        ordersList = await window.electronAPI.getManagerOrders();
-        customersList = await window.electronAPI.getManagerCustomers();
-        if (window.electronAPI?.getInventory) {
-          invList = await window.electronAPI.getInventory();
-        }
-        if (window.electronAPI?.getMenuRecipes) {
-          recList = await window.electronAPI.getMenuRecipes();
-        }
-      } else {
-        // Web Mode — ALWAYS hydrate from Cloudflare D1 first (cross-browser source of truth)
-        // then merge into IndexedDB so a fresh manager browser sees cashier sales.
-        try {
-          const { hydrateFromCloud } = await import('../services/cloudHydrate');
-          await hydrateFromCloud(true);
-        } catch (hydrateErr) {
-          console.warn('[ManagerDashboard] cloud hydrate failed, using local/remote merge:', hydrateErr);
-        }
-
-        const { orderRepository, customerRepository } = await import('../repositories');
-        // undefined branchId = all branches (manager view)
-        const localOrders = await orderRepository.getAll(undefined);
-        const localCustomers = await customerRepository.getAll(undefined);
-
-        ordersList = localOrders.map(o => ({
-          $id: o.id,
-          $createdAt: o.createdAt,
-          branch_id: o.branchId || 'main_branch',
-          total_amount:
-            typeof o.grandTotal === 'number' && o.grandTotal > 0
-              ? o.grandTotal
-              : o.totalAmount,
-          payment_method: o.paymentMethod || 'Cash',
-          items: typeof o.items === 'string' ? o.items : JSON.stringify(o.items),
-          tableId: o.tableId,
-          paymentStatus: o.paymentStatus,
-          paidAt: o.paidAt,
-          taxAmount: o.taxAmount,
-          taxRate: o.taxRate,
-          grandTotal: o.grandTotal,
-        }));
-
-        customersList = localCustomers.map(c => ({
-          $id: c.id,
-          name: c.name,
-          phone: c.phone,
-          points: c.points,
-          createdAt: c.createdAt,
-          branchId: c.branchId || 'main_branch'
-        }));
-
-        invList = liveInv.map(i => ({
-          $id: i.id,
-          name: i.name,
-          unit: i.unit,
-          stock: i.stock,
-          minStock: i.minStock,
-          costPerUnit: i.costPerUnit,
-          branch_id: i.branchId || 'main_branch'
-        }));
+      // Web app — ALWAYS hydrate from Cloudflare D1 first (cross-browser source of truth)
+      // then merge into IndexedDB so a fresh manager browser sees cashier sales.
+      try {
+        const { hydrateFromCloud } = await import('../services/cloudHydrate');
+        await hydrateFromCloud(true);
+      } catch (hydrateErr) {
+        console.warn('[ManagerDashboard] cloud hydrate failed, using local/remote merge:', hydrateErr);
       }
+
+      const { orderRepository, customerRepository } = await import('../repositories');
+      // undefined branchId = all branches (manager view)
+      const localOrders = await orderRepository.getAll(undefined);
+      const localCustomers = await customerRepository.getAll(undefined);
+
+      ordersList = localOrders.map(o => ({
+        $id: o.id,
+        $createdAt: o.createdAt,
+        branch_id: o.branchId || 'main_branch',
+        total_amount:
+          typeof o.grandTotal === 'number' && o.grandTotal > 0
+            ? o.grandTotal
+            : o.totalAmount,
+        payment_method: o.paymentMethod || 'Cash',
+        items: typeof o.items === 'string' ? o.items : JSON.stringify(o.items),
+        tableId: o.tableId,
+        paymentStatus: o.paymentStatus,
+        paidAt: o.paidAt,
+        taxAmount: o.taxAmount,
+        taxRate: o.taxRate,
+        grandTotal: o.grandTotal,
+      }));
+
+      customersList = localCustomers.map(c => ({
+        $id: c.id,
+        name: c.name,
+        phone: c.phone,
+        points: c.points,
+        createdAt: c.createdAt,
+        branchId: c.branchId || 'main_branch'
+      }));
+
+      invList = liveInv.map(i => ({
+        $id: i.id,
+        name: i.name,
+        unit: i.unit,
+        stock: i.stock,
+        minStock: i.minStock,
+        costPerUnit: i.costPerUnit,
+        branch_id: i.branchId || 'main_branch'
+      }));
 
       setOrders(ordersList);
       setCustomers(customersList);
