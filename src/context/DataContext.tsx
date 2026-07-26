@@ -69,6 +69,11 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   // any refetch is suppressed so typing is never wiped by a re-render.
   const isEditingRef = useRef(false);
 
+  // Daily-ticket renumbering is a ONE-TIME cleanup, not a per-poll task. This
+  // guard guarantees renumberIfNeeded() runs at most once per mount so the 10s
+  // auto-refresh can never turn it into a generator of sync_queue rows.
+  const renumberedRef = useRef(false);
+
   // Mirror of ordersList so mutation callbacks can read the latest orders
   // without depending on [ordersList] (avoids re-creating callbacks each tick
   // and avoids stale closures when multiple mutations fire in one frame).
@@ -111,7 +116,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 
   // ── Orders fetching ───────────────────────────────────────────────────────────
 
-  const fetchOrders = useCallback(async () => {
+  const fetchOrders = useCallback(async (opts?: { renumber?: boolean }) => {
     if (isEditingRef.current) return;
     try {
       setOrdersLoading(true);
@@ -120,18 +125,28 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       // Load (with cloud merge) first, THEN renumber so junk from cloud is cleaned.
       // After renumber, re-read LOCAL only — another cloud merge would re-inject 1000-series.
       let data = await orderRepository.getAll(targetBranch);
-      try {
-        if (typeof orderRepository.renumberIfNeeded === 'function') {
-          const changed = await orderRepository.renumberIfNeeded();
-          if (changed > 0) {
-            data =
-              typeof orderRepository.getAllLocal === 'function'
-                ? await orderRepository.getAllLocal(targetBranch)
-                : await orderRepository.getAll(targetBranch);
+      // Renumbering is a ONE-TIME cleanup — it must NEVER run on the recurring
+      // 10s auto-refresh. renumberIfNeeded() writes a fresh sync_queue row
+      // (unique Date.now() key) per changed order every time it runs, so any
+      // day that keeps looking "dirty" (legacy 1000-series cloud numbers, a
+      // >500-ticket day, or a cross-device duplicate) made the poll manufacture
+      // a new batch of pending rows every cycle — the queue could never drain
+      // and "معلّق/Pending" climbed without bound. Gate it to the initial load.
+      if (opts?.renumber && !renumberedRef.current) {
+        renumberedRef.current = true;
+        try {
+          if (typeof orderRepository.renumberIfNeeded === 'function') {
+            const changed = await orderRepository.renumberIfNeeded();
+            if (changed > 0) {
+              data =
+                typeof orderRepository.getAllLocal === 'function'
+                  ? await orderRepository.getAllLocal(targetBranch)
+                  : await orderRepository.getAll(targetBranch);
+            }
           }
+        } catch {
+          // non-fatal
         }
-      } catch {
-        // non-fatal
       }
       setOrdersList(data);
     } catch (err) {
@@ -161,10 +176,12 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       }
       if (cancelled) return;
       await fetchMenu();
-      await fetchOrders();
+      // Initial load is the ONLY place renumbering runs (one-time junk cleanup).
+      await fetchOrders({ renumber: true });
     })();
 
     // ── Auto-refresh orders every 10 seconds (suppressed while editing) ──
+    // No renumber here — this is a pure read/merge refresh.
     const refreshInterval = setInterval(() => {
       fetchOrders();
     }, 10_000);
