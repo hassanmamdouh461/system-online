@@ -36,8 +36,6 @@ CREATE TABLE IF NOT EXISTS orders (
   companyId TEXT,
   companyName TEXT,
   billedToType TEXT,
-  pointsEarned REAL,
-  pointsRedeemed REAL,
   refundedAt TEXT,
   refundReason TEXT,
   -- Soft-delete tombstone. NULL = live; ISO string = deleted (hidden everywhere).
@@ -49,18 +47,12 @@ CREATE TABLE IF NOT EXISTS customers (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
   phone TEXT UNIQUE NOT NULL,
-  points REAL NOT NULL DEFAULT 0,
   company_id TEXT,
   tags TEXT,
   notes TEXT,
   createdAt TEXT NOT NULL,
   updated_at TEXT,
-  branch_id TEXT DEFAULT 'default',
-  -- Soft-delete tombstone. NULL = live; ISO string = deleted (hidden everywhere).
-  -- Must exist on a fresh deploy or the tombstone upsert 500s and deleted
-  -- customers (with stale points / OnAccount ledgers) resurrect on hydrate.
-  -- Added additively to existing DBs by schema-migrate-v9.sql.
-  deleted_at TEXT
+  branch_id TEXT DEFAULT 'default'
 );
 
 CREATE TABLE IF NOT EXISTS companies (
@@ -71,12 +63,7 @@ CREATE TABLE IF NOT EXISTS companies (
   notes TEXT,
   createdAt TEXT NOT NULL,
   updated_at TEXT,
-  branch_id TEXT DEFAULT 'default',
-  -- Soft-delete tombstone. NULL = live; ISO string = deleted (hidden everywhere).
-  -- Must exist on a fresh deploy or the tombstone upsert 500s and deleted
-  -- companies (with their OnAccount receivables) resurrect on hydrate.
-  -- Added additively to existing DBs by schema-migrate-v9.sql.
-  deleted_at TEXT
+  branch_id TEXT DEFAULT 'default'
 );
 
 CREATE TABLE IF NOT EXISTS inventory (
@@ -88,12 +75,7 @@ CREATE TABLE IF NOT EXISTS inventory (
   costPerUnit REAL NOT NULL DEFAULT 0,
   branch_id TEXT DEFAULT NULL,
   created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL,
-  -- Soft-delete tombstone. NULL = live; ISO string = deleted (hidden everywhere).
-  -- Must exist on a fresh deploy or the tombstone upsert 500s and deleted
-  -- inventory items resurrect on hydrate. Added additively to existing DBs by
-  -- schema-migrate-v8.sql.
-  deleted_at TEXT
+  updated_at TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS settings (

@@ -41,9 +41,9 @@ const ALLOWED_COLUMNS: Record<string, Set<string>> = {
     "id", "orderNumber", "tableId", "items", "status", "paymentStatus", "paymentMethod",
     "totalAmount", "taxRate", "taxAmount", "grandTotal", "createdAt", "updatedAt", "paidAt",
     "customerPhone", "customerId", "customerName", "companyId", "companyName", "billedToType",
-    "pointsEarned", "pointsRedeemed", "refundedAt", "refundReason", "deletedAt", "branch_id"
+    "refundedAt", "refundReason", "deletedAt", "branch_id"
   ]),
-  customers: new Set(["id", "name", "phone", "points", "company_id", "tags", "notes", "createdAt", "updated_at", "branch_id", "deleted_at"]),
+  customers: new Set(["id", "name", "phone", "company_id", "tags", "notes", "createdAt", "updated_at", "branch_id", "deleted_at"]),
   companies: new Set(["id", "name", "tags", "phone", "notes", "createdAt", "updated_at", "branch_id", "deleted_at"]),
   inventory: new Set(["id", "name", "unit", "stock", "minStock", "costPerUnit", "branch_id", "created_at", "updated_at", "deleted_at"]),
   settings: new Set(["id", "key", "value", "branch_id", "updated_at"]),
@@ -676,6 +676,9 @@ function denormalizeData(table: string, row: any) {
   if (table === 'customers') {
     doc.branchId = MAIN_BRANCH_ID;
     doc.branch_id = MAIN_BRANCH_ID;
+    // Loyalty points feature removed: never surface a points balance to clients,
+    // even if a legacy D1 row still carries the dormant column.
+    delete doc.points;
     doc.companyId = row.company_id;
     doc.company_id = row.company_id;
     if (typeof row.tags === 'string') {
