@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, ReactNode } from 'react';
 import { verifyAdminCredentials, verifyManagerCredentials } from '../utils/settingsConfig';
+import { setSessionCredential, ensureCloudSession, clearCloudSession } from '../services/cloudConfig';
 
 const LS_SESSION_KEY = 'auth_session_system_online';
 
@@ -111,6 +112,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const newSession: StoredSession = { user: userData, branch: branchSession };
     setSession(newSession);
     localStorage.setItem(LS_SESSION_KEY, JSON.stringify(newSession));
+
+    // Establish a role-bearing cloud session by handing the Worker the same
+    // password we just verified. The Worker re-verifies it against the stored
+    // credential hashes and bakes the resulting role into the signed cookie, so
+    // cloud writes are authorized as this operator's real role — not anonymously.
+    setSessionCredential(password);
+    void ensureCloudSession(true);
+
     return userData;
   };
 
@@ -118,6 +127,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setSession(null);
     localStorage.removeItem(LS_SESSION_KEY);
     sessionStorage.removeItem(LS_SESSION_KEY);
+    // Drop the server session cookie + in-memory credential.
+    void clearCloudSession();
   };
 
   return (

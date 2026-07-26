@@ -44,33 +44,153 @@ export function getWorkerUrl(): string {
   return '';
 }
 
-export function getApiKey(): string {
-  // SECURITY: API key must NEVER be read from import.meta.env (VITE_* vars are
-  // inlined into the client bundle and would leak to any user opening devtools).
-  // The key is stored only in localStorage and entered by the operator via
-  // Settings → Cloud Sync. Electron reads it directly from the .env file.
-  if (typeof window !== 'undefined') {
-    try {
-      return String(localStorage.getItem('brewmaster_d1_api_key') || '').trim();
-    } catch {
-      return '';
-    }
+/**
+ * Cloud session (role-bearing, credential-gated cookie auth).
+ *
+ * The Worker mints an HttpOnly session cookie at POST /v1/session, but ONLY when
+ * the caller presents a valid credential — there is no anonymous session. The
+ * browser POS presents the operator's login password; the Worker verifies it
+ * against the credential hashes already stored in D1 and bakes the resulting
+ * ROLE ("manager" | "cashier") into the signed cookie. The client never declares
+ * its own role, and it never sees the cookie (HttpOnly) — it only holds the
+ * password in memory for the current page-load so it can (re-)mint silently.
+ *
+ * Reload behaviour: after a refresh the in-memory password is gone but the 12h
+ * cookie is still valid, so requests keep working. ensureCloudSession then
+ * becomes a no-op (no credential to mint with) and we simply ride the existing
+ * cookie; only when the cookie truly lapses (401 with no credential) does the
+ * app need a fresh login.
+ */
+const SESSION_PATH = '/v1/session';
+let sessionPromise: Promise<boolean> | null = null;
+
+/** The operator password used to (re-)mint a session. Memory only — never persisted. */
+let sessionCredential: string | null = null;
+/** Role reported by the Worker at the last successful mint. */
+let sessionRole: 'manager' | 'cashier' | null = null;
+
+/**
+ * CSRF double-submit token from the last mint. The HttpOnly session cookie is
+ * invisible to JS and cross-origin, so this token — bound server-side to the
+ * session — is what we echo in X-CSRF-Token on writes. Persisted to localStorage
+ * so it survives a reload while the 12h cookie is still valid (the token stays
+ * valid as long as the session's sid does), and read back on startup.
+ */
+const CSRF_STORAGE_KEY = 'brewmaster_csrf_token';
+let csrfToken: string | null = readStoredCsrf();
+
+function readStoredCsrf(): string | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    return localStorage.getItem(CSRF_STORAGE_KEY) || null;
+  } catch {
+    return null;
   }
-  return '';
 }
 
-/** Persist the Cloudflare Worker API key to localStorage only (never bundled). */
-export function setApiKey(key: string): void {
+function storeCsrf(token: string | null): void {
+  csrfToken = token || null;
   if (typeof window === 'undefined') return;
   try {
-    const trimmed = String(key || '').trim();
-    if (trimmed) {
-      localStorage.setItem('brewmaster_d1_api_key', trimmed);
-    } else {
-      localStorage.removeItem('brewmaster_d1_api_key');
-    }
+    if (token) localStorage.setItem(CSRF_STORAGE_KEY, token);
+    else localStorage.removeItem(CSRF_STORAGE_KEY);
   } catch {
     // ignore
+  }
+}
+
+/** The CSRF token to send with writes, or '' when none is established. */
+export function getCsrfToken(): string {
+  return csrfToken || '';
+}
+
+/**
+ * Provide the credential used to mint a role-scoped session. Call this on login
+ * with the password the operator just authenticated with. Kept in memory only.
+ */
+export function setSessionCredential(password: string): void {
+  sessionCredential = password ? String(password) : null;
+  // A new credential invalidates any cached mint so the next call re-mints.
+  sessionPromise = null;
+}
+
+/** Forget the in-memory credential, role and CSRF token (called on logout). */
+export function clearSessionCredential(): void {
+  sessionCredential = null;
+  sessionRole = null;
+  storeCsrf(null);
+  sessionPromise = null;
+}
+
+/** The role the Worker granted this session, if a mint has succeeded. */
+export function getSessionRole(): 'manager' | 'cashier' | null {
+  return sessionRole;
+}
+
+/**
+ * Ensure a cloud session cookie exists. Concurrent callers share one in-flight
+ * mint. Best-effort: with no in-memory credential this resolves false WITHOUT
+ * erroring, so an existing (valid) cookie from a prior page-load still rides the
+ * request. Pass force=true to discard any cached result and mint anew (used
+ * after a 401 / right after login).
+ */
+export function ensureCloudSession(force = false): Promise<boolean> {
+  if (force) sessionPromise = null;
+  if (sessionPromise) return sessionPromise;
+
+  const p = (async (): Promise<boolean> => {
+    const base = getWorkerUrl();
+    if (!base) return false;
+    if (typeof navigator !== 'undefined' && !navigator.onLine) return false;
+    // No credential ⇒ cannot mint (no anonymous sessions). Ride any existing cookie.
+    if (!sessionCredential) return false;
+    try {
+      const res = await fetch(`${base}${SESSION_PATH}`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: sessionCredential }),
+      });
+      if (!res.ok) return false;
+      try {
+        const json = await res.json();
+        if (json && (json.role === 'manager' || json.role === 'cashier')) {
+          sessionRole = json.role;
+        }
+        if (json && typeof json.csrfToken === 'string') {
+          storeCsrf(json.csrfToken);
+        }
+      } catch {
+        // role/csrf are best-effort; cookie is what actually authenticates
+      }
+      return true;
+    } catch (err) {
+      console.warn('[cloud] session mint failed:', err);
+      return false;
+    }
+  })();
+
+  sessionPromise = p;
+  // Don't cache a failure — allow a later attempt to retry the mint.
+  void p.then((ok) => { if (!ok && sessionPromise === p) sessionPromise = null; })
+        .catch(() => { if (sessionPromise === p) sessionPromise = null; });
+  return p;
+}
+
+/** Forget the cached session so the next request re-mints (used on 401). */
+export function resetCloudSession(): void {
+  sessionPromise = null;
+}
+
+/** Drop the server session cookie and in-memory credential (called on logout). */
+export async function clearCloudSession(): Promise<void> {
+  clearSessionCredential();
+  const base = getWorkerUrl();
+  if (!base) return;
+  try {
+    await fetch(`${base}${SESSION_PATH}`, { method: 'DELETE', credentials: 'include' });
+  } catch {
+    // ignore — cookie will lapse on its own
   }
 }
 
@@ -116,18 +236,17 @@ export function isCloudConfigured(): boolean {
   return !!getWorkerUrl();
 }
 
-export function buildCloudHeaders(extra?: Record<string, string>): Record<string, string> {
-  const headers: Record<string, string> = {
+/**
+ * Base headers for cloud requests. Authentication is carried by the HttpOnly
+ * session cookie (via credentials: 'include'), NOT by a header — so there is no
+ * Authorization / X-API-Key here anymore.
+ */
+export function cloudHeaders(extra?: Record<string, string>): Record<string, string> {
+  return {
     'Content-Type': 'application/json',
     'X-Branch-ID': getBranchIdHeader(),
     ...extra,
   };
-  const key = getApiKey();
-  if (key) {
-    headers['Authorization'] = `Bearer ${key}`;
-    headers['X-API-Key'] = key;
-  }
-  return headers;
 }
 
 /** Parse number from cloud payloads without turning null into 0. */
@@ -139,7 +258,7 @@ export function optionalNumber(value: unknown): number | undefined {
 
 export async function cloudFetch(
   path: string,
-  init?: RequestInit & { timeoutMs?: number }
+  init?: RequestInit & { timeoutMs?: number; skipSession?: boolean }
 ): Promise<Response | null> {
   const base = getWorkerUrl();
   if (!base) return null;
@@ -147,27 +266,52 @@ export async function cloudFetch(
 
   const url = `${base}${path.startsWith('/') ? path : `/${path}`}`;
   const timeoutMs = init?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const skipSession = init?.skipSession === true;
+  const method = (init?.method || 'GET').toUpperCase();
+  const isWrite = method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS';
 
-  const headers = {
-    ...buildCloudHeaders(),
-    ...(init?.headers as Record<string, string> | undefined),
+  // Single attempt with its own abort timer. Credentials are included so the
+  // HttpOnly session cookie rides along on every cloud request. Writes also
+  // carry the CSRF double-submit token (read fresh each attempt so a re-mint
+  // between attempts is picked up).
+  const attempt = async (): Promise<Response | null> => {
+    const headers = cloudHeaders(init?.headers as Record<string, string> | undefined);
+    if (isWrite && csrfToken) headers['X-CSRF-Token'] = csrfToken;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const { timeoutMs: _t, signal: _s, skipSession: _skip, headers: _h, ...rest } = init || {};
+      return await fetch(url, {
+        ...rest,
+        credentials: 'include',
+        headers,
+        signal: controller.signal,
+      });
+    } catch (err) {
+      console.warn('[cloudFetch] failed:', path, err);
+      return null;
+    } finally {
+      clearTimeout(timer);
+    }
   };
 
-  try {
-    const { timeoutMs: _t, signal: _s, ...rest } = init || {};
-    return await fetch(url, {
-      ...rest,
-      headers,
-      signal: controller.signal,
-    });
-  } catch (err) {
-    console.warn('[cloudFetch] failed:', path, err);
-    return null;
-  } finally {
-    clearTimeout(timer);
+  // Public endpoints (the QR menu) need no session; everything else establishes
+  // the session cookie first, then rides it.
+  if (!skipSession) await ensureCloudSession();
+
+  let res = await attempt();
+
+  // Re-mint + retry once when the session lapsed (401) or the CSRF token was
+  // stale/absent on a write (403 flagged X-CSRF-Failed). A plain 403 (role
+  // denied by permissions.ts) is a real, permanent decision — never retried.
+  const csrfFailed = !!res && res.status === 403 && res.headers.get('X-CSRF-Failed') === '1';
+  if (!skipSession && res && (res.status === 401 || (isWrite && csrfFailed))) {
+    resetCloudSession();
+    const ok = await ensureCloudSession(true);
+    if (ok) res = await attempt();
   }
+
+  return res;
 }
 
 /**
@@ -272,19 +416,22 @@ export async function cloudGetCollection(
 /**
  * PUBLIC menu read for the customer-facing QR page (/public-menu).
  *
- * Anonymous visitors have no API key in localStorage, so the authenticated
- * collections endpoint returns 401 and the menu renders empty. This hits the
- * worker's unauthenticated `/public/menu` route instead, which returns only the
- * live, available items. `cloudFetch` still attaches the key when an operator
- * happens to be signed in, but the endpoint does not require it, so a guest with
- * no key gets a clean 200. Returns null on failure so the caller can surface an
- * error state instead of silently showing an empty menu.
+ * Anonymous visitors have no session cookie, so the authenticated collections
+ * endpoint returns 401 and the menu renders empty. This hits the worker's
+ * unauthenticated `/public/menu` route instead, which returns only the live,
+ * available items. We pass skipSession so a guest never mints a session cookie;
+ * the endpoint does not require one, so a guest gets a clean 200. Returns null
+ * on failure so the caller can surface an error state instead of silently
+ * showing an empty menu.
  */
 export async function cloudGetPublicMenu(): Promise<any[] | null> {
   try {
     const res = await cloudFetch('/public/menu', {
       method: 'GET',
       timeoutMs: DEFAULT_TIMEOUT_MS,
+      // Anonymous QR guests: the /public/menu route is unauthenticated, so don't
+      // mint a session cookie for a visitor who will never write anything.
+      skipSession: true,
     });
     if (!res) return null;
     if (!res.ok) {

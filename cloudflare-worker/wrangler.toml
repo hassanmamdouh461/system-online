@@ -10,6 +10,34 @@ compatibility_date = "2024-02-22"
 [vars]
 ALLOWED_ORIGINS = "https://pos.engaz.tech"
 
+# ─────────────────────────────────────────────────────────────────────────────
+# SECRETS — set with `wrangler secret put`, NEVER as a [vars] entry here.
+#
+# wrangler.toml is committed to the repo, so anything under [vars] is public.
+# A previous branch (fix/cookie-session-backup) shipped a real SESSION_SECRET in
+# [vars]; anyone who read the repo could then forge a fully-valid session cookie.
+# Do not reintroduce it. These are the secrets the Worker reads at runtime:
+#
+#   SESSION_SECRET   (REQUIRED) HMAC key that signs session cookies. Without it
+#                    the Worker fails closed and refuses to mint sessions (503).
+#                    Rotate it if it was ever committed — a leaked value stays
+#                    forgeable until rotated.
+#                      npx wrangler secret put SESSION_SECRET
+#
+#   MANAGER_API_KEY  (optional) Role-scoped key for headless/manager callers.
+#   CASHIER_API_KEY  (optional) Role-scoped key for headless/cashier callers.
+#                    The browser POS does NOT need these — it mints a role by
+#                    presenting the operator's login password, which the Worker
+#                    verifies against the credential hashes already in D1.
+#
+#   API_KEY          (optional, transitional) Legacy shared key ⇒ manager. Keeps
+#                    un-migrated tills working; delete once roles are live:
+#                      npx wrangler secret delete API_KEY
+#
+#   REFUND_PIN       (optional) Lets a cashier escalate a refund server-side by
+#                    sending X-Refund-PIN. Unset ⇒ refunds are manager-only.
+# ─────────────────────────────────────────────────────────────────────────────
+
 [[d1_databases]]
 binding = "DB"
 database_name = "system-online-db"

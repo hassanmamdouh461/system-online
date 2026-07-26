@@ -1,7 +1,10 @@
 import { withDB, SyncRecord } from '../repositories/indexeddb/db';
 import {
   getWorkerUrl,
-  buildCloudHeaders,
+  getBranchIdHeader,
+  getCsrfToken,
+  ensureCloudSession,
+  resetCloudSession,
   isCloudConfigured,
 } from './cloudConfig';
 
@@ -176,16 +179,40 @@ export class SyncService {
     // when we've just received 401/403/404.
     if (this.workerDisabled || this.disabledUntil > Date.now()) return;
     try {
-      const response = await fetch(`${workerUrl}/api/sync`, {
-        method: 'POST',
-        headers: buildCloudHeaders(),
-        body: JSON.stringify({
-          type: normalizeSyncType(record.type),
-          action: record.action,
-          data: record.data,
-          timestamp: record.timestamp,
-        }),
+      const body = JSON.stringify({
+        type: normalizeSyncType(record.type),
+        action: record.action,
+        data: record.data,
+        timestamp: record.timestamp,
       });
+      // Auth rides an HttpOnly session cookie (credentials: 'include') — no key
+      // header anymore. Writes also carry the CSRF double-submit token. Establish
+      // the session first, and if it lapsed (401) or the CSRF token was stale
+      // (403 X-CSRF-Failed) re-mint once and retry this record before backing off.
+      const post = async () => {
+        await ensureCloudSession();
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json',
+          'X-Branch-ID': getBranchIdHeader(),
+        };
+        const csrf = getCsrfToken();
+        if (csrf) headers['X-CSRF-Token'] = csrf;
+        return fetch(`${workerUrl}/api/sync`, {
+          method: 'POST',
+          credentials: 'include',
+          headers,
+          body,
+        });
+      };
+
+      let response = await post();
+      const csrfStale = response.status === 403 && response.headers.get('X-CSRF-Failed') === '1';
+      if (response.status === 401 || csrfStale) {
+        resetCloudSession();
+        if (await ensureCloudSession(true)) {
+          response = await post();
+        }
+      }
 
       if (response.ok) {
         await withDB(async (db) => {
@@ -201,8 +228,8 @@ export class SyncService {
         return;
       }
 
-      const body = await response.text().catch(() => '');
-      const msg = `HTTP ${response.status}: ${body.slice(0, 200)}`;
+      const errBody = await response.text().catch(() => '');
+      const msg = `HTTP ${response.status}: ${errBody.slice(0, 200)}`;
       this.lastError = msg;
       if (response.status === 401 || response.status === 403 || response.status === 404) {
         this.disableWorkerTemporarily(300_000);
