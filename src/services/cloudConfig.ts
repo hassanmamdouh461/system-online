@@ -70,6 +70,41 @@ let sessionCredential: string | null = null;
 let sessionRole: 'manager' | 'cashier' | null = null;
 
 /**
+ * CSRF double-submit token from the last mint. The HttpOnly session cookie is
+ * invisible to JS and cross-origin, so this token — bound server-side to the
+ * session — is what we echo in X-CSRF-Token on writes. Persisted to localStorage
+ * so it survives a reload while the 12h cookie is still valid (the token stays
+ * valid as long as the session's sid does), and read back on startup.
+ */
+const CSRF_STORAGE_KEY = 'brewmaster_csrf_token';
+let csrfToken: string | null = readStoredCsrf();
+
+function readStoredCsrf(): string | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    return localStorage.getItem(CSRF_STORAGE_KEY) || null;
+  } catch {
+    return null;
+  }
+}
+
+function storeCsrf(token: string | null): void {
+  csrfToken = token || null;
+  if (typeof window === 'undefined') return;
+  try {
+    if (token) localStorage.setItem(CSRF_STORAGE_KEY, token);
+    else localStorage.removeItem(CSRF_STORAGE_KEY);
+  } catch {
+    // ignore
+  }
+}
+
+/** The CSRF token to send with writes, or '' when none is established. */
+export function getCsrfToken(): string {
+  return csrfToken || '';
+}
+
+/**
  * Provide the credential used to mint a role-scoped session. Call this on login
  * with the password the operator just authenticated with. Kept in memory only.
  */
@@ -79,10 +114,11 @@ export function setSessionCredential(password: string): void {
   sessionPromise = null;
 }
 
-/** Forget the in-memory credential and role (called on logout). */
+/** Forget the in-memory credential, role and CSRF token (called on logout). */
 export function clearSessionCredential(): void {
   sessionCredential = null;
   sessionRole = null;
+  storeCsrf(null);
   sessionPromise = null;
 }
 
@@ -121,8 +157,11 @@ export function ensureCloudSession(force = false): Promise<boolean> {
         if (json && (json.role === 'manager' || json.role === 'cashier')) {
           sessionRole = json.role;
         }
+        if (json && typeof json.csrfToken === 'string') {
+          storeCsrf(json.csrfToken);
+        }
       } catch {
-        // role is best-effort; cookie is what actually authorizes
+        // role/csrf are best-effort; cookie is what actually authenticates
       }
       return true;
     } catch (err) {
@@ -228,12 +267,16 @@ export async function cloudFetch(
   const url = `${base}${path.startsWith('/') ? path : `/${path}`}`;
   const timeoutMs = init?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const skipSession = init?.skipSession === true;
-
-  const headers = cloudHeaders(init?.headers as Record<string, string> | undefined);
+  const method = (init?.method || 'GET').toUpperCase();
+  const isWrite = method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS';
 
   // Single attempt with its own abort timer. Credentials are included so the
-  // HttpOnly session cookie rides along on every cloud request.
+  // HttpOnly session cookie rides along on every cloud request. Writes also
+  // carry the CSRF double-submit token (read fresh each attempt so a re-mint
+  // between attempts is picked up).
   const attempt = async (): Promise<Response | null> => {
+    const headers = cloudHeaders(init?.headers as Record<string, string> | undefined);
+    if (isWrite && csrfToken) headers['X-CSRF-Token'] = csrfToken;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
@@ -258,8 +301,11 @@ export async function cloudFetch(
 
   let res = await attempt();
 
-  // Session missing/expired → re-mint once and retry the request a single time.
-  if (!skipSession && res && res.status === 401) {
+  // Re-mint + retry once when the session lapsed (401) or the CSRF token was
+  // stale/absent on a write (403 flagged X-CSRF-Failed). A plain 403 (role
+  // denied by permissions.ts) is a real, permanent decision — never retried.
+  const csrfFailed = !!res && res.status === 403 && res.headers.get('X-CSRF-Failed') === '1';
+  if (!skipSession && res && (res.status === 401 || (isWrite && csrfFailed))) {
     resetCloudSession();
     const ok = await ensureCloudSession(true);
     if (ok) res = await attempt();

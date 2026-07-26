@@ -58,6 +58,9 @@ export interface AuthEnv {
 /** Session cookie name. Plain (not __Host-) so it works on http localhost dev too. */
 export const SESSION_COOKIE = "pos_session";
 
+/** Header carrying the double-submit CSRF token (see csrfTokenFor / verifyCsrf). */
+export const CSRF_HEADER = "X-CSRF-Token";
+
 /** 12h — comfortably covers a shift; the client re-mints silently when it lapses. */
 const SESSION_TTL_SECONDS = 12 * 60 * 60;
 
@@ -191,6 +194,22 @@ async function verifyPayload(token: string, secret: string): Promise<SessionPayl
 /** Cryptographically-random session id. */
 function newSid(): string {
   return bytesToHex(crypto.getRandomValues(new Uint8Array(16)));
+}
+
+/**
+ * Deterministic CSRF token for a session, = HMAC(secret, "csrf:" + sid). Returned
+ * to the client at mint (readable, unlike the HttpOnly cookie) and echoed back in
+ * the X-CSRF-Token header on writes. An attacker on another origin cannot read
+ * the mint response (CORS) and cannot recompute this without SESSION_SECRET, so
+ * they cannot forge the header — this is the "double submit" half of the CSRF
+ * defense (the strict Origin allowlist in index.ts is the other half).
+ */
+export async function csrfTokenFor(sid: string, env: AuthEnv): Promise<string | null> {
+  const secret = sessionSecret(env);
+  if (!secret) return null;
+  const key = await hmacKey(secret);
+  const sig = await crypto.subtle.sign("HMAC", key, enc.encode(`csrf:${sid}`));
+  return b64urlEncode(new Uint8Array(sig));
 }
 
 /** Mint a fresh signed session token for a resolved role. */
@@ -371,20 +390,42 @@ export async function resolvePasswordRole(env: AuthEnv, password: string): Promi
  * Worker — this keeps any till that has not re-minted a cookie syncing. Remove
  * API_KEY from the Worker to disable.
  */
-export async function authenticate(request: Request, env: AuthEnv): Promise<{ role: Role } | null> {
+export async function authenticate(
+  request: Request,
+  env: AuthEnv
+): Promise<{ role: Role; sid: string | null; viaCookie: boolean } | null> {
   const cookieToken = readSessionCookie(request);
   if (cookieToken) {
     const payload = await verifySessionToken(cookieToken, env);
-    if (payload) return { role: payload.role };
+    if (payload) return { role: payload.role, sid: payload.sid, viaCookie: true };
   }
 
   if (env.API_KEY) {
     const key = presentedKey(request);
     const resolved = resolveKeyRole(key, env);
-    if (resolved) return { role: resolved.role };
+    if (resolved) return { role: resolved.role, sid: null, viaCookie: false };
   }
 
   return null;
+}
+
+/**
+ * Verify the double-submit CSRF token for a cookie-authenticated request. Reads
+ * the session cookie, recomputes the expected token from its sid, and compares
+ * it (constant-time) to the X-CSRF-Token header. Header-key (non-cookie) callers
+ * are not subject to CSRF — an attacker cannot make a browser attach a secret
+ * header cross-origin — so this only guards the cookie path.
+ */
+export async function verifyCsrf(request: Request, env: AuthEnv): Promise<boolean> {
+  const cookieToken = readSessionCookie(request);
+  if (!cookieToken) return false;
+  const payload = await verifySessionToken(cookieToken, env);
+  if (!payload) return false;
+  const expected = await csrfTokenFor(payload.sid, env);
+  if (!expected) return false;
+  const presented = (request.headers.get(CSRF_HEADER) || "").trim();
+  if (!presented) return false;
+  return timingSafeEqual(presented, expected);
 }
 
 // ─── Session endpoints ───────────────────────────────────────────────────────
@@ -455,7 +496,11 @@ export async function handleSessionRoutes(
       );
     }
 
-    return new Response(JSON.stringify({ ok: true, role, expiresAt: minted.exp }), {
+    // The CSRF token rides in the JSON body (readable), not the cookie — the
+    // client stores it and echoes it as X-CSRF-Token on every write.
+    const csrfToken = await csrfTokenFor(minted.sid, env);
+
+    return new Response(JSON.stringify({ ok: true, role, expiresAt: minted.exp, csrfToken }), {
       status: 200,
       headers: { ...jsonHeaders, "Set-Cookie": buildSetCookie(minted.token) },
     });

@@ -122,7 +122,7 @@ function makeStubDB(settings: Record<string, string>, orderRow: any) {
   };
 }
 
-async function mintCookie(env: any, password: string): Promise<string> {
+async function mintCookie(env: any, password: string): Promise<{ cookie: string; csrf: string }> {
   const res = await worker.fetch(
     new Request("https://api.engaz.tech/v1/session", {
       method: "POST",
@@ -132,7 +132,8 @@ async function mintCookie(env: any, password: string): Promise<string> {
     env
   );
   const setCookie = res.headers.get("Set-Cookie") || "";
-  return setCookie.split(";")[0];
+  const body = await res.json();
+  return { cookie: setCookie.split(";")[0], csrf: body.csrfToken };
 }
 
 async function integration() {
@@ -151,16 +152,21 @@ async function integration() {
     ALLOWED_ORIGINS: "https://pos.engaz.tech",
   };
 
-  const managerCookie = await mintCookie(env, "mgr-pw");
-  const cashierCookie = await mintCookie(env, "csh-pw");
+  const mgrSession = await mintCookie(env, "mgr-pw");
+  const cshSession = await mintCookie(env, "csh-pw");
   const DEL = "https://api.engaz.tech/v1/databases/default/collections/orders/documents/o1";
-  const H = (c: string) => ({ Origin: "https://pos.engaz.tech", Cookie: c });
+  // Writes carry Origin + cookie + the CSRF double-submit token.
+  const H = (s: { cookie: string; csrf: string }) => ({
+    Origin: "https://pos.engaz.tech",
+    Cookie: s.cookie,
+    "X-CSRF-Token": s.csrf,
+  });
 
-  const cashierDelete = await worker.fetch(new Request(DEL, { method: "DELETE", headers: H(cashierCookie) }), env);
+  const cashierDelete = await worker.fetch(new Request(DEL, { method: "DELETE", headers: H(cshSession) }), env);
   ok(cashierDelete.status === 403, `cashier DELETE order → 403 (got ${cashierDelete.status})`);
   ok((cashierDelete.headers.get("X-Auth-Role") || "") === "cashier", "403 reports X-Auth-Role: cashier");
 
-  const managerDelete = await worker.fetch(new Request(DEL, { method: "DELETE", headers: H(managerCookie) }), env);
+  const managerDelete = await worker.fetch(new Request(DEL, { method: "DELETE", headers: H(mgrSession) }), env);
   ok(managerDelete.status === 200, `manager DELETE order → 200 (got ${managerDelete.status})`);
 }
 

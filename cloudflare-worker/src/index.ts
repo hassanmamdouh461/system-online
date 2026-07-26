@@ -1,4 +1,4 @@
-import { authenticate, handleSessionRoutes, timingSafeEqual } from "./auth.ts";
+import { authenticate, handleSessionRoutes, verifyCsrf, timingSafeEqual } from "./auth.ts";
 import { can } from "./permissions.ts";
 import type { HttpMethod } from "./permissions.ts";
 
@@ -128,6 +128,22 @@ export default {
       });
     }
 
+    // 1b. CSRF defense (1 of 2): reject any state-changing request that carries a
+    //     browser Origin which is not allowlisted. The cookie is SameSite=None, so
+    //     it rides cross-site requests; CORS only stops the attacker from READING
+    //     the response — the write still executes without this check. A missing
+    //     Origin (server-to-server / curl) is allowed through and is covered by the
+    //     credential requirement and the double-submit token below.
+    if (request.method !== "GET") {
+      const originHeader = request.headers.get("Origin");
+      if (originHeader && !isOriginAllowed(originHeader, env)) {
+        return new Response(
+          JSON.stringify({ error: "Forbidden", message: "Origin not allowed", code: "csrf_origin" }),
+          { status: 403, headers: { "Content-Type": "application/json", "X-CSRF-Failed": "1", ...corsHeaders } }
+        );
+      }
+    }
+
     // 2. Session lifecycle routes (mint / clear / probe). Handled BEFORE the
     //    auth gate: minting a session is exactly what an unauthenticated client
     //    does first. Minting REQUIRES a credential (the operator's POS password,
@@ -189,6 +205,19 @@ export default {
     // the request body. This is what makes permissions.ts real instead of dead:
     // a cashier and a manager are now different on the server, not just in React.
     const role = auth.role;
+
+    // CSRF defense (2 of 2): a cookie-authenticated write must carry a valid
+    // double-submit token (X-CSRF-Token matching the session's sid). Header-key
+    // callers (no cookie) are exempt — a browser cannot be made to attach a
+    // secret header cross-origin. Reads (GET) are exempt.
+    if (request.method !== "GET" && auth.viaCookie) {
+      if (!(await verifyCsrf(request, env))) {
+        return new Response(
+          JSON.stringify({ error: "Forbidden", message: "Missing or invalid CSRF token", code: "csrf_token" }),
+          { status: 403, headers: { "Content-Type": "application/json", "X-CSRF-Failed": "1", ...corsHeaders } }
+        );
+      }
+    }
 
     /** Did the caller prove refund authority with a valid server-side PIN?
      *  Fail-closed: with no REFUND_PIN configured, escalation is impossible and
@@ -575,6 +604,18 @@ export default {
  */
 const MAIN_BRANCH_ID = "main_branch";
 
+/**
+ * Is the request's browser Origin explicitly allowlisted? Used to reject cross-
+ * site state-changing requests (CSRF). A missing Origin (server-to-server, curl,
+ * some same-origin GETs) returns false here; callers decide how to treat that.
+ */
+function isOriginAllowed(originHeader: string | null, env: Env): boolean {
+  if (!originHeader) return false;
+  const allowedRaw = env.ALLOWED_ORIGINS;
+  if (!allowedRaw || !allowedRaw.trim()) return false;
+  return allowedRaw.split(",").map(s => s.trim()).filter(Boolean).includes(originHeader);
+}
+
 function getCorsHeaders(request: Request, env: Env) {
   // Fail-closed: if ALLOWED_ORIGINS is unset, return NO permissive CORS headers.
   // Browsers will block cross-origin requests, which is safer than reflecting "*".
@@ -587,7 +628,7 @@ function getCorsHeaders(request: Request, env: Env) {
       // is a specific (non-"*") allowlisted value.
       "Access-Control-Allow-Credentials": "true",
       "Access-Control-Allow-Methods": "GET, POST, PATCH, PUT, DELETE, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Branch-ID, X-Device-ID, X-API-Key",
+      "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Branch-ID, X-Device-ID, X-API-Key, X-CSRF-Token, X-Refund-PIN",
       "Access-Control-Max-Age": "86400",
       "Vary": "Origin"
     };
@@ -603,7 +644,7 @@ function getCorsHeaders(request: Request, env: Env) {
     // See note above: mandatory for the cookie to be stored + replayed.
     "Access-Control-Allow-Credentials": "true",
     "Access-Control-Allow-Methods": "GET, POST, PATCH, PUT, DELETE, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Branch-ID, X-Device-ID, X-API-Key",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Branch-ID, X-Device-ID, X-API-Key, X-CSRF-Token, X-Refund-PIN",
     "Access-Control-Max-Age": "86400",
     "Vary": "Origin"
   };

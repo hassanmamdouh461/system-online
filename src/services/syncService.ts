@@ -2,6 +2,7 @@ import { withDB, SyncRecord } from '../repositories/indexeddb/db';
 import {
   getWorkerUrl,
   getBranchIdHeader,
+  getCsrfToken,
   ensureCloudSession,
   resetCloudSession,
   isCloudConfigured,
@@ -185,20 +186,28 @@ export class SyncService {
         timestamp: record.timestamp,
       });
       // Auth rides an HttpOnly session cookie (credentials: 'include') — no key
-      // header anymore. Establish the session first, and if it lapsed mid-run
-      // (401) re-mint once and retry this record before backing off.
+      // header anymore. Writes also carry the CSRF double-submit token. Establish
+      // the session first, and if it lapsed (401) or the CSRF token was stale
+      // (403 X-CSRF-Failed) re-mint once and retry this record before backing off.
       const post = async () => {
         await ensureCloudSession();
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json',
+          'X-Branch-ID': getBranchIdHeader(),
+        };
+        const csrf = getCsrfToken();
+        if (csrf) headers['X-CSRF-Token'] = csrf;
         return fetch(`${workerUrl}/api/sync`, {
           method: 'POST',
           credentials: 'include',
-          headers: { 'Content-Type': 'application/json', 'X-Branch-ID': getBranchIdHeader() },
+          headers,
           body,
         });
       };
 
       let response = await post();
-      if (response.status === 401) {
+      const csrfStale = response.status === 403 && response.headers.get('X-CSRF-Failed') === '1';
+      if (response.status === 401 || csrfStale) {
         resetCloudSession();
         if (await ensureCloudSession(true)) {
           response = await post();
