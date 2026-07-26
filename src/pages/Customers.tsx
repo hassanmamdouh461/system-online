@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { customersService } from '../services/customersService';
 import { companiesService } from '../services/companiesService';
+import { getSessionRole, ensureCloudSession } from '../services/cloudConfig';
 import { Customer } from '../types/customer';
 import { Company } from '../types/company';
 import { Order, getOrderGrandTotal } from '../types/order';
@@ -1015,6 +1016,19 @@ function CustomerProfileDetail({
   const [refundTarget, setRefundTarget] = useState<Order | null>(null);
   const [refundReason, setRefundReason] = useState('');
   const [refundBusy, setRefundBusy] = useState(false);
+  // Refund authority comes from the server-verified session role (manager), not
+  // the legacy client user model. Refresh it when a refund dialog opens.
+  const [refundAuthRole, setRefundAuthRole] = useState<'manager' | 'cashier' | null>(getSessionRole());
+  useEffect(() => {
+    if (!refundTarget) return;
+    let alive = true;
+    void ensureCloudSession().then(() => {
+      if (alive) setRefundAuthRole(getSessionRole());
+    });
+    return () => {
+      alive = false;
+    };
+  }, [refundTarget]);
   const stats = orderStats(orders, taxRate);
   const balance = getCustomerAccountBalance(allOrders, customer, taxRate);
   const openInvoices = getCustomerOpenInvoices(allOrders, customer);
@@ -1266,6 +1280,14 @@ function CustomerProfileDetail({
                     ? 'تحذير: سيتم تحويل حالة الفاتورة إلى "مسترجعة" وملغاة، وسيتم إرجاع كميات المكونات للمخزون تلقائياً.'
                     : 'Warning: the invoice will be marked as Refunded & Cancelled, and ingredient quantities will be restored to inventory automatically.'}
                 </div>
+
+                {refundAuthRole !== 'manager' && (
+                  <div className="bg-red-50 rounded-xl p-3 border border-red-200 text-xs text-red-700 font-medium leading-relaxed">
+                    {language === 'ar'
+                      ? 'الاسترجاع متاح لحساب المدير فقط. سجّل الدخول بحساب مدير لتأكيد الاسترجاع.'
+                      : 'Refunds are manager-only. Sign in as a manager to confirm this refund.'}
+                  </div>
+                )}
               </div>
 
               <div className="flex gap-3 px-6 py-4 border-t border-gray-100 bg-gray-50/50">
@@ -1279,10 +1301,22 @@ function CustomerProfileDetail({
                 </button>
                 <button
                   type="button"
-                  disabled={refundBusy}
+                  disabled={refundBusy || refundAuthRole !== 'manager'}
                   onClick={async () => {
                     setRefundBusy(true);
                     try {
+                      // Fail-closed: only an authenticated manager may refund.
+                      // The Worker enforces the same rule (cashier → 403).
+                      await ensureCloudSession();
+                      const role = getSessionRole();
+                      setRefundAuthRole(role);
+                      if (role !== 'manager') {
+                        alert(language === 'ar'
+                          ? 'الاسترجاع يتطلب صلاحية مدير. سجّل الدخول بحساب مدير.'
+                          : 'Refund requires manager authorization. Please sign in as a manager.');
+                        setRefundBusy(false);
+                        return;
+                      }
                       await onRefundOrder(refundTarget.id, refundReason.trim() || undefined);
                       setRefundTarget(null);
                     } catch (err) {
