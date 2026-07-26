@@ -593,11 +593,14 @@ export default function Payment() {
   }, [
     orders,
     searchTerm,
+    searchField,
     activeTab,
     filterDate,
     filterStartTime,
     filterEndTime,
     focusedHolder,
+    customerByPhone,
+    companyById,
   ]);
 
   if (error) {
