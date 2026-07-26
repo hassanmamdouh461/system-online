@@ -467,11 +467,38 @@ export default function ManagerDashboard() {
 
       message += `✅ تم تصدير تقرير المخزون من لوحة الإشراف المركزية`;
 
-      message += `📊 <b>إحصائيات ولاء العملاء:</b>\n`;
-      message += `• إجمالي العملاء المسجلين: <b>${customers.length}</b> عضو\n`;
-      message += `• إجمالي نقاط الولاء الموزعة: <b>${customers.reduce((s, c) => s + (Number(c.points) || 0), 0).toLocaleString()}</b> نقطة\n\n`;
+    } else if (activeTab === 'customers') {
+      // 👥 REPORT 3: CUSTOMERS REPORT
+      message = `👥 <b>تقرير العملاء: ${activeBranchName}</b>\n`;
+      message += `⏱️ التاريخ: <code>${todayStr}</code>\n\n`;
+
+      message += `📊 <b>ملخص قاعدة العملاء:</b>\n`;
+      message += `• إجمالي العملاء المسجلين: <b>${customers.length}</b> عميل\n\n`;
+
+      const owed = receivablesData.customersOwed;
+      const customersDebtTotal = owed.reduce((s, c) => s + (Number(c.balance) || 0), 0);
+      if (owed.length > 0) {
+        message += `💸 <b>مديونية العملاء (على الحساب):</b>\n`;
+        message += `• إجمالي المستحق على العملاء: <b>${customersDebtTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</b> ج.م\n`;
+        message += `• عدد العملاء المدينين: <b>${owed.length}</b> عميل\n`;
+        owed.slice(0, 5).forEach(c => {
+          message += `• ${c.name}: <b>${c.balance.toFixed(2)}</b> ج.م (${c.invoiceCount} فاتورة)\n`;
+        });
+        if (owed.length > 5) {
+          message += `• و ${owed.length - 5} عميل آخر\n`;
+        }
+        message += `\n`;
+      } else {
+        message += `✅ لا توجد مبالغ مستحقة على العملاء حالياً\n\n`;
+      }
 
       message += `✅ تم تصدير تقرير العملاء من لوحة الإشراف المركزية`;
+    }
+
+    // Guard: never send an empty report (e.g. from the menu tab, which has no report)
+    if (!message.trim()) {
+      alert(language === 'ar' ? 'يرجى فتح لوحة الإحصائيات أو المخزون أو العملاء لإرسال تقرير تليجرام المخصص لها!' : 'Please open the Analytics, Inventory, or Customers tab to send its report!');
+      return;
     }
 
     // Send message to Telegram using shared service
