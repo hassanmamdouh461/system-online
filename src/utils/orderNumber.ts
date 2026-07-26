@@ -174,6 +174,27 @@ export function mergeOrderRecords(local: OrderLike | undefined, remote: OrderLik
     Number.isFinite(remoteUpdated) &&
     remoteUpdated - localUpdated > REMOTE_NEWER_SKEW_MS;
 
+  // Resolve the refund following the same winner as the payment fields, always
+  // preferring a non-empty value so a refund is never wiped by a stale copy.
+  const mergedRefundedAt =
+    localWinsPayment
+      ? (local.refundedAt ?? remote.refundedAt)
+      : remoteWinsState
+        ? (remote.refundedAt ?? local.refundedAt)
+        : (local.refundedAt ?? remote.refundedAt);
+
+  // A refund is TERMINAL — there is no un-refund flow in this POS. Once either
+  // side carries a refund (a resolved refundedAt, or an explicit 'Refunded'
+  // status), the merged order must stay 'Refunded'. Preserving refundedAt alone
+  // is not enough: paymentStatus below can still resolve to 'Paid' when a newer
+  // UNRELATED remote edit wins state (offline-refund race), and the revenue
+  // report (useAnalytics) filters on paymentStatus === 'Paid' while IGNORING
+  // refundedAt — so a refunded order would be silently re-counted as revenue.
+  const isRefunded =
+    !!mergedRefundedAt ||
+    local.paymentStatus === 'Refunded' ||
+    remote.paymentStatus === 'Refunded';
+
   return {
     // Note: the spread below layers remote on top of local. The explicit keys
     // after it override the spread so local identity (company/customer) is
@@ -200,23 +221,24 @@ export function mergeOrderRecords(local: OrderLike | undefined, remote: OrderLik
     // paymentStatus still resolved to 'Refunded' — leaving an order shown as
     // refunded with no record of WHEN or WHY. Resolve them like the other
     // payment fields, preferring a non-empty value so a refund is never wiped.
-    refundedAt: localWinsPayment
-      ? (local.refundedAt ?? remote.refundedAt)
-      : remoteWinsState
-        ? (remote.refundedAt ?? local.refundedAt)
-        : (local.refundedAt ?? remote.refundedAt),
+    refundedAt: mergedRefundedAt,
     refundReason: localWinsPayment
       ? (local.refundReason ?? remote.refundReason)
       : remoteWinsState
         ? (remote.refundReason ?? local.refundReason)
         : (local.refundReason ?? remote.refundReason),
     // Payment state: local wins when it paid locally; otherwise prefer remote
-    // when remote is clearly newer (e.g. a refund landed in D1 first).
-    paymentStatus: localWinsPayment
-      ? (local.paymentStatus || remote.paymentStatus)
-      : remoteWinsState
-        ? (remote.paymentStatus || local.paymentStatus)
-        : (local.paymentStatus || remote.paymentStatus),
+    // when remote is clearly newer (e.g. a refund landed in D1 first). A
+    // resolved refund is terminal and overrides this (see isRefunded above),
+    // so an order that was refunded on any device can never revert to 'Paid'
+    // and be re-counted as revenue.
+    paymentStatus: isRefunded
+      ? 'Refunded'
+      : localWinsPayment
+        ? (local.paymentStatus || remote.paymentStatus)
+        : remoteWinsState
+          ? (remote.paymentStatus || local.paymentStatus)
+          : (local.paymentStatus || remote.paymentStatus),
     paymentMethod: localWinsPayment
       ? (local.paymentMethod || remote.paymentMethod)
       : remoteWinsState
