@@ -7,6 +7,24 @@ export interface TelegramConfig {
   chatId: string;
 }
 
+/**
+ * Escape the three characters Telegram's HTML parser treats as markup (& < >)
+ * so dynamic values (store / customer / company / item names, units, …) can be
+ * safely embedded inside a parse_mode:'HTML' message. Without this, a value that
+ * contains '&', '<' or '>' (e.g. a customer named "A & B") makes Telegram reject
+ * the ENTIRE message with `400: can't parse entities`, so the whole report fails
+ * to send.
+ *
+ * Only escape dynamic text — never the <b>/<code> tags we add on purpose. '&'
+ * must be replaced first so the '&' we introduce is not re-escaped.
+ */
+export function escapeTelegramHtml(value: unknown): string {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
 export const telegramService = {
   getStoredConfig(): TelegramConfig | null {
     const botToken = localStorage.getItem('brewmaster_telegram_bot_token') || '';

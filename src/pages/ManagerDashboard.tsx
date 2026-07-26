@@ -15,7 +15,7 @@ import { useMenu } from '../hooks/useMenu';
 import { useAnalytics, AnalyticsPeriod } from '../hooks/useAnalytics';
 import { inventoryService } from '../services/inventoryService';
 import { resolveInvItem } from '../utils/inventoryHelpers';
-import { telegramService } from '../services/telegramService';
+import { telegramService, escapeTelegramHtml } from '../services/telegramService';
 import { menuService } from '../services/menuService';
 import { isCloudConfigured, getWorkerUrl } from '../services/cloudConfig';
 import { RecipeIngredient } from '../global';
@@ -374,7 +374,9 @@ export default function ManagerDashboard() {
     }
 
     // 2. Branch label — single-branch system, name comes from branch settings
-    const activeBranchName = getBranchConfig().branchName;
+    // Escape once at the source: this store/branch name is user-controlled and
+    // is embedded into every HTML report header below.
+    const activeBranchName = escapeTelegramHtml(getBranchConfig().branchName);
 
     const todayStr = new Date().toLocaleDateString('en-CA');
     let message = '';
@@ -416,7 +418,7 @@ export default function ManagerDashboard() {
       if (processedData.topItems && processedData.topItems.length > 0) {
         message += `☕ <b>أكثر الأصناف مبيعاً في هذه الفترة:</b>\n`;
         processedData.topItems.forEach(item => {
-          message += `• ${item.name}: عدد <b>${item.count}</b>\n`;
+          message += `• ${escapeTelegramHtml(item.name)}: عدد <b>${item.count}</b>\n`;
         });
         message += `\n`;
       }
@@ -428,14 +430,14 @@ export default function ManagerDashboard() {
         if (receivablesData.companiesOwed.length > 0) {
           message += `🏢 <b>ديون الشركات:</b>\n`;
           receivablesData.companiesOwed.slice(0, 5).forEach(co => {
-            message += `• ${co.name}: <b>${co.balance.toFixed(2)}</b> ج.م (${co.invoiceCount} فاتورة)\n`;
+            message += `• ${escapeTelegramHtml(co.name)}: <b>${co.balance.toFixed(2)}</b> ج.م (${co.invoiceCount} فاتورة)\n`;
           });
           message += `\n`;
         }
         if (receivablesData.customersOwed.length > 0) {
           message += `👤 <b>ديون العملاء:</b>\n`;
           receivablesData.customersOwed.slice(0, 5).forEach(c => {
-            message += `• ${c.name}: <b>${c.balance.toFixed(2)}</b> ج.م\n`;
+            message += `• ${escapeTelegramHtml(c.name)}: <b>${c.balance.toFixed(2)}</b> ج.م\n`;
           });
           if (receivablesData.customersOwed.length > 5) {
             message += `• و ${receivablesData.customersOwed.length - 5} عميل آخر\n`;
@@ -461,7 +463,7 @@ export default function ManagerDashboard() {
         const name = language === 'ar' ? inv.nameAr : inv.nameEn;
         const unit = language === 'ar' ? inv.unitAr : inv.unit;
         const warning = inv.isLow ? ' ⚠️ (نقص)' : '';
-        message += `• ${name}: <b>${inv.remaining}</b> ${unit} (${inv.percentage}%)${warning}\n`;
+        message += `• ${escapeTelegramHtml(name)}: <b>${inv.remaining}</b> ${escapeTelegramHtml(unit)} (${inv.percentage}%)${warning}\n`;
       });
       message += `\n`;
 
@@ -482,7 +484,7 @@ export default function ManagerDashboard() {
         message += `• إجمالي المستحق على العملاء: <b>${customersDebtTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</b> ج.م\n`;
         message += `• عدد العملاء المدينين: <b>${owed.length}</b> عميل\n`;
         owed.slice(0, 5).forEach(c => {
-          message += `• ${c.name}: <b>${c.balance.toFixed(2)}</b> ج.م (${c.invoiceCount} فاتورة)\n`;
+          message += `• ${escapeTelegramHtml(c.name)}: <b>${c.balance.toFixed(2)}</b> ج.م (${c.invoiceCount} فاتورة)\n`;
         });
         if (owed.length > 5) {
           message += `• و ${owed.length - 5} عميل آخر\n`;
