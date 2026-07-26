@@ -1,7 +1,9 @@
 import { withDB, SyncRecord } from '../repositories/indexeddb/db';
 import {
   getWorkerUrl,
-  buildCloudHeaders,
+  getBranchIdHeader,
+  ensureCloudSession,
+  resetCloudSession,
   isCloudConfigured,
 } from './cloudConfig';
 
@@ -176,16 +178,32 @@ export class SyncService {
     // when we've just received 401/403/404.
     if (this.workerDisabled || this.disabledUntil > Date.now()) return;
     try {
-      const response = await fetch(`${workerUrl}/api/sync`, {
-        method: 'POST',
-        headers: buildCloudHeaders(),
-        body: JSON.stringify({
-          type: normalizeSyncType(record.type),
-          action: record.action,
-          data: record.data,
-          timestamp: record.timestamp,
-        }),
+      const body = JSON.stringify({
+        type: normalizeSyncType(record.type),
+        action: record.action,
+        data: record.data,
+        timestamp: record.timestamp,
       });
+      // Auth rides an HttpOnly session cookie (credentials: 'include') — no key
+      // header anymore. Establish the session first, and if it lapsed mid-run
+      // (401) re-mint once and retry this record before backing off.
+      const post = async () => {
+        await ensureCloudSession();
+        return fetch(`${workerUrl}/api/sync`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json', 'X-Branch-ID': getBranchIdHeader() },
+          body,
+        });
+      };
+
+      let response = await post();
+      if (response.status === 401) {
+        resetCloudSession();
+        if (await ensureCloudSession(true)) {
+          response = await post();
+        }
+      }
 
       if (response.ok) {
         await withDB(async (db) => {

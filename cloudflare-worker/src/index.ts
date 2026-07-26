@@ -1,7 +1,16 @@
+import { authenticate, handleSessionRoutes } from "./auth.ts";
+
 interface Env {
   DB: D1Database;
+  /** Legacy shared key — optional now; still honored by auth.ts (⇒ manager) if set. */
   API_KEY?: string;
   ALLOWED_ORIGINS?: string;
+  /** HMAC secret that signs session cookies (see auth.ts). REQUIRED to mint. */
+  SESSION_SECRET?: string;
+  AUTH_TOKEN_SECRET?: string;
+  /** Role-scoped keys for headless callers (see auth.ts / wrangler.toml). */
+  MANAGER_API_KEY?: string;
+  CASHIER_API_KEY?: string;
 }
 
 // Incremental-sync column per table (names are inconsistent across tables).
@@ -115,23 +124,14 @@ export default {
       });
     }
 
-    // 2. API Key Verification — FAIL CLOSED.
-    //
-    // This was previously `if (env.API_KEY) { ...check... }`, meaning that if
-    // the secret was never set (a manual `wrangler secret put` step, separate
-    // from deployment) every endpoint served unauthenticated traffic: any
-    // caller could read all customer phone numbers or DELETE every order.
-    // An unconfigured deployment must refuse service, not open the database.
-    if (!env.API_KEY) {
-      console.error("[worker] API_KEY secret is not configured — refusing all requests.");
-      return new Response(JSON.stringify({
-        error: "Service Unavailable",
-        message: "Server is not configured for authenticated access."
-      }), {
-        status: 503,
-        headers: { "Content-Type": "application/json", ...corsHeaders }
-      });
-    }
+    // 2. Session lifecycle routes (mint / clear / probe). Handled BEFORE the
+    //    auth gate: minting a session is exactly what an unauthenticated client
+    //    does first. Minting REQUIRES a credential (the operator's POS password,
+    //    or a role-scoped API key) and bakes the resolved role into an HMAC-
+    //    signed HttpOnly cookie — there is no anonymous session anymore, and the
+    //    Worker fails closed (503) when SESSION_SECRET is unset. See auth.ts.
+    const sessionResponse = await handleSessionRoutes(request, env, corsHeaders);
+    if (sessionResponse) return sessionResponse;
 
     // 2b. PUBLIC, UNAUTHENTICATED read path for the customer-facing QR menu.
     //
@@ -170,16 +170,16 @@ export default {
       }
     }
 
-    {
-      const authHeader = request.headers.get("Authorization");
-      const apiKeyHeader = request.headers.get("X-API-Key");
-      const token = authHeader ? authHeader.replace(/^Bearer\s+/i, "") : apiKeyHeader;
-      if (!token || token !== env.API_KEY) {
-        return new Response(JSON.stringify({ error: "Unauthorized", message: "Invalid or missing API key" }), {
-          status: 401,
-          headers: { "Content-Type": "application/json", ...corsHeaders }
-        });
-      }
+    // 3. Auth gate — a valid role-bearing session cookie is required (fail-
+    //    closed). Missing/expired/tampered ⇒ 401. A legacy shared API_KEY is
+    //    still accepted here (⇒ manager) only while that secret is set on the
+    //    Worker, so un-migrated tills keep syncing during rollout. See auth.ts.
+    const auth = await authenticate(request, env);
+    if (!auth) {
+      return new Response(JSON.stringify({ error: "Unauthorized", message: "Missing or invalid session" }), {
+        status: 401,
+        headers: { "Content-Type": "application/json", ...corsHeaders }
+      });
     }
 
     try {
@@ -497,9 +497,14 @@ function getCorsHeaders(request: Request, env: Env) {
   if (!allowedRaw || !allowedRaw.trim()) {
     return {
       "Access-Control-Allow-Origin": "",
+      // The session cookie rides on credentials:'include', so the browser only
+      // stores the Set-Cookie and replays it when this is present AND the origin
+      // is a specific (non-"*") allowlisted value.
+      "Access-Control-Allow-Credentials": "true",
       "Access-Control-Allow-Methods": "GET, POST, PATCH, PUT, DELETE, OPTIONS",
       "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Branch-ID, X-Device-ID, X-API-Key",
-      "Access-Control-Max-Age": "86400"
+      "Access-Control-Max-Age": "86400",
+      "Vary": "Origin"
     };
   }
 
@@ -510,9 +515,12 @@ function getCorsHeaders(request: Request, env: Env) {
 
   return {
     "Access-Control-Allow-Origin": origin,
+    // See note above: mandatory for the cookie to be stored + replayed.
+    "Access-Control-Allow-Credentials": "true",
     "Access-Control-Allow-Methods": "GET, POST, PATCH, PUT, DELETE, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Branch-ID, X-Device-ID, X-API-Key",
-    "Access-Control-Max-Age": "86400"
+    "Access-Control-Max-Age": "86400",
+    "Vary": "Origin"
   };
 }
 
