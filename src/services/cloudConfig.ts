@@ -128,23 +128,36 @@ export function getSessionRole(): 'manager' | 'cashier' | null {
 }
 
 /**
- * Force a fresh mint and return the role the Worker granted, or null.
+ * Resolve the session role from the Worker WITHOUT a password.
  *
- * getSessionRole() only reflects the LAST successful mint, so right after login
- * — or after a reload that is riding an existing cookie without the in-memory
- * password — it can still read null even though a valid session exists. Callers
- * that must branch on the real role (e.g. deciding whether a refund needs a
- * cashier PIN escalation) use this to resolve it from the server once. Returns
- * null when no session could be (re-)minted (offline, no credential, worker
- * down); callers should treat null as "not a manager" and fail safe.
+ * After a page reload the in-memory credential and role are gone, but the 12h
+ * HttpOnly session cookie is still valid — so getSessionRole() returns null even
+ * though the operator is a signed-in manager. This probes GET /v1/session (which
+ * reads the cookie and reports { authenticated, role }), caches the result in
+ * memory, and returns it, so a role-gated action (e.g. a refund) can be authorized
+ * on the existing cookie alone. Returns null when there is no valid session.
  */
 export async function refreshCloudSessionRole(): Promise<'manager' | 'cashier' | null> {
+  const base = getWorkerUrl();
+  if (!base) return null;
+  if (typeof navigator !== 'undefined' && !navigator.onLine) return null;
   try {
-    await ensureCloudSession(true);
-  } catch {
-    // best-effort — ride whatever role we already have (possibly null)
+    const res = await fetch(`${base}${SESSION_PATH}`, {
+      method: 'GET',
+      credentials: 'include',
+    });
+    if (!res.ok) return null;
+    const json = await res.json();
+    const role = json?.role;
+    if (role === 'manager' || role === 'cashier') {
+      sessionRole = role;
+      return role;
+    }
+    return null;
+  } catch (err) {
+    console.warn('[cloud] session role probe failed:', err);
+    return null;
   }
-  return sessionRole;
 }
 
 /**
@@ -473,21 +486,13 @@ export async function cloudGetPublicMenu(): Promise<any[] | null> {
 export async function cloudUpsert(
   collection: string,
   id: string,
-  data: Record<string, any>,
-  opts?: { refundPin?: string }
+  data: Record<string, any>
 ): Promise<boolean> {
   if (!id) return false;
   const payload: Record<string, any> = { ...data, id };
   // Single-branch system: every row is stamped with the one branch id.
   payload.branch_id = MAIN_BRANCH_ID;
   payload.branchId = MAIN_BRANCH_ID;
-  // A cashier escalates a refund by presenting the server-side refund PIN. The
-  // Worker checks it against its REFUND_PIN secret and grants refund authority
-  // for this single write. Sent as a header (never in the body) so it rides the
-  // same authenticated request; omitted entirely for normal upserts.
-  const extraHeaders: Record<string, string> = {};
-  const refundPin = (opts?.refundPin || '').trim();
-  if (refundPin) extraHeaders['X-Refund-PIN'] = refundPin;
   try {
     const res = await cloudFetch(
       `/v1/databases/default/collections/${collection}/documents`,
@@ -495,7 +500,6 @@ export async function cloudUpsert(
         method: 'POST',
         timeoutMs: DEFAULT_TIMEOUT_MS,
         body: JSON.stringify({ documentId: id, data: payload }),
-        headers: extraHeaders,
       }
     );
     if (!res) return false;
