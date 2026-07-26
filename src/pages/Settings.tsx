@@ -5,7 +5,6 @@ import {
   Store,
   QrCode,
   Send,
-  Cloud,
   Settings as SettingsIcon,
 } from 'lucide-react';
 import { motion } from 'framer-motion';
@@ -15,12 +14,11 @@ import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
 import { ProfileSettingsModal } from '../components/settings/ProfileSettingsModal';
 import { StoreConfigModal } from '../components/settings/StoreConfigModal';
-import { CloudSyncModal } from '../components/settings/CloudSyncModal';
 
 import { QrMenuModal } from '../components/settings/QrMenuModal';
 import { TelegramConfigModal } from '../components/settings/TelegramConfigModal';
 
-type ModalKey = 'profile' | 'store' | 'qr' | 'telegram' | 'cloud' | null;
+type ModalKey = 'profile' | 'store' | 'qr' | 'telegram' | null;
 
 export default function Settings() {
   const [openModal, setOpenModal] = useState<ModalKey>(null);
@@ -66,20 +64,6 @@ export default function Settings() {
           label: language === 'ar' ? 'تقارير تيليجرام' : 'Telegram Reports',
           desc: language === 'ar' ? 'تقارير المبيعات اليومية' : 'Daily sales report notifications',
           onClick: () => setOpenModal('telegram'),
-        },
-      ],
-    },
-    {
-      title: language === 'ar' ? 'النظام والمزامنة' : 'System & Sync',
-      items: [
-        {
-          icon: Cloud,
-          label: language === 'ar' ? 'المزامنة السحابية' : 'Cloud Sync',
-          desc:
-            language === 'ar'
-              ? 'ربط Cloudflare Worker للنسخ الاحتياطي'
-              : 'Connect Cloudflare Worker for cloud backup',
-          onClick: () => setOpenModal('cloud'),
         },
       ],
     },
@@ -154,7 +138,6 @@ export default function Settings() {
 
       <ProfileSettingsModal isOpen={openModal === 'profile'} onClose={() => setOpenModal(null)} />
       <StoreConfigModal isOpen={openModal === 'store'} onClose={() => setOpenModal(null)} />
-      <CloudSyncModal isOpen={openModal === 'cloud'} onClose={() => setOpenModal(null)} />
 
       <QrMenuModal isOpen={openModal === 'qr'} onClose={() => setOpenModal(null)} />
       <TelegramConfigModal isOpen={openModal === 'telegram'} onClose={() => setOpenModal(null)} />
