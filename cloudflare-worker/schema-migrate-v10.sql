@@ -1,96 +1,94 @@
--- v10: round already-stored money values to the piaster (issue B.1 backfill).
+-- ─────────────────────────────────────────────────────────────────────────────
+-- v10: drop the UNIQUE constraint on customers.phone.
 --
--- WHAT WAS WRONG
--- Money was computed with raw JS floats and the drifted result was PERSISTED:
+-- Why this is a bug
+--   The client (IndexedDB) deliberately uses a NON-UNIQUE phone index
+--   (repositories/indexeddb/db.ts, DB_VERSION 5: "customers phone index
+--   non-unique") and enforces "one account per phone" in code by reusing an
+--   existing id when the phone already exists locally. D1, however, still
+--   declared `phone TEXT UNIQUE NOT NULL`.
 --
---     3 items x 33.33  ->  99.99000000000001
---     + 14% tax        -> 112.49999999999999   <-- this is what landed in D1
+--   The worker upsert only targets ON CONFLICT(id). It does NOT handle a phone
+--   collision. So when two tablets create the SAME phone as a brand-new customer
+--   (different ids) before either has hydrated the other's row, the second row's
+--   INSERT ... ON CONFLICT(id) hits the UNIQUE(phone) constraint, the worker
+--   returns 500, and that customer's sync retries with backoff and then dies
+--   (SyncService MAX_ATTEMPTS). The customer keeps working locally but never
+--   reaches D1 — and any OnAccount receivable attached to it never reaches the
+--   manager dashboard, so central receivables are under-reported (silent loss).
 --
--- The UI hid it with .toFixed(2), so the screen said 112.50 while the stored
--- number was 112.49999999999999. Reports summed the stored (wrong) numbers, so
--- the cash drawer and the report disagreed by a few piasters and there was no
--- way to see why.
+-- Fix
+--   Rebuild `customers` without the UNIQUE(phone) constraint so D1 matches the
+--   client's design. Uniqueness stays enforced in code by the client's
+--   phone-based dedup; D1 simply stops crashing (and stalling sync) on a
+--   duplicate phone.
 --
--- The application code is now fixed: src/utils/money.ts is the single place
--- money arithmetic happens, and the Worker rounds on both the write and read
--- boundary. This migration cleans up the rows written BEFORE that fix.
+-- Column list
+--   Exactly the 10 columns in the worker's own ALLOWED_COLUMNS.customers
+--   (src/index.ts) — the authoritative contract for this table:
+--     id, name, phone, company_id, tags, notes, createdAt, updated_at,
+--     branch_id, deleted_at
 --
--- WHAT THIS DOES
--- Rounds every stored money column to 2 decimals (the piaster) using SQLite's
--- ROUND(). Data-only: no schema change, no DROP, no column added or removed.
+--   Note `points` is deliberately NOT carried over. The loyalty feature was
+--   removed and the worker explicitly strips it on read ("never surface a points
+--   balance to clients, even if a legacy D1 row still carries the dormant
+--   column"). Dropping it here finishes that removal. If your database predates
+--   the removal and you want the values retained for offline analysis, export
+--   `SELECT id, points FROM customers` BEFORE running this.
 --
---   orders.totalAmount   pre-tax subtotal
---   orders.taxAmount     frozen tax snapshot
---   orders.grandTotal    frozen total snapshot
---   menu_items.price     unit price (feeds every line total)
---   inventory.costPerUnit  unit cost (feeds COGS + valuation)
+-- Safety
+--   SQLite cannot DROP a column-level constraint in place, so this uses the
+--   standard table-rebuild procedure, wrapped in a transaction: on ANY error the
+--   whole migration rolls back and the original `customers` table is untouched.
+--   There are no foreign keys referencing customers, so no PRAGMA dance is
+--   needed.
 --
--- NOT touched (correctly):
---   orders.taxRate         a rate (0.14), not money — rounding it to 2dp would
---                          destroy rates like 0.145
---   inventory.stock,
---   inventory.minStock     quantities, not money
+--   ⚠️ This is the only migration in this repo that runs DROP TABLE. It is not
+--   reversible. Export a backup first:
+--     npx wrangler d1 export system-online-db --remote --output=pre-v10.sql
 --
--- SAFETY
---   * Idempotent — ROUND() on an already-rounded value is a no-op, so running
---     this twice is harmless.
---   * NULL-safe — ROUND(NULL) is NULL, so a missing tax snapshot STAYS NULL.
---     This matters: coercing a NULL taxAmount/grandTotal to 0 is what used to
---     break revenue reporting after a restore. The WHERE clauses below also
---     skip NULLs explicitly.
---   * Only rewrites rows that actually need it (WHERE value <> ROUND(value)),
---     so updated_at churn and the write volume stay minimal.
+-- Prerequisite
+--   v9 must already be applied (it adds customers.deleted_at, which the SELECT
+--   below reads). Verify before running:
+--     npx wrangler d1 execute system-online-db --remote \
+--       --command="SELECT COUNT(*) FROM pragma_table_info('customers') WHERE name='deleted_at';"
+--   Expect 1. If it returns 0, apply schema-migrate-v9.sql first.
 --
--- ── BEFORE YOU RUN: take a backup ───────────────────────────────────────────
---   npx wrangler d1 export system-online-db --remote --output=backup-pre-v10.sql
---
--- ── DRY RUN FIRST (counts the rows that will change; changes nothing) ────────
---   npx wrangler d1 execute system-online-db --remote --command "SELECT 'orders.totalAmount' AS col, COUNT(*) AS drifted FROM orders WHERE totalAmount IS NOT NULL AND totalAmount <> ROUND(totalAmount, 2) UNION ALL SELECT 'orders.taxAmount', COUNT(*) FROM orders WHERE taxAmount IS NOT NULL AND taxAmount <> ROUND(taxAmount, 2) UNION ALL SELECT 'orders.grandTotal', COUNT(*) FROM orders WHERE grandTotal IS NOT NULL AND grandTotal <> ROUND(grandTotal, 2) UNION ALL SELECT 'menu_items.price', COUNT(*) FROM menu_items WHERE price IS NOT NULL AND price <> ROUND(price, 2) UNION ALL SELECT 'inventory.costPerUnit', COUNT(*) FROM inventory WHERE costPerUnit IS NOT NULL AND costPerUnit <> ROUND(costPerUnit, 2);"
---
--- ── APPLY ───────────────────────────────────────────────────────────────────
+-- Run ONCE, after v9:
 --   npx wrangler d1 execute system-online-db --remote --file=./schema-migrate-v10.sql
 --
--- Deploy the fixed Worker + web bundle BEFORE running this, otherwise an
--- old client can immediately write a fresh drifted value back.
--- ────────────────────────────────────────────────────────────────────────────
+-- Verify afterwards (expect the same row count as before, and no UNIQUE on phone):
+--   npx wrangler d1 execute system-online-db --remote \
+--     --command="SELECT COUNT(*) FROM customers;"
+--   npx wrangler d1 execute system-online-db --remote \
+--     --command="SELECT sql FROM sqlite_master WHERE name='customers';"
+-- ─────────────────────────────────────────────────────────────────────────────
 
--- Orders: the pre-tax subtotal.
-UPDATE orders
-   SET totalAmount = ROUND(totalAmount, 2)
- WHERE totalAmount IS NOT NULL
-   AND totalAmount <> ROUND(totalAmount, 2);
+BEGIN TRANSACTION;
 
--- Orders: the frozen tax snapshot. NULL stays NULL.
-UPDATE orders
-   SET taxAmount = ROUND(taxAmount, 2)
- WHERE taxAmount IS NOT NULL
-   AND taxAmount <> ROUND(taxAmount, 2);
+CREATE TABLE customers_new (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  phone TEXT NOT NULL,            -- was: phone TEXT UNIQUE NOT NULL
+  company_id TEXT,
+  tags TEXT,
+  notes TEXT,
+  createdAt TEXT NOT NULL,
+  updated_at TEXT,
+  branch_id TEXT DEFAULT 'default',
+  deleted_at TEXT
+);
 
--- Orders: the frozen grand-total snapshot. NULL stays NULL.
-UPDATE orders
-   SET grandTotal = ROUND(grandTotal, 2)
- WHERE grandTotal IS NOT NULL
-   AND grandTotal <> ROUND(grandTotal, 2);
+INSERT INTO customers_new (id, name, phone, company_id, tags, notes, createdAt, updated_at, branch_id, deleted_at)
+  SELECT id, name, phone, company_id, tags, notes, createdAt, updated_at, branch_id, deleted_at
+  FROM customers;
 
--- Menu item unit prices — every line total is derived from these.
-UPDATE menu_items
-   SET price = ROUND(price, 2)
- WHERE price IS NOT NULL
-   AND price <> ROUND(price, 2);
+DROP TABLE customers;
+ALTER TABLE customers_new RENAME TO customers;
 
--- Inventory unit costs — COGS, margin and valuation are derived from these.
-UPDATE inventory
-   SET costPerUnit = ROUND(costPerUnit, 2)
- WHERE costPerUnit IS NOT NULL
-   AND costPerUnit <> ROUND(costPerUnit, 2);
+-- Recreate the (non-unique) indexes originally added in v7.
+CREATE INDEX IF NOT EXISTS idx_customers_phone   ON customers(phone);
+CREATE INDEX IF NOT EXISTS idx_customers_company ON customers(company_id);
+CREATE INDEX IF NOT EXISTS idx_customers_updated ON customers(updated_at);
 
--- ── AFTER RUNNING: verify (every count must be 0) ───────────────────────────
---   npx wrangler d1 execute system-online-db --remote --command "SELECT COUNT(*) AS orders_drifted FROM orders WHERE (totalAmount IS NOT NULL AND totalAmount <> ROUND(totalAmount,2)) OR (taxAmount IS NOT NULL AND taxAmount <> ROUND(taxAmount,2)) OR (grandTotal IS NOT NULL AND grandTotal <> ROUND(grandTotal,2));"
---
--- Then check the invariant this whole issue is about — every order's stored
--- grandTotal must equal its own subtotal + tax, to the piaster. Expect 0 rows:
---   npx wrangler d1 execute system-online-db --remote --command "SELECT id, orderNumber, totalAmount, taxAmount, grandTotal, ROUND(COALESCE(totalAmount,0) + COALESCE(taxAmount,0), 2) AS expected FROM orders WHERE grandTotal IS NOT NULL AND taxAmount IS NOT NULL AND ROUND(grandTotal,2) <> ROUND(COALESCE(totalAmount,0) + COALESCE(taxAmount,0), 2) LIMIT 50;"
---
--- Any rows the last query DOES return are orders whose stored total never
--- matched its own parts (a pre-existing data problem this migration does not
--- invent a value for). Review them by hand before deciding to re-derive.
+COMMIT;

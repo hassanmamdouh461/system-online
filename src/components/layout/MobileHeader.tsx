@@ -1,4 +1,3 @@
-import React from 'react';
 import { LogOut } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';

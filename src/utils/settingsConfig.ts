@@ -29,13 +29,6 @@ function cloudPersist(key: string, value: string) {
   }
 }
 
-function cloudRemove(key: string) {
-  try {
-    void import('../services/settingsCloudService').then((m) => m.removeSetting(key));
-  } catch {
-    // ignore
-  }
-}
 
 export interface BranchConfig {
   branchId: string;
@@ -238,7 +231,7 @@ export async function setAdminCredentials(username: string, password: string): P
   if (password !== BOOTSTRAP_PASSWORD) clearMustChangePassword();
 }
 
-export async function verifyAdminCredentials(username: string, password: string): Promise<boolean> {
+export async function verifyAdminCredentials(_username: string, password: string): Promise<boolean> {
   const branchCfg = getBranchConfig();
   let saved = getAdminCredentials();
 
@@ -291,7 +284,7 @@ export async function setManagerCredentials(username: string, password: string):
   if (password !== BOOTSTRAP_PASSWORD) clearMustChangePassword();
 }
 
-export async function verifyManagerCredentials(username: string, password: string): Promise<boolean> {
+export async function verifyManagerCredentials(_username: string, password: string): Promise<boolean> {
   const branchCfg = getBranchConfig();
   let saved = getManagerCredentials();
 

@@ -128,36 +128,6 @@ export function getSessionRole(): 'manager' | 'cashier' | null {
 }
 
 /**
- * Ask the Worker which role the current session cookie actually carries.
- *
- * getSessionRole() only reflects the last in-memory mint, so after a page reload
- * (cookie still valid, but the in-memory password is gone) it returns null even
- * for a manager. This probes GET /v1/session, which rides the existing HttpOnly
- * cookie via credentials:'include', so it returns the real server-verified role
- * without needing a credential to re-mint. Caches the result. Best-effort: on any
- * failure it returns whatever role we already had, so callers degrade gracefully.
- */
-export async function refreshCloudSessionRole(): Promise<'manager' | 'cashier' | null> {
-  const base = getWorkerUrl();
-  if (!base) return sessionRole;
-  if (typeof navigator !== 'undefined' && !navigator.onLine) return sessionRole;
-  try {
-    const res = await fetch(`${base}${SESSION_PATH}`, {
-      method: 'GET',
-      credentials: 'include',
-    });
-    if (!res.ok) return sessionRole;
-    const json = await res.json();
-    if (json && (json.role === 'manager' || json.role === 'cashier')) {
-      sessionRole = json.role;
-    }
-  } catch {
-    // best-effort — keep whatever role we had
-  }
-  return sessionRole;
-}
-
-/**
  * Ensure a cloud session cookie exists. Concurrent callers share one in-flight
  * mint. Best-effort: with no in-memory credential this resolves false WITHOUT
  * erroring, so an existing (valid) cookie from a prior page-load still rides the
@@ -483,8 +453,7 @@ export async function cloudGetPublicMenu(): Promise<any[] | null> {
 export async function cloudUpsert(
   collection: string,
   id: string,
-  data: Record<string, any>,
-  opts?: { refundPin?: string }
+  data: Record<string, any>
 ): Promise<boolean> {
   if (!id) return false;
   const payload: Record<string, any> = { ...data, id };
@@ -492,19 +461,12 @@ export async function cloudUpsert(
   payload.branch_id = MAIN_BRANCH_ID;
   payload.branchId = MAIN_BRANCH_ID;
   try {
-    // A cashier refund is escalated server-side by the double-checked
-    // X-Refund-PIN header (Worker: refundEscalated → permissions.canWriteOrder).
-    // Managers omit it. cloudFetch re-reads init.headers on its re-mint retry, so
-    // the PIN survives a 401 / CSRF re-mint without being dropped.
-    const extraHeaders: Record<string, string> = {};
-    if (opts?.refundPin) extraHeaders['X-Refund-PIN'] = opts.refundPin;
     const res = await cloudFetch(
       `/v1/databases/default/collections/${collection}/documents`,
       {
         method: 'POST',
         timeoutMs: DEFAULT_TIMEOUT_MS,
         body: JSON.stringify({ documentId: id, data: payload }),
-        headers: extraHeaders,
       }
     );
     if (!res) return false;
@@ -602,5 +564,120 @@ export async function cloudSyncNow(payload: {
   } catch (err) {
     console.warn('[cloud] syncNow error:', err);
     return false;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Cloud health probe (honest backup-health indicator).
+//
+// Ported from the consolidation branch onto the session-auth client. Talks to
+// the PUBLIC, unauthenticated GET /api/health worker route (in front of the
+// session gate — see cloudflare-worker/src/index.ts), so an expired session can
+// never masquerade as a dead database.
+// ---------------------------------------------------------------------------
+const HEALTH_TIMEOUT_MS = 5000;
+
+const LAST_GOOD_HEALTH_KEY = 'cloud_health_last_good';
+
+export interface CloudHealth {
+  /** True only when the worker answered AND its D1 probe succeeded. */
+  ok: boolean;
+  /** 'ok' | 'error' | 'unconfigured' | 'unreachable' | 'unauthorized' */
+  db: string;
+  /** Newest write timestamp the worker can see, when known. */
+  lastWriteAt?: string | null;
+  orderCount?: number | null;
+  /** When the client completed this probe (ISO). */
+  checkedAt: string;
+  message?: string;
+}
+
+export async function checkCloudHealth(): Promise<CloudHealth> {
+  const now = () => new Date().toISOString();
+  const base = getWorkerUrl();
+
+  if (!base) {
+    return { ok: false, db: 'unconfigured', checkedAt: now() };
+  }
+  if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    return { ok: false, db: 'unreachable', message: 'offline', checkedAt: now() };
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), HEALTH_TIMEOUT_MS);
+  try {
+    // No auth header on purpose: /api/health sits in front of the worker's
+    // session gate so an expired session cannot masquerade as a dead database.
+    const res = await fetch(`${base}/api/health`, {
+      method: 'GET',
+      cache: 'no-store',
+      signal: controller.signal,
+    });
+
+    let body: any = null;
+    try {
+      body = await res.json();
+    } catch {
+      // Non-JSON reply (HTML error page, proxy interstitial) — treat as down.
+    }
+
+    if (res.ok && body?.ok === true) {
+      const health: CloudHealth = {
+        ok: true,
+        db: 'ok',
+        lastWriteAt: body.lastWriteAt ?? null,
+        orderCount: typeof body.orderCount === 'number' ? body.orderCount : null,
+        checkedAt: now(),
+      };
+      rememberGoodHealth(health);
+      return health;
+    }
+
+    if (res.status === 401 || res.status === 403) {
+      return { ok: false, db: 'unauthorized', checkedAt: now() };
+    }
+
+    return {
+      ok: false,
+      db: body?.db || 'error',
+      message: body?.message || `HTTP ${res.status}`,
+      checkedAt: now(),
+    };
+  } catch (err: any) {
+    const aborted = err?.name === 'AbortError';
+    return {
+      ok: false,
+      db: 'unreachable',
+      message: aborted ? `timeout after ${HEALTH_TIMEOUT_MS}ms` : err?.message || 'fetch failed',
+      checkedAt: now(),
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function rememberGoodHealth(health: CloudHealth): void {
+  try {
+    localStorage.setItem(LAST_GOOD_HEALTH_KEY, JSON.stringify(health));
+  } catch {
+    // Storage full / disabled — the in-memory result is still returned.
+  }
+}
+
+/**
+ * The last probe that actually succeeded, or null.
+ *
+ * Persisted so a page reload does not reset the operator's view of when the
+ * cloud was last confirmed healthy.
+ */
+export function getLastGoodHealth(): CloudHealth | null {
+  try {
+    const raw = localStorage.getItem(LAST_GOOD_HEALTH_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed?.checkedAt || Number.isNaN(new Date(parsed.checkedAt).getTime())) return null;
+    return parsed as CloudHealth;
+  } catch {
+    return null;
   }
 }

@@ -3,7 +3,7 @@
  * Uses the hardened IDB layer (withDB / enqueueWrite / putMany) so it never
  * closes the connection while POS is creating orders.
  */
-import { getDB, putMany, enqueueWrite, withDB } from '../repositories/indexeddb/db';
+import { getDB, enqueueWrite, withDB } from '../repositories/indexeddb/db';
 import { cloudGetCollection, isCloudConfigured, optionalNumber } from './cloudConfig';
 import { hydrateSettingsFromCloud, pushAllLocalSettingsToCloud } from './settingsCloudService';
 import type { Order } from '../types/order';

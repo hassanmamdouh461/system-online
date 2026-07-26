@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import {
   User,
   LogOut,
@@ -23,7 +23,7 @@ type ModalKey = 'profile' | 'store' | 'qr' | 'telegram' | null;
 export default function Settings() {
   const [openModal, setOpenModal] = useState<ModalKey>(null);
   const { logout } = useAuth();
-  const { t, language } = useLanguage();
+  const { language } = useLanguage();
 
   const sections = [
     {

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { X, Building2, Mail, Lock, Tag, ShieldCheck, Hash } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';

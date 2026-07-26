@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { Lock, Delete, AlertCircle } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
+import { verifyAdminPin } from '../../utils/settingsConfig';
 
 export function PinProtection() {
   const { t } = useLanguage();
@@ -13,6 +14,7 @@ export function PinProtection() {
   const [isLocked, setIsLocked] = useState(false);
   const [pin, setPin] = useState('');
   const [error, setError] = useState(false);
+  const [verifying, setVerifying] = useState(false);
 
   useEffect(() => {
     const savedPin = localStorage.getItem('brewmaster_admin_pin');
@@ -27,29 +29,43 @@ export function PinProtection() {
   }, [location.pathname, user]);
 
   const handleKeyPress = (num: string) => {
+    if (verifying) return;
     if (pin.length < 4) {
       setError(false);
       const newPin = pin + num;
       setPin(newPin);
-      
+
       if (newPin.length === 4) {
-        verifyPin(newPin);
+        void verifyPin(newPin);
       }
     }
   };
 
   const handleDelete = () => {
+    if (verifying) return;
     setPin(prev => prev.slice(0, -1));
     setError(false);
   };
 
-  const verifyPin = (enteredPin: string) => {
-    const savedPin = localStorage.getItem('brewmaster_admin_pin');
-    if (enteredPin === savedPin) {
-      setIsLocked(false);
-    } else {
-      setError(true);
-      setTimeout(() => setPin(''), 500); // clear after short delay
+  const verifyPin = async (enteredPin: string) => {
+    // The stored PIN is PBKDF2-hashed (`pinhash$salt$hash`) by PinSetupModal, so a
+    // plain `enteredPin === savedPin` string comparison could NEVER match once a PIN
+    // was set — it locked the operator out of every protected page. verifyAdminPin()
+    // re-hashes the input with the stored salt (and transparently migrates any legacy
+    // plaintext PIN to the hashed format on first successful match).
+    setVerifying(true);
+    try {
+      const ok = await verifyAdminPin(enteredPin);
+      if (ok) {
+        setError(false);
+        setPin('');
+        setIsLocked(false);
+      } else {
+        setError(true);
+        setTimeout(() => setPin(''), 500); // clear after short delay
+      }
+    } finally {
+      setVerifying(false);
     }
   };
 

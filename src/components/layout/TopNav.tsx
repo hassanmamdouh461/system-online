@@ -1,4 +1,3 @@
-import React from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { 
   ClipboardList, 
@@ -9,7 +8,6 @@ import {
   Coffee,
   Building2,
   Package,
-  Languages,
   LogOut
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
@@ -18,7 +16,7 @@ import { clsx } from 'clsx';
 
 export function TopNav() {
   const { user, logout } = useAuth();
-  const { t, isRtl, toggleLanguage, language } = useLanguage();
+  const { t, isRtl, language } = useLanguage();
   const navigate = useNavigate();
 
   const handleLogout = () => {

@@ -1,6 +1,5 @@
-import React from 'react';
 import { NavLink } from 'react-router-dom';
-import { Home, ShoppingBag, CreditCard, BarChart3, Building2, Settings, Package, Users } from 'lucide-react';
+import { ShoppingBag, CreditCard, BarChart3, Building2, Settings, Package, Users } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
