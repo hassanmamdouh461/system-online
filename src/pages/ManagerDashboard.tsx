@@ -3,9 +3,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   TrendingUp, DollarSign, ShoppingBag,
   Coffee, Calendar, Download,
-  CheckCircle2, Clock, XCircle, AlertCircle, Utensils,
-  UserCheck, Award, Coins, Building2, RefreshCw,
-  Signal, SignalHigh, WifiOff, Package, AlertTriangle, BarChart3, Languages, Users, Search, Settings, Send, Scale, TrendingDown, Wallet,
+  CheckCircle2, AlertCircle, Utensils,
+  UserCheck, Coins, Building2, RefreshCw, SignalHigh, WifiOff, Package, BarChart3, Users, Settings, Send, Scale, TrendingDown, Wallet,
   Undo2, Printer, Trash2, X
 } from 'lucide-react';
 import { createPortal } from 'react-dom';
@@ -14,11 +13,9 @@ import { getTaxRate, getBranchConfig } from '../utils/settingsConfig';
 import { useMenu } from '../hooks/useMenu';
 import { useAnalytics, AnalyticsPeriod } from '../hooks/useAnalytics';
 import { inventoryService } from '../services/inventoryService';
-import { resolveInvItem } from '../utils/inventoryHelpers';
 import { telegramService, escapeTelegramHtml } from '../services/telegramService';
 import { menuService } from '../services/menuService';
 import { isCloudConfigured, getWorkerUrl } from '../services/cloudConfig';
-import { RecipeIngredient } from '../types/inventory';
 import { lazy, Suspense } from 'react';
 import { LoadingScreen } from '../components/ui/LoadingScreen';
 import { getIngredientBaseQty } from '../utils/units';
@@ -26,12 +23,8 @@ import { useToast } from '../components/ui/Toast';
 import { useOrders } from '../hooks/useOrders';
 import { useAuth } from '../context/AuthContext';
 import { printCustomerReceipt } from '../utils/printReceipts';
-import {
-  getCustomerAccountBalance,
-  getCompanyAccountBalance,
-  getCustomerOpenInvoices,
-  getCompanyOpenInvoices,
-} from '../utils/accountBalance';
+
+
 import { companiesService } from '../services/companiesService';
 import { formatOrderNumber } from '../utils/orderNumber';
 import { getOrderGrandTotal } from '../types/order';
@@ -46,11 +39,6 @@ const MenuPage = lazy(() => import('./Menu'));
 
 
 // ─── Interfaces ──────────────────────────────────────────────────────────────
-interface OrderItem {
-  name: string;
-  quantity: number;
-  price: number;
-}
 
 interface D1OrderDoc {
   $id: string;
@@ -69,32 +57,6 @@ interface D1OrderDoc {
 // ─── Date Period Config ────────────────────────────────────────────────────────
 // AnalyticsPeriod is imported from useAnalytics (single source of truth)
 
-const CHART_CONFIG: Record<AnalyticsPeriod, {
-  labelsAr: string[];
-  labelsEn: string[];
-  getBucket: (d: Date) => number;
-}> = {
-  'Today': {
-    labelsAr: ['١٢ص', '٢ص', '٤ص', '٦ص', '٨ص', '١٠ص', '١٢م', '٢م', '٤م', '٦م', '٨م', '١٠م'],
-    labelsEn: ['12am', '2am', '4am', '6am', '8am', '10am', '12pm', '2pm', '4pm', '6pm', '8pm', '10pm'],
-    getBucket: (d) => Math.floor(d.getHours() / 2),
-  },
-  'This Week': {
-    labelsAr: ['الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت', 'الأحد'],
-    labelsEn: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
-    getBucket: (d) => (d.getDay() + 6) % 7,
-  },
-  'This Month': {
-    labelsAr: ['الأسبوع ١', 'الأسبوع ٢', 'الأسبوع ٣', 'الأسبوع ٤'],
-    labelsEn: ['Wk 1', 'Wk 2', 'Wk 3', 'Wk 4'],
-    getBucket: (d) => Math.min(Math.floor((d.getDate() - 1) / 7), 3),
-  },
-  'This Year': {
-    labelsAr: ['يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'],
-    labelsEn: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
-    getBucket: (d) => d.getMonth(),
-  },
-};
 
 // ─── Date Filter Check ────────────────────────────────────────────────────────
 function inPeriod(dateStr: string, period: AnalyticsPeriod): boolean {
@@ -188,7 +150,7 @@ function StatCard({ label, value, icon: Icon, trend, color }: StatCardProps) {
 // ─── Main Component ───────────────────────────────────────────────────────────
 export default function ManagerDashboard() {
   const toast = useToast();
-  const { t, isRtl, language, toggleLanguage } = useLanguage();
+  const { t, language } = useLanguage();
 
   const { items: localMenuItems } = useMenu();
 
@@ -203,7 +165,6 @@ export default function ManagerDashboard() {
   });
 
   const [activeTab, setActiveTab] = useState<'analytics' | 'menu' | 'inventory' | 'customers' | 'settings'>('analytics');
-  const [customerSearchTerm, setCustomerSearchTerm] = useState('');
 
   // Unified Analytics & Inventory State
   const analytics = useAnalytics(dateRange);
@@ -229,7 +190,7 @@ export default function ManagerDashboard() {
   const [orders, setOrders] = useState<D1OrderDoc[]>([]);
   const [customers, setCustomers] = useState<any[]>([]);
   const [dbInventory, setDbInventory] = useState<any[]>([]);
-  const [dbRecipes, setDbRecipes] = useState<any[]>([]);
+  const [, setDbRecipes] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isDemoMode, setIsDemoMode] = useState(false);
@@ -579,10 +540,6 @@ export default function ManagerDashboard() {
       return undefined;
     };
 
-    const getUnitCost = (invItemId: string): number => {
-      const found = resolveInvItem(invItemId);
-      return found?.costPerUnit && found.costPerUnit > 0 ? found.costPerUnit : 1;
-    };
 
     const menuRecipeMap: Record<string, any[]> = {};
     recipes.forEach(r => {
@@ -680,7 +637,6 @@ export default function ManagerDashboard() {
   }, [activeInventory, itemYields]);
 
   // Max bounds for graphing
-  const maxRevenueValue = Math.max(...processedData.chartData.map(d => d.value), 1);
   const maxItemCount = Math.max(...processedData.topItems.map(i => i.count), 1);
 
   // Labels helper — single-branch system, name comes from branch settings
@@ -913,17 +869,6 @@ export default function ManagerDashboard() {
     },
   ];
 
-  const filteredCustomers = useMemo(() => {
-    return customers.filter(c => {
-      // Search filter
-      const query = customerSearchTerm.trim().toLowerCase();
-      if (!query) return true;
-      return (
-        (c.name && c.name.toLowerCase().includes(query)) ||
-        (c.phone && c.phone.includes(query))
-      );
-    });
-  }, [customers, customerSearchTerm]);
 
   if (loading) {
     return (

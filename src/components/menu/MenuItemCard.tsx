@@ -1,4 +1,3 @@
-import React from 'react';
 import { MenuItem } from '../../types/menu';
 import { Edit, Trash2, Power } from 'lucide-react';
 import { motion } from 'framer-motion';

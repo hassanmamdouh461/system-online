@@ -1,8 +1,5 @@
-import React from 'react';
 import { motion } from 'framer-motion';
-import {
-  TrendingUp, DollarSign, ShoppingBag,
-  Clock, Coffee, Users, Scale, Award
+import { DollarSign, ShoppingBag, Coffee, Users, Scale, Award
 } from 'lucide-react';
 
 interface OverviewTabProps {

@@ -354,7 +354,6 @@ export function PaymentModal({
   };
 
   const showReceipt = step === 'receipt';
-  const isPaidView = order.paymentStatus === 'Paid' || order.paymentStatus === 'Refunded';
 
   return createPortal(
     <AnimatePresence>

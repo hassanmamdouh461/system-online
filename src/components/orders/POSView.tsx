@@ -1,13 +1,13 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { getTaxRate } from '../../utils/settingsConfig';
-import { MenuItem, CATEGORIES } from '../../types/menu';
+import { MenuItem } from '../../types/menu';
 import { OrderItem, Order } from '../../types/order';
 import { useLanguage } from '../../context/LanguageContext';
 import { Coffee, Trash2, Plus, Minus, CreditCard, DollarSign, Check, XCircle, Printer, Search, Settings, RotateCcw, X, BookUser } from 'lucide-react';
 import { clsx } from 'clsx';
-import { printCustomerReceipt, printAllOrderTickets } from '../../utils/printReceipts';
+import { printAllOrderTickets } from '../../utils/printReceipts';
 import { CustomerLookupStep, CustomerLookupResult } from '../payment/CustomerLookupStep';
 import { Customer } from '../../types/customer';
 import { Company } from '../../types/company';
@@ -277,14 +277,6 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
       }
       if (prev === '0') return val;
       return prev + val;
-    });
-  };
-
-  // Quick cash buttons
-  const handleQuickCash = (amount: number) => {
-    setReceivedAmount(prev => {
-      const current = parseFloat(prev) || 0;
-      return String(current + amount);
     });
   };
 

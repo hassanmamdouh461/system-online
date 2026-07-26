@@ -1,7 +1,5 @@
-import React from 'react';
 import { NavLink } from 'react-router-dom';
 import { LucideIcon } from 'lucide-react';
-import { motion } from 'framer-motion';
 import { clsx } from 'clsx';
 import { useLanguage } from '../../context/LanguageContext';
 

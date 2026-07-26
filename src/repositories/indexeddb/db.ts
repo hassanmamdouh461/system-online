@@ -10,7 +10,7 @@
  * 3. Hydrate writes fighting order creates on a dying connection
  * 4. No retry after connection drop
  */
-import { openDB, DBSchema, IDBPDatabase, IDBPTransaction } from 'idb';
+import { openDB, DBSchema, IDBPDatabase } from 'idb';
 import { MenuItem } from '../../types/menu';
 import { Order } from '../../types/order';
 import { Customer } from '../../types/customer';

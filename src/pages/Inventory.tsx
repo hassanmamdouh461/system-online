@@ -3,15 +3,14 @@ import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Package, History, Plus, Search, Trash2, Edit2, 
-  Scale, AlertTriangle, CheckCircle2, ArrowUpRight, 
-  ArrowDownRight, RefreshCw, X, HelpCircle, TrendingUp
+  Scale, AlertTriangle, ArrowUpRight, 
+  ArrowDownRight, RefreshCw, X, TrendingUp
 } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
 import { inventoryService } from '../services/inventoryService';
 import { menuService } from '../services/menuService';
 import { InventoryItem, InventoryTransaction, RecipeIngredient } from '../types/inventory';
 import { MenuItem } from '../types/menu';
-import { resolveInvItem } from '../utils/inventoryHelpers';
 import { useToast } from '../components/ui/Toast';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 import { getIngredientBaseQty } from '../utils/units';
@@ -96,11 +95,6 @@ export default function Inventory() {
       return undefined;
     };
 
-    // 2. Map unit costs for each inventory item
-    const getUnitCost = (invItemId: string): number => {
-      const found = resolveInvItem(invItemId);
-      return found?.costPerUnit && found.costPerUnit > 0 ? found.costPerUnit : 1;
-    };
 
     // 3. Group recipes by menuItemId
     const menuRecipeMap: Record<string, RecipeIngredient[]> = {};

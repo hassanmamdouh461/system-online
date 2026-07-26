@@ -1,16 +1,14 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import {
-  TrendingUp, DollarSign, ShoppingBag,
-  Coffee, Calendar, Download,
-  CheckCircle2, Clock, XCircle, AlertCircle, Utensils,
-  UserCheck, Award, Coins, TrendingDown, AlertTriangle, Scale, Wallet
+  TrendingUp, DollarSign, ShoppingBag, Calendar, Download,
+  CheckCircle2, Utensils, Coins, TrendingDown, AlertTriangle, Scale, Wallet
 } from 'lucide-react';
 import { useAnalytics, AnalyticsPeriod } from '../hooks/useAnalytics';
 import { useOrders } from '../hooks/useOrders';
 import { StatCard } from '../components/ui/StatCard';
 import { LoadingScreen } from '../components/ui/LoadingScreen';
-import { OrderStatus, getOrderGrandTotal } from '../types/order';
+import { getOrderGrandTotal } from '../types/order';
 import { formatOrderNumber } from '../utils/orderNumber';
 import { useLanguage } from '../context/LanguageContext';
 import { getTaxRate } from '../utils/settingsConfig';
@@ -22,20 +20,6 @@ import { getIngredientBaseQty } from '../utils/units';
 import { RevenueAreaChart } from '../components/ui/RevenueAreaChart';
 
 
-// ─── Status display config (UI-only: icons & colours) ────────────────────────
-const STATUS_CONFIG: Array<{
-  status: OrderStatus;
-  label: string;
-  icon: React.ElementType;
-  color: string;
-  bar: string;
-}> = [
-  { status: 'New',       label: 'New',       icon: Coffee,       color: 'text-mocha-700', bar: 'bg-mocha-400' },
-  { status: 'Preparing', label: 'Preparing', icon: Clock,        color: 'text-amber-600', bar: 'bg-amber-400' },
-  { status: 'Ready',     label: 'Ready',     icon: AlertCircle,  color: 'text-blue-600',  bar: 'bg-blue-400'  },
-  { status: 'Completed', label: 'Completed', icon: CheckCircle2, color: 'text-green-600', bar: 'bg-green-500' },
-  { status: 'Cancelled', label: 'Cancelled', icon: XCircle,      color: 'text-red-500',   bar: 'bg-red-400'   },
-];
 
 function periodLabel(p: AnalyticsPeriod, t: (k: string) => string) {
   const map: Record<AnalyticsPeriod, string> = {
@@ -75,10 +59,6 @@ export default function Reports() {
     const invMapById = new Map<string, any>();
     inventory.forEach(item => invMapById.set(item.id, item));
 
-    const getUnitCost = (invItemId: string): number => {
-      const found = resolveInvItem(invItemId, inventory);
-      return found ? Number(found.costPerUnit || 0) : 0;
-    };
 
     const menuRecipeMap: Record<string, any[]> = {};
     recipes.forEach(r => {
@@ -283,7 +263,6 @@ export default function Reports() {
   const { chartData, topItems, recentTransactions } = analytics;
   const pLabel       = periodLabel(dateRange, t);
   const currencyStr = language === 'ar' ? 'ج.م' : 'EGP';
-  const maxSale     = Math.max(1, ...(chartData || []).map(d => d.value));
   const maxItemCount = Math.max(1, ...(topItems || []).map(i => i.count));
 
   // Stat cards — when dateRange = 'Today', these equal Dashboard's values exactly

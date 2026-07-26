@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { Order, OrderStatus, OrderItem } from '../types/order';
 import { OrderCard } from '../components/orders/OrderCard';
 import { OrderDetails } from '../components/orders/OrderDetails';
@@ -6,10 +6,8 @@ import { NewOrderModal } from '../components/orders/NewOrderModal';
 import { useIsMobile } from '../hooks/useIsMobile';
 import { useOrders } from '../hooks/useOrders';
 import { useMenu } from '../hooks/useMenu';
-import { LayoutGrid, ListOrdered } from 'lucide-react';
 import { AnimatePresence } from 'framer-motion';
 import { useLanguage } from '../context/LanguageContext';
-import { clsx } from 'clsx';
 import { POSView } from '../components/orders/POSView';
 
 import { filterItemsBySection, getOrderStatusForSection } from '../utils/orderSection';
@@ -26,7 +24,7 @@ export default function Orders({ type = 'all' }: OrdersProps) {
   const { t, language } = useLanguage();
   const { items: menuItems } = useMenu();
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
-  const [activeView, setActiveView] = useState<'pos' | 'tracker'>(type === 'all' ? 'pos' : 'tracker');
+  const [activeView] = useState<'pos' | 'tracker'>(type === 'all' ? 'pos' : 'tracker');
   const [isNewOrderOpen, setIsNewOrderOpen] = useState(false);
   const isMobile = useIsMobile();
 

@@ -1,8 +1,7 @@
-import React, { useState, useEffect, Suspense } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, Outlet, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { DataProvider } from './context/DataContext';
-import { LoadingScreen } from './components/ui/LoadingScreen';
 import { InlinePageSpinner } from './components/ui/InlinePageSpinner';
 import { LanguageProvider } from './context/LanguageContext';
 import { ToastProvider } from './components/ui/Toast';

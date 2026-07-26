@@ -2,10 +2,10 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  Users, Building2, Plus, Search, Phone, Tag, X, Save,
-  ShoppingBag, Trash2, Edit3, UserCircle, BarChart3, Printer,
-  Wallet, DollarSign, Star, ChevronLeft, ChevronRight, FileText,
-  AlertCircle, Check, Award, Undo2
+  Users, Building2, Plus, Search, Phone, X, Save,
+  ShoppingBag, Trash2, Edit3, Printer,
+  Wallet, Star,
+  AlertCircle, Check, Undo2
 } from 'lucide-react';
 import { customersService } from '../services/customersService';
 import { companiesService } from '../services/companiesService';
@@ -84,9 +84,9 @@ function getAvatarGradient(name: string): string {
   return AVATAR_COLORS[index];
 }
 
-export default function CustomersPage({ managerMode = false }: CustomersPageProps) {
+export default function CustomersPage(_props: CustomersPageProps) {
   const { t, language, isRtl } = useLanguage();
-  const { user, branch } = useAuth();
+  const { branch } = useAuth();
   const { orders, deleteOrder, refundOrder } = useOrders();
 
   const taxRate = getTaxRate();

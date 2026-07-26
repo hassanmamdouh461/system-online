@@ -1,5 +1,5 @@
 import { InventoryItem, InventoryTransaction, RecipeIngredient } from '../types/inventory';
-import { getDB, withDB, enqueueWrite } from '../repositories/indexeddb/db';
+import { withDB, enqueueWrite } from '../repositories/indexeddb/db';
 import { syncService } from './syncService';
 
 const WEB_RECIPES_STORAGE_KEY = 'web_menu_recipes_store';
