@@ -18,10 +18,9 @@ import { clsx } from 'clsx';
 import { useLanguage } from '../../context/LanguageContext';
 import {
   getTaxRate,
-  verifyAdminPin,
-  hasAdminPin,
   getStoreConfig,
 } from '../../utils/settingsConfig';
+import { getSessionRole, ensureCloudSession } from '../../services/cloudConfig';
 import { printCustomerReceipt } from '../../utils/printReceipts';
 import { CustomerLookupStep, CustomerLookupResult } from './CustomerLookupStep';
 import { customersService } from '../../services/customersService';
@@ -68,7 +67,7 @@ export function PaymentModal({
   const [billTo, setBillTo] = useState<'customer' | 'company'>('customer');
   const [customerPhone, setCustomerPhone] = useState<string | undefined>(undefined);
   const [refundReason, setRefundReason] = useState('');
-  const [refundPin, setRefundPin] = useState('');
+  const [refundAuthRole, setRefundAuthRole] = useState<'manager' | 'cashier' | null>(getSessionRole());
   const [refundError, setRefundError] = useState('');
   const [isRefunding, setIsRefunding] = useState(false);
   const { t, language } = useLanguage();
@@ -183,7 +182,6 @@ export function PaymentModal({
       }
       paymentFiredRef.current = false;
       setRefundReason('');
-      setRefundPin('');
       setRefundError('');
     }
     return () => {
@@ -328,6 +326,21 @@ export function PaymentModal({
     );
   };
 
+  // Refund authority = the server-verified manager role baked into the session
+  // cookie by the Worker — NOT a per-device localStorage PIN (the old gate was
+  // skipped whenever no PIN happened to be saved on that browser). Refresh the
+  // role whenever the refund step opens so the UI matches what the server allows.
+  useEffect(() => {
+    if (!isOpen || step !== 'refund') return;
+    let alive = true;
+    void ensureCloudSession().then(() => {
+      if (alive) setRefundAuthRole(getSessionRole());
+    });
+    return () => {
+      alive = false;
+    };
+  }, [isOpen, step]);
+
   const handleRefundSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!order) return;
@@ -335,13 +348,22 @@ export function PaymentModal({
     setIsRefunding(true);
 
     try {
-      if (hasAdminPin()) {
-        const isValid = await verifyAdminPin(refundPin);
-        if (!isValid) {
-          setRefundError(language === 'ar' ? 'رمز PIN غير صحيح' : 'Invalid PIN');
-          setIsRefunding(false);
-          return;
-        }
+      // Fail-closed: only an authenticated manager may refund. Re-check against
+      // the live session (not stale state) before writing. The Worker enforces
+      // the same rule server-side — a cashier's write to refundedAt/refundReason
+      // is rejected with 403 — so this keeps the UI honest instead of showing a
+      // Confirm button that would just fail.
+      await ensureCloudSession();
+      const role = getSessionRole();
+      setRefundAuthRole(role);
+      if (role !== 'manager') {
+        setRefundError(
+          language === 'ar'
+            ? 'الاسترجاع يتطلب صلاحية مدير. سجّل الدخول بحساب مدير.'
+            : 'Refund requires manager authorization. Please sign in as a manager.'
+        );
+        setIsRefunding(false);
+        return;
       }
 
       if (onRefund) {
@@ -432,20 +454,14 @@ export function PaymentModal({
                     placeholder={language === 'ar' ? 'مثال: خطأ كاشير / طلب خاطئ' : 'e.g. cashier error / wrong order'}
                   />
                 </div>
-                {hasAdminPin() && (
-                  <div>
-                    <label className="text-xs font-bold text-gray-500 block mb-1 flex items-center gap-1">
-                      <Lock size={12} /> {language === 'ar' ? 'PIN المدير' : 'Manager PIN'}
-                    </label>
-                    <input
-                      type="password"
-                      inputMode="numeric"
-                      maxLength={8}
-                      value={refundPin}
-                      onChange={e => setRefundPin(e.target.value)}
-                      className="w-full border border-gray-200 rounded-xl p-3 text-sm tracking-widest focus:ring-2 focus:ring-red-400 outline-none"
-                      placeholder="••••"
-                    />
+                {refundAuthRole !== 'manager' && (
+                  <div className="flex items-start gap-2 text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
+                    <Lock size={14} className="mt-0.5 shrink-0" />
+                    <span>
+                      {language === 'ar'
+                        ? 'الاسترجاع متاح لحساب المدير فقط. سجّل الدخول بحساب مدير لتأكيد الاسترجاع.'
+                        : 'Refunds are manager-only. Sign in as a manager to confirm this refund.'}
+                    </span>
                   </div>
                 )}
                 {refundError && (
@@ -461,7 +477,7 @@ export function PaymentModal({
                   </button>
                   <button
                     type="submit"
-                    disabled={isRefunding || (!refundReason.trim() && order.paymentStatus === 'Paid')}
+                    disabled={isRefunding || refundAuthRole !== 'manager' || (!refundReason.trim() && order.paymentStatus === 'Paid')}
                     className="flex-1 py-3 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700 disabled:opacity-60"
                   >
                     {isRefunding
