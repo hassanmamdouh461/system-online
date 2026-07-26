@@ -133,7 +133,7 @@ export interface AnalyticsResult {
 
   // ── Real-only deltas (for "live" / "new" badges) ─────────────────────────────
   realRevenue: number;
-  realOrders: number;           // count of real orders in the period
+  realOrders: number;           // count of ALL orders placed in the period (excludes cancelled)
 
   // ── Chart ───────────────────────────────────────────────────────────────────
   chartData: ChartPoint[];
@@ -215,12 +215,22 @@ export function useAnalytics(period: AnalyticsPeriod): AnalyticsResult {
     return { realRevenue: rev, realTax: tax, realPreTax: preTax };
   }, [completedPeriod]);
 
+  // Count of ALL orders placed in the period — Paid, Unpaid and OnAccount alike.
+  // Only Cancelled/voided orders are excluded. This is what the "Total Orders"
+  // card must reflect: true order volume, NOT just realized (paid) sales — that
+  // is what completedPeriod tracks. Counting completedPeriod here hid every
+  // Unpaid / OnAccount order and made the card understate real activity.
+  const periodOrdersCount = useMemo(
+    () => periodOrders.filter(o => o.status !== 'Cancelled').length,
+    [periodOrders],
+  );
+
   // ── Combined stats ──────────────────────────────────────────────────────────
   const bl             = BASELINE[period];
   const totalRevenue   = bl.revenue        + realRevenue;
   const totalTax       = realTax;       // baseline has no tax component
   const totalPreTax    = bl.revenue      + realPreTax;
-  const totalOrders    = bl.orders         + completedPeriod.length;
+  const totalOrders    = bl.orders         + periodOrdersCount;
   const completedTotal = bl.completedOrders + completedPeriod.length;
   const avgOrderValue  = completedTotal > 0 ? totalRevenue / completedTotal : 0;
   const openOrders = useMemo(
@@ -347,7 +357,7 @@ export function useAnalytics(period: AnalyticsPeriod): AnalyticsResult {
     availableMenuItemsCount: menuItems.filter(i => i.available).length,
     menuItems,
     realRevenue,
-    realOrders: completedPeriod.length,
+    realOrders: periodOrdersCount,
     chartData,
     topItems,
     statusBreakdown,
