@@ -118,7 +118,7 @@ const groupedOrders = useMemo(() => {
 | **Desktop** | Electron 29 + better-sqlite3 | Local SQLite POS |
 | **Cloud** | Cloudflare Workers + D1 | Edge API + SQLite at the edge |
 | **State** | React Context + hooks | Lightweight global state |
-| **Deploy** | Netlify / Vercel / Cloudflare Pages | SPA hosting |
+| **Deploy** | Cloudflare Workers (`wrangler-web.toml`) | SPA hosting on `pos.engaz.tech` |
 
 ---
 
@@ -191,27 +191,103 @@ npm run preview
 
 ---
 
-## ☁️ Cloudflare Worker / D1
+## 🚀 Deployment (production)
 
-Backend lives in `cloudflare-worker/`. Full deploy steps: see [`cloudflare-worker/README.md`](./cloudflare-worker/README.md).
+This project deploys as **two separate Cloudflare Workers** from the same
+`cloudflare-worker/` directory, each with its own wrangler config. Deploying only
+one of them is the most common mistake — the frontend and the API are independent.
 
-Quick path:
+| What | Config | Live URL |
+|---|---|---|
+| **Frontend** (SPA, serves `dist/`) | `wrangler-web.toml` | `https://pos.engaz.tech` |
+| **API** (Worker + D1) | `wrangler.toml` | `https://api.engaz.tech` |
+
+> `netlify.toml` and `vercel.json` exist in the repo but are **not** the live
+> deployment path. The POS is served by `wrangler-web.toml` on the
+> `pos.engaz.tech` custom domain.
+
+### Deploy the frontend
+
+The frontend **must be rebuilt before every deploy**: Vite inlines
+`VITE_CLOUDFLARE_WORKER_URL` into the bundle at *build* time, not run time, so a
+deploy without a fresh build ships the previous URL.
+
+```bash
+# from the repo root — .env must contain VITE_CLOUDFLARE_WORKER_URL
+npm run build
+
+cd cloudflare-worker
+npx wrangler deploy -c wrangler-web.toml   # publishes ../dist to pos.engaz.tech
+```
+
+Verify the API URL actually made it into the bundle:
+
+```bash
+curl -s https://pos.engaz.tech/ | grep -o 'src="/assets/[^"]*\.js"'
+curl -s https://pos.engaz.tech/assets/<file>.js | grep -o 'https://api\.engaz\.tech'
+```
+
+If that grep prints nothing, `VITE_CLOUDFLARE_WORKER_URL` was missing at build
+time. `getWorkerUrl()` returns `""`, `isCloudConfigured()` is `false`, and
+**cloud backup is silently disabled** regardless of authentication.
+
+### Deploy the API worker
 
 ```bash
 cd cloudflare-worker
 npm install
 npx wrangler login
+
+# first-time only: create the D1 database and put its id into wrangler.toml
 npx wrangler d1 create system-online-db
-# put database_id into wrangler.toml
 npx wrangler d1 execute system-online-db --remote --file=schema.sql
-npx wrangler deploy
+
+npx wrangler deploy                        # uses wrangler.toml → api.engaz.tech
+
+# production hardening — do not skip (see below)
+npx wrangler secret put SESSION_SECRET
 ```
 
-Then set `VITE_CLOUDFLARE_WORKER_URL` to the deployed Worker URL and rebuild the frontend.
+### Two settings that silently break backup if wrong
 
-API surface:
+1. **`ALLOWED_ORIGINS`** (in `wrangler.toml`) must contain the POS origin
+   *exactly* — `https://pos.engaz.tech`. CORS is fail-closed, so a mismatched
+   origin means the browser discards the session cookie and every sync fails with
+   no visible error in the UI.
+2. **`SESSION_SECRET`** ships with a placeholder default so a fresh deploy works
+   out of the box. Anyone who reads this repo can forge a session cookie while
+   that default is in use, so always override it with
+   `npx wrangler secret put SESSION_SECRET` in production.
+
+### Post-deploy verification
+
+Authentication is a session cookie — there is **no API key** (see
+[`cloudflare-worker/README.md`](./cloudflare-worker/README.md)). Confirm the gate
+works end to end:
+
+```bash
+# 1. no cookie → expect 401
+curl -s -o /dev/null -w "%{http_code}\n" \
+  https://api.engaz.tech/v1/databases/default/collections/orders/documents \
+  -H "Origin: https://pos.engaz.tech"
+
+# 2. mint a session, then reuse it → expect 200
+curl -s -c /tmp/pos.jar -X POST https://api.engaz.tech/v1/session \
+  -H "Origin: https://pos.engaz.tech"
+curl -s -o /dev/null -w "%{http_code}\n" -b /tmp/pos.jar \
+  https://api.engaz.tech/v1/databases/default/collections/orders/documents \
+  -H "Origin: https://pos.engaz.tech"
+```
+
+Expected: `401` then `200`. The public QR menu stays reachable with no session:
+`curl -s https://api.engaz.tech/public/menu`.
+
+### API surface
+
+- `POST` / `GET` / `DELETE` `/v1/session` — mint / probe / clear the session cookie
 - `POST /api/sync` — upsert/delete from the client sync queue
 - Appwrite-compatible REST style under `/v1/databases/.../collections/{menu_items|orders|customers|inventory|companies}/documents`
+- `GET /public/menu` — unauthenticated read for the customer-facing QR menu
 
 ---
 
@@ -239,8 +315,16 @@ online-system/
 
 ## 🔐 Notes
 
-- Auth is client-side for demo/local POS use — change the default password before any real deployment.
-- Worker currently allows broad CORS for ease of integration; add auth before production internet exposure.
+- **POS login** (cashier/manager password) is client-side, for local POS use —
+  change the default password before any real deployment.
+- **Cloud auth** is a server-minted, HttpOnly session cookie; there is no API key
+  to enter anywhere. It is established automatically, so backup works with zero
+  setup. CORS is fail-closed (`ALLOWED_ORIGINS`, never `*`). The session mint
+  endpoint takes no credential, so the barrier is the CORS allowlist plus
+  `SESSION_SECRET` — a deliberate tradeoff documented in
+  [`cloudflare-worker/README.md`](./cloudflare-worker/README.md). For real
+  per-user authorization (cashier vs. manager, refund gating), see the
+  `feat/server-side-auth` branch.
 - Seed data (menu + inventory) is applied automatically on first IndexedDB open — no separate seed script required.
 
 ---
