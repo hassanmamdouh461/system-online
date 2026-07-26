@@ -1,4 +1,6 @@
-import { authenticate, handleSessionRoutes } from "./auth.ts";
+import { authenticate, handleSessionRoutes, timingSafeEqual } from "./auth.ts";
+import { can } from "./permissions.ts";
+import type { HttpMethod } from "./permissions.ts";
 
 interface Env {
   DB: D1Database;
@@ -11,6 +13,8 @@ interface Env {
   /** Role-scoped keys for headless callers (see auth.ts / wrangler.toml). */
   MANAGER_API_KEY?: string;
   CASHIER_API_KEY?: string;
+  /** Server-side refund PIN. Lets a cashier escalate a refund via X-Refund-PIN. */
+  REFUND_PIN?: string;
 }
 
 // Incremental-sync column per table (names are inconsistent across tables).
@@ -181,6 +185,65 @@ export default {
         headers: { "Content-Type": "application/json", ...corsHeaders }
       });
     }
+    // The role comes from the signed cookie (or a role-scoped key) — never from
+    // the request body. This is what makes permissions.ts real instead of dead:
+    // a cashier and a manager are now different on the server, not just in React.
+    const role = auth.role;
+
+    /** Did the caller prove refund authority with a valid server-side PIN?
+     *  Fail-closed: with no REFUND_PIN configured, escalation is impossible and
+     *  refunds stay manager-only. */
+    const refundEscalated = (() => {
+      const pin = (request.headers.get("X-Refund-PIN") || "").trim();
+      const expected = (env.REFUND_PIN || "").trim();
+      if (!pin || !expected) return false;
+      return timingSafeEqual(pin, expected);
+    })();
+
+    /**
+     * THE enforcement point. A manager is unrestricted; every cashier write is
+     * narrowed by permissions.ts. Loads the current row when a guard needs to
+     * compare submitted vs stored values, and returns a ready 403 Response when
+     * denied, or null when allowed.
+     */
+    const authorize = async (args: {
+      table: string;
+      method: HttpMethod;
+      docId?: string | null;
+      submitted?: Record<string, any> | null;
+    }): Promise<Response | null> => {
+      let current: Record<string, any> | null = null;
+      if (role !== "manager" && args.docId && args.method !== "DELETE") {
+        try {
+          current = (await env.DB
+            .prepare(`SELECT * FROM ${args.table} WHERE id = ?`)
+            .bind(args.docId)
+            .first()) as Record<string, any> | null;
+        } catch {
+          current = null;
+        }
+      }
+
+      const decision = can({
+        role,
+        table: args.table,
+        method: args.method,
+        docId: args.docId ?? null,
+        submitted: args.submitted ?? null,
+        current,
+        refundEscalated,
+      });
+
+      if (decision.allowed) return null;
+
+      console.warn(
+        `[worker] 403 role=${role} table=${args.table} method=${args.method} code=${decision.code}`
+      );
+      return new Response(
+        JSON.stringify({ error: "Forbidden", message: decision.reason, code: decision.code }),
+        { status: 403, headers: { "Content-Type": "application/json", "X-Auth-Role": role, ...corsHeaders } }
+      );
+    };
 
     try {
       const url = new URL(request.url);
@@ -217,6 +280,19 @@ export default {
               status: 400,
               headers: { "Content-Type": "application/json", ...corsHeaders }
             });
+          }
+
+          // AUTHORIZE — this path was previously unguarded. `/api/sync` accepted
+          // `action: "delete"` on any table with no role check at all, a complete
+          // bypass of the REST DELETE rules. Enforce the same rules here.
+          if (action === "delete") {
+            const denied = await authorize({ table, method: "DELETE", docId });
+            if (denied) return denied;
+          } else {
+            const preview = sanitizeAndNormalize(table, data);
+            preview.id = docId;
+            const denied = await authorize({ table, method: "PATCH", docId, submitted: preview });
+            if (denied) return denied;
           }
 
           if (action === "delete") {
@@ -368,6 +444,9 @@ export default {
         // Single-branch system: always stamp the one branch id.
         data.branch_id = MAIN_BRANCH_ID;
 
+        const deniedPost = await authorize({ table, method: "POST", docId: documentId, submitted: data });
+        if (deniedPost) return deniedPost;
+
         const keys = Object.keys(data);
         if (keys.length === 0) {
           return new Response(JSON.stringify({ error: "Bad Request", message: "No valid attributes provided" }), {
@@ -415,6 +494,9 @@ export default {
         const rawData = body.data || {};
         const data = sanitizeAndNormalize(table, rawData);
 
+        const deniedPatch = await authorize({ table, method: "PATCH", docId, submitted: data });
+        if (deniedPatch) return deniedPatch;
+
         const keys = Object.keys(data);
         if (keys.length === 0) {
           const row = await env.DB.prepare(`SELECT * FROM ${table} WHERE id = ?`).bind(docId).first();
@@ -451,6 +533,9 @@ export default {
             headers: { "Content-Type": "application/json", ...corsHeaders }
           });
         }
+
+        const deniedDelete = await authorize({ table, method: "DELETE", docId });
+        if (deniedDelete) return deniedDelete;
 
         await env.DB.prepare(`DELETE FROM ${table} WHERE id = ?`).bind(docId).run();
         return new Response(JSON.stringify({ success: true }), {

@@ -7,7 +7,7 @@
     "deploy": "wrangler deploy",
     "dev": "wrangler dev",
     "start": "wrangler dev",
-    "test": "node --experimental-strip-types test/auth.test.mts && node --experimental-strip-types test/session.integration.test.mts"
+    "test": "node --experimental-strip-types test/auth.test.mts && node --experimental-strip-types test/session.integration.test.mts && node --experimental-strip-types test/permissions.test.mts"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20240222.0",
