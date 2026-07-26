@@ -8,6 +8,7 @@ import {
   parseOrderSeq,
   mergeOrderRecords,
   dayKeyFromIso,
+  suffixedTicket,
 } from '../../utils/orderNumber';
 
 const DAILY_TICKET_SOFT_MAX = 500;
@@ -54,6 +55,9 @@ function mapRemoteOrder(doc: any): Order {
       undefined,
     updatedAt: doc.updatedAt || doc.updated_at || undefined,
     paidAt: doc.paidAt || undefined,
+    // Round-trips only once D1 has a printedAt column (see optional migration).
+    // Until then remote lacks it and mergeOrderRecords keeps the local latch.
+    printedAt: doc.printedAt || doc.printed_at || undefined,
     customerPhone: doc.customerPhone || doc.customer_phone || undefined,
     customerId: doc.customerId || doc.customer_id || undefined,
     customerName: doc.customerName || doc.customer_name || undefined,
@@ -160,7 +164,7 @@ export class IndexedDbOrderRepository implements IOrderRepository {
   async renumberIfNeeded(): Promise<number> {
     return enqueueWrite(async () => {
       return withDB(async (db) => {
-        const all = await db.getAll('orders');
+        const all = (await db.getAll('orders')) as Order[];
         if (all.length === 0) return 0;
 
         const byDay = new Map<string, Order[]>();
@@ -170,60 +174,133 @@ export class IndexedDbOrderRepository implements IOrderRepository {
           byDay.get(key)!.push(o);
         }
 
-        let needs = false;
-        for (const [, dayOrders] of byDay) {
-          if (dayNeedsRenumber(dayOrders)) {
-            needs = true;
-            break;
-          }
-        }
-        if (!needs) return 0;
-
-        let changed = 0;
-        const updatedOrders: Order[] = [];
         const now = new Date().toISOString();
-        const tx = db.transaction(['orders', 'sync_queue'], 'readwrite');
+        // Build the full change plan in memory FIRST. A day whose only "dirty"
+        // tickets are frozen (printed) — or that is already clean — yields no
+        // changes and therefore opens no transaction and enqueues no sync rows.
+        const plan: Array<{ order: Order; newNumber: string }> = [];
+
         for (const [, dayOrders] of byDay) {
-          // Only rewrite days that actually need it (leave clean historical days alone)
           if (!dayNeedsRenumber(dayOrders)) continue;
 
-          dayOrders.sort(
+          // createdAt order = the order tickets were actually issued in.
+          const sorted = [...dayOrders].sort(
             (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
           );
+
+          const taken = new Set<string>();     // display labels already claimed
+          const takenBase = new Set<number>(); // numeric bases claimed by a holder
+
+          // A printed order's number is authoritative and immutable.
+          const isFrozen = (o: Order) =>
+            !!o.printedAt && parseOrderSeq(o.orderNumber) !== null;
+          const isCleanBase = (n: number | null): n is number =>
+            n !== null && n > 0 && n < 1000 && n <= sorted.length + 50;
+
+          // Pass 1 — reserve every printed/frozen ticket's number. Never changed.
+          for (const o of sorted) {
+            if (!isFrozen(o)) continue;
+            const label = String(o.orderNumber);
+            taken.add(label);
+            const n = parseOrderSeq(label);
+            if (n !== null) takenBase.add(n);
+          }
+
+          // Pass 2 — assign movable (unprinted) tickets in issue order.
           let seq = 1;
-          for (const o of dayOrders) {
-            const next = String(seq);
-            if (String(o.orderNumber || '') !== next) {
-              const updated: Order = { ...o, orderNumber: next, updatedAt: now };
-              await tx.objectStore('orders').put(updated);
-              updatedOrders.push(updated);
-              try {
-                await tx.objectStore('sync_queue').put({
-                  id: `sync_renum_${o.id}_${Date.now()}_${seq}`,
-                  type: 'order',
-                  action: 'update',
-                  data: updated,
-                  timestamp: now,
-                  synced: 0,
-                } as SyncRecord);
-              } catch {
-                // non-fatal
-              }
-              changed++;
+          for (const o of sorted) {
+            if (isFrozen(o)) continue;
+            const n = parseOrderSeq(o.orderNumber);
+            let target: string;
+
+            if (isCleanBase(n) && !takenBase.has(n)) {
+              // Already a good, unique daily number — keep it (no churn).
+              target = String(n);
+              takenBase.add(n);
+              taken.add(target);
+            } else if (n !== null && takenBase.has(n)) {
+              // CONFLICT with an already-claimed (usually printed) number →
+              // give THIS order a -A suffix instead of shifting anyone else.
+              target = suffixedTicket(n, taken);
+              taken.add(target);
+            } else {
+              // Junk / empty / inflated legacy counter → next free sequential.
+              while (takenBase.has(seq)) seq++;
+              target = String(seq);
+              takenBase.add(seq);
+              taken.add(target);
+              seq++;
             }
-            seq++;
+
+            if (String(o.orderNumber || '') !== target) {
+              plan.push({ order: o, newNumber: target });
+            }
+          }
+        }
+
+        if (plan.length === 0) return 0;
+
+        const updatedOrders: Order[] = [];
+        const tx = db.transaction(['orders', 'sync_queue'], 'readwrite');
+        for (const { order, newNumber } of plan) {
+          const updated: Order = { ...order, orderNumber: newNumber, updatedAt: now };
+          await tx.objectStore('orders').put(updated);
+          updatedOrders.push(updated);
+          try {
+            await tx.objectStore('sync_queue').put({
+              id: `sync_renum_${order.id}_${Date.now()}_${newNumber}`,
+              type: 'order',
+              action: 'update',
+              data: updated,
+              timestamp: now,
+              synced: 0,
+            } as SyncRecord);
+          } catch {
+            // non-fatal
           }
         }
         await tx.done;
 
-        // Queue-only cloud push: the queue write above already staged every
-        // renumbered order for syncPendingData. No direct cloudUpsert here —
-        // the previous double-upsert raced the queue and re-sent numbers twice.
+        // Queue-only cloud push: the queue rows above are drained by
+        // syncPendingData. No direct cloudUpsert here (avoids racing the queue).
         if (updatedOrders.length > 0) {
           void syncService.syncPendingData();
         }
 
-        return changed;
+        return updatedOrders.length;
+      });
+    });
+  }
+
+  /**
+   * Set printedAt the first time a customer receipt is printed for this order.
+   * Set-once latch — once printed, renumberIfNeeded will never touch its number.
+   */
+  async markPrinted(id: string): Promise<void> {
+    await enqueueWrite(async () => {
+      await withDB(async (db) => {
+        const existing = (await db.get('orders', id)) as Order | undefined;
+        if (!existing || existing.printedAt) return; // missing or already latched
+        const now = new Date().toISOString();
+        const updated: Order = { ...existing, printedAt: now, updatedAt: now };
+        await db.put('orders', updated);
+        try {
+          await db.put('sync_queue', {
+            id: `sync_print_${id}_${Date.now()}`,
+            type: 'order',
+            action: 'update',
+            data: updated,
+            timestamp: now,
+            synced: 0,
+          } as SyncRecord);
+        } catch {
+          // non-fatal
+        }
+        void import('../../services/cloudConfig').then(({ cloudUpsert }) =>
+          cloudUpsert('orders', updated.id, updated).then((ok) => {
+            if (!ok) void syncService.syncPendingData();
+          })
+        ).catch(() => void syncService.syncPendingData());
       });
     });
   }
@@ -234,11 +311,22 @@ export class IndexedDbOrderRepository implements IOrderRepository {
         const id = `ord_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
         const now = new Date().toISOString();
 
-        const allOrders = await db.getAll('orders');
+        const allOrders = await db.getAll('orders') as Order[];
         // Always assign a short sequential ticket number (1, 2, 3...).
         // Ignore huge digit strings that came from timestamps / document ids.
         const provided = parseOrderSeq(orderData.orderNumber);
-        const cleanNum = String(provided ?? nextOrderSeq(allOrders));
+        const base = provided ?? nextOrderSeq(allOrders);
+        // Never reuse a number already printed on a customer receipt TODAY: if the
+        // computed base collides with a printed ticket, take a -A suffix instead
+        // (nextOrderSeq normally returns max+1, so this only guards edge reuses).
+        const todayKey = dayKeyFromIso(orderData.createdAt || now) ?? dayKeyFromIso(now);
+        const printedToday = new Set<string>();
+        for (const o of allOrders) {
+          if (o.printedAt && dayKeyFromIso(o.createdAt) === todayKey) {
+            printedToday.add(String(o.orderNumber));
+          }
+        }
+        const cleanNum = suffixedTicket(base, printedToday);
 
         const newOrder: Order = {
           id,

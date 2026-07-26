@@ -43,6 +43,13 @@ export interface Order {
   createdAt: string; // ISO string
   updatedAt?: string; // ISO string — last modification timestamp for sync conflict resolution
   paidAt?: string; // ISO string when payment was completed
+  /**
+   * ISO string set the first time a CUSTOMER receipt is printed for this order.
+   * Once set, the order's ticket number is FROZEN: renumberIfNeeded must never
+   * rewrite a printed order's number (a physical receipt with that number is in
+   * the customer's hand). Acts as a set-once latch — never cleared.
+   */
+  printedAt?: string;
   customerPhone?: string;
   /** When billed to a registered customer account */
   customerId?: string;

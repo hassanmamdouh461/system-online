@@ -132,7 +132,14 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       // >500-ticket day, or a cross-device duplicate) made the poll manufacture
       // a new batch of pending rows every cycle — the queue could never drain
       // and "معلّق/Pending" climbed without bound. Gate it to the initial load.
-      if (opts?.renumber && !renumberedRef.current) {
+      // LAYER 1 (printed-ticket safety): the daily renumber cleanup may ONLY run
+      // on the cashier / POS device. The manager view (branchId 'manager') runs
+      // on a phone that reloads constantly (app switch, iOS memory purge); if it
+      // renumbered, it would shift ticket numbers on receipts customers already
+      // hold. printedAt (Layer 2) freezes printed tickets even here, but the
+      // cashier device is the only one that should ever reassign numbers at all.
+      const isManagerDevice = branch?.branchId === 'manager';
+      if (opts?.renumber && !renumberedRef.current && !isManagerDevice) {
         renumberedRef.current = true;
         try {
           if (typeof orderRepository.renumberIfNeeded === 'function') {

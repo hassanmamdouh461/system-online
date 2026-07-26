@@ -64,9 +64,32 @@ export function printHtml(htmlContent: string) {
 }
 
 /**
+ * Fire-and-forget: latch printedAt on an order so renumberIfNeeded can never
+ * change the ticket number of a receipt that is already in a customer's hand.
+ * Lazy repo import (no static cycle); must never block or break printing.
+ */
+function markOrderPrinted(orderId?: string) {
+  if (!orderId) return;
+  try {
+    void import('../repositories')
+      .then((m) => {
+        const repo = m.orderRepository as { markPrinted?: (id: string) => Promise<void> };
+        if (repo && typeof repo.markPrinted === 'function') {
+          void repo.markPrinted(orderId).catch(() => {});
+        }
+      })
+      .catch(() => {});
+  } catch {
+    // ignore
+  }
+}
+
+/**
  * Print standard customer receipt
  */
 export function printCustomerReceipt(order: Order, lang: 'en' | 'ar' = 'ar') {
+  // A physical receipt is being produced → freeze this order's ticket number.
+  markOrderPrinted(order?.id);
   const isRtl = lang === 'ar';
   const ticketNo = escapeHtml(formatOrderNumber(order));
   const subtotal = order.totalAmount;

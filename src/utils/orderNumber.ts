@@ -63,6 +63,25 @@ export function formatOrderNumber(
   return '—';
 }
 
+/**
+ * Build a collision-free ticket label for `base`. If the plain number is already
+ * taken, append a letter suffix (-A, -B, …). This lets a conflicting (unprinted)
+ * order take a suffixed number INSTEAD of forcing a full-day renumber that would
+ * shift already-printed tickets. `taken` holds display labels already assigned.
+ */
+export function suffixedTicket(base: number, taken: Set<string>): string {
+  const plain = String(base);
+  if (!taken.has(plain)) return plain;
+  for (let i = 0; i < 26; i++) {
+    const cand = `${base}-${String.fromCharCode(65 + i)}`; // 16-A … 16-Z
+    if (!taken.has(cand)) return cand;
+  }
+  let k = 1;
+  let cand = `${base}-${k}`;
+  while (taken.has(cand)) cand = `${base}-${++k}`;
+  return cand;
+}
+
 /** Sort key for ascending ticket order. */
 export function orderSeqSortValue(order: { orderNumber?: string; createdAt?: string }): number {
   const n = parseOrderSeq(order.orderNumber);
@@ -204,6 +223,10 @@ export function mergeOrderRecords(local: OrderLike | undefined, remote: OrderLik
     id: remote.id || local.id,
     orderNumber,
     deletedAt: effectiveDeletedAt || undefined,
+    // printedAt is a set-once latch: once ANY device has printed a receipt for
+    // this order, keep it printed forever so its number stays frozen. Never let
+    // a copy that lacks printedAt clear it.
+    printedAt: local.printedAt || remote.printedAt,
     // Identity (always preserved — never let remote empty/placeholder win):
     customerPhone: pick(remote.customerPhone, local.customerPhone),
     customerId: pick(remote.customerId, local.customerId),
@@ -268,6 +291,7 @@ type OrderLike = {
   paymentStatus?: string;
   paymentMethod?: string;
   paidAt?: string;
+  printedAt?: string;
   refundedAt?: string;
   refundReason?: string;
   updatedAt?: string;

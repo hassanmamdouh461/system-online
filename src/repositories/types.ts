@@ -23,6 +23,8 @@ export interface IOrderRepository {
   resetToDefaults(defaults: Omit<Order, 'id'>[], branchId?: string): Promise<Order[]>;
   /** Optional: rewrite timestamp-like ticket numbers to short 1..N sequence */
   renumberIfNeeded?(): Promise<number>;
+  /** Optional: latch printedAt so a printed order's ticket number is frozen. */
+  markPrinted?(id: string): Promise<void>;
 }
 
 export interface ICustomerRepository {
