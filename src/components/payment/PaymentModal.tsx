@@ -47,7 +47,11 @@ interface PaymentModalProps {
   isOpen: boolean;
   onClose: () => void;
   onPaymentComplete: (payload: PaymentCompletePayload) => void;
-  onRefund?: (orderId: string, reason: string) => Promise<void>;
+  /**
+   * @param refundPin The PIN the cashier typed. Forwarded to the worker for
+   *   server-side verification — the local check alone is not authorization.
+   */
+  onRefund?: (orderId: string, reason: string, refundPin?: string) => Promise<void>;
 }
 
 type Step = 'customer' | 'pay' | 'receipt' | 'refund';
@@ -333,6 +337,9 @@ export function PaymentModal({
     setIsRefunding(true);
 
     try {
+      // Local check stays as fast UX feedback only. Real authorization happens
+      // on the worker, which verifies the PIN against its own REFUND_PIN secret
+      // — so a tampered localStorage PIN no longer grants a refund.
       if (hasAdminPin()) {
         const isValid = await verifyAdminPin(refundPin);
         if (!isValid) {
@@ -343,7 +350,8 @@ export function PaymentModal({
       }
 
       if (onRefund) {
-        await onRefund(order.id, refundReason);
+        // Forward the PIN so the server can authorize the escalation.
+        await onRefund(order.id, refundReason, refundPin);
       }
       onClose();
     } catch (err: any) {

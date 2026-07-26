@@ -511,9 +511,11 @@ export default function Payment() {
     }
   };
 
-  const handleRefund = async (orderId: string, reason: string) => {
+  const handleRefund = async (orderId: string, reason: string, refundPin?: string) => {
     try {
-      await refundOrder(orderId, reason);
+      // The PIN is forwarded to the worker, which authorizes the escalation
+      // server-side. A cashier-key device cannot refund without a valid PIN.
+      await refundOrder(orderId, reason, refundPin);
     } catch (err) {
       console.error('Refund failed:', err);
       toast.error(language === 'ar' ? 'فشل الاسترجاع' : 'Refund failed');

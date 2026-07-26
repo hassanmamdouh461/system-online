@@ -91,13 +91,39 @@ Collections / tables: `menu_items`, `orders`, `customers`, `inventory`, `compani
 
 ## Security note
 
-**Authentication is mandatory and fail-closed.** If the `API_KEY` secret is not
-set, the Worker returns `503 Service Unavailable` for every request rather than
-serving the database unauthenticated. Set it before/after deploying:
+**Authentication is mandatory and fail-closed.** If no API key secret is set,
+the Worker returns `503 Service Unavailable` for every request rather than
+serving the database unauthenticated.
+
+### Role-based authorization
+
+The caller's **role is derived from which secret it presents** — the client never
+declares its own role, so a tampered `localStorage` session cannot grant server
+rights:
 
 ```bash
-npx wrangler secret put API_KEY
+npx wrangler secret put MANAGER_API_KEY   # full rights
+npx wrangler secret put CASHIER_API_KEY   # constrained by the permission matrix
+npx wrangler secret put REFUND_PIN        # cashier refund escalation
 ```
+
+A cashier key cannot delete anything, edit the menu or recipes, create inventory
+items, re-price stock, write sensitive settings (password hashes, PIN, tax rate,
+store config), or refund without a valid `X-Refund-PIN`. Every decision lives in
+[`src/permissions.ts`](./src/permissions.ts) as pure, testable functions, and is
+enforced at a single `authorize()` call site in `src/index.ts`.
+
+Full matrix, deployment order and verification steps:
+**[SECURITY-DEPLOY.md](./SECURITY-DEPLOY.md)**
+
+```bash
+npm test   # 88 matrix checks + 39 end-to-end checks, no install needed
+```
+
+> **`API_KEY` is deprecated.** It still authenticates *as manager* so installs
+> already in the field keep working during rollout, and logs a warning on every
+> use. Delete it (`npx wrangler secret delete API_KEY`) once the real keys are
+> distributed — until then the authorization split is not fully enforced.
 
 Clients must send the key as either `Authorization: Bearer <key>` or
 `X-API-Key: <key>`. In the app it is entered by the operator under

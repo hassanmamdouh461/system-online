@@ -44,30 +44,77 @@ export function getWorkerUrl(): string {
   return '';
 }
 
-export function getApiKey(): string {
-  // SECURITY: API key must NEVER be read from import.meta.env (VITE_* vars are
-  // inlined into the client bundle and would leak to any user opening devtools).
-  // The key is stored only in localStorage and entered by the operator via
-  // Settings → Cloud Sync. Electron reads it directly from the .env file.
-  if (typeof window !== 'undefined') {
-    try {
-      return String(localStorage.getItem('brewmaster_d1_api_key') || '').trim();
-    } catch {
-      return '';
-    }
+/**
+ * Role-scoped worker keys.
+ *
+ * The worker derives the caller's role from WHICH key is presented, so a till
+ * holding only the cashier key cannot perform manager operations even if the
+ * local React session has been tampered with to claim `role: 'manager'`.
+ *
+ * SECURITY: neither key may be read from import.meta.env — VITE_* vars are
+ * inlined into the client bundle and would leak to anyone opening devtools.
+ * Both are stored only in localStorage, entered by the operator in
+ * Settings → Cloud Sync.
+ */
+const LS_CASHIER_KEY = 'brewmaster_d1_api_key';
+const LS_MANAGER_KEY = 'brewmaster_d1_manager_key';
+
+function readLocal(key: string): string {
+  if (typeof window === 'undefined') return '';
+  try {
+    return String(localStorage.getItem(key) || '').trim();
+  } catch {
+    return '';
   }
-  return '';
 }
 
-/** Persist the Cloudflare Worker API key to localStorage only (never bundled). */
+/**
+ * The key used to authenticate outbound requests.
+ *
+ * Prefers the manager key when this device has one: a manager needs manager
+ * rights for everything it does, including background sync of menu and
+ * inventory edits. A till that was never given a manager key falls back to the
+ * cashier key and is therefore constrained by the server-side matrix.
+ */
+export function getApiKey(): string {
+  const managerKey = readLocal(LS_MANAGER_KEY);
+  if (managerKey) return managerKey;
+  return readLocal(LS_CASHIER_KEY);
+}
+
+/** True when this device holds a manager-scoped key. */
+export function hasManagerKey(): boolean {
+  return !!readLocal(LS_MANAGER_KEY);
+}
+
+export function getManagerKey(): string {
+  return readLocal(LS_MANAGER_KEY);
+}
+
+/** Persist the manager-scoped worker key. Pass '' to remove it. */
+export function setManagerKey(key: string): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const trimmed = String(key || '').trim();
+    if (trimmed) {
+      localStorage.setItem(LS_MANAGER_KEY, trimmed);
+    } else {
+      localStorage.removeItem(LS_MANAGER_KEY);
+    }
+  } catch {
+    // ignore
+  }
+}
+
+/** Persist the cashier-scoped Worker API key to localStorage only (never bundled). */
 export function setApiKey(key: string): void {
   if (typeof window === 'undefined') return;
   try {
     const trimmed = String(key || '').trim();
     if (trimmed) {
-      localStorage.setItem('brewmaster_d1_api_key', trimmed);
+      localStorage.setItem(LS_CASHIER_KEY, trimmed);
     } else {
-      localStorage.removeItem('brewmaster_d1_api_key');
+      localStorage.removeItem(LS_CASHIER_KEY);
     }
   } catch {
     // ignore
@@ -128,6 +175,22 @@ export function buildCloudHeaders(extra?: Record<string, string>): Record<string
     headers['X-API-Key'] = key;
   }
   return headers;
+}
+
+/**
+ * Refund escalation header.
+ *
+ * A cashier key cannot write refund fields on its own. To perform a refund the
+ * cashier must present the refund PIN, which the WORKER verifies against its
+ * own REFUND_PIN secret. The old flow checked the PIN in PaymentModal against
+ * localStorage, which `curl` bypassed completely and DevTools could overwrite.
+ *
+ * The PIN is attached per-request and never persisted here.
+ */
+export function buildRefundHeaders(pin: string): Record<string, string> {
+  const trimmed = String(pin || '').trim();
+  if (!trimmed) return buildCloudHeaders();
+  return buildCloudHeaders({ 'X-Refund-PIN': trimmed });
 }
 
 /** Parse number from cloud payloads without turning null into 0. */
@@ -306,7 +369,8 @@ export async function cloudGetPublicMenu(): Promise<any[] | null> {
 export async function cloudUpsert(
   collection: string,
   id: string,
-  data: Record<string, any>
+  data: Record<string, any>,
+  opts?: { refundPin?: string }
 ): Promise<boolean> {
   if (!id) return false;
   const payload: Record<string, any> = { ...data, id };
@@ -320,6 +384,10 @@ export async function cloudUpsert(
         method: 'POST',
         timeoutMs: DEFAULT_TIMEOUT_MS,
         body: JSON.stringify({ documentId: id, data: payload }),
+        // Refund escalation travels only on this direct, online call. A queued
+        // replay cannot carry it (we must never persist a PIN to IndexedDB), so
+        // a cashier refund requires connectivity at the moment of refund.
+        ...(opts?.refundPin ? { headers: { 'X-Refund-PIN': opts.refundPin } } : {}),
       }
     );
     if (!res) return false;

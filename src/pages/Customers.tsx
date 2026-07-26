@@ -1008,7 +1008,12 @@ function CustomerProfileDetail({
   language: string;
   allOrders: Order[];
   onDeleteOrder: (id: string) => Promise<void>;
-  onRefundOrder: (id: string, reason?: string) => Promise<void>;
+  /**
+   * Refund from the customer statement view. This surface has no PIN prompt, so
+   * it only succeeds on a manager-key device — a cashier-key device gets a 403
+   * from the worker with a clear Arabic reason, which is the intended behaviour.
+   */
+  onRefundOrder: (id: string, reason?: string, refundPin?: string) => Promise<void>;
 }) {
   const { user } = useAuth();
   const [refundTarget, setRefundTarget] = useState<Order | null>(null);

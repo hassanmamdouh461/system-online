@@ -202,9 +202,28 @@ export class SyncService {
       }
 
       const body = await response.text().catch(() => '');
+
+      // 403 = the server-side permission matrix refused this specific write
+      // (see cloudflare-worker/src/permissions.ts). It is DETERMINISTIC and
+      // per-record: retrying the identical payload can only fail again.
+      //
+      // Treating it like a transient error would be actively harmful — the old
+      // branch below disables the worker for 5 minutes and burns 15 retries,
+      // so one forbidden record would stall the sync of every LEGITIMATE
+      // record behind it. Instead it is retired immediately with an
+      // operator-readable reason, and the connection is left alone.
+      if (response.status === 403) {
+        const reason = this.extractServerMessage(body);
+        const msg = reason || 'العملية غير مسموحة بصلاحيتك الحالية (403)';
+        this.lastError = msg;
+        console.warn('[SyncService] Write refused by server permissions:', record.type, record.action, msg);
+        await this.retirePermanently(record, msg);
+        return;
+      }
+
       const msg = `HTTP ${response.status}: ${body.slice(0, 200)}`;
       this.lastError = msg;
-      if (response.status === 401 || response.status === 403 || response.status === 404) {
+      if (response.status === 401 || response.status === 404) {
         this.disableWorkerTemporarily(300_000);
       }
       await this.scheduleRetry(record, msg);
@@ -214,6 +233,34 @@ export class SyncService {
       this.lastError = msg;
       await this.scheduleRetry(record, msg);
     }
+  }
+
+  /** Pull the worker's Arabic `message` out of a JSON error body. */
+  private extractServerMessage(body: string): string | null {
+    try {
+      const parsed = JSON.parse(body);
+      const msg = parsed?.message;
+      return typeof msg === 'string' && msg.trim() ? msg.trim() : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Retire a record that can never succeed as-is (a permission denial).
+   *
+   * Marked dead WITHOUT consuming retry attempts, so it shows up in the
+   * `failed` count in getHealth() and the operator can see exactly why in
+   * `lastError`, while the rest of the queue keeps flowing. `resetDeadRecords`
+   * can re-arm it once the device is given the right key.
+   */
+  private async retirePermanently(record: SyncRecord, errorMessage: string): Promise<void> {
+    await withDB(async (db) => {
+      record.lastError = errorMessage;
+      record.nextRetryAt = undefined;
+      record.dead = true;
+      await db.put('sync_queue', record);
+    });
   }
 
   private async scheduleRetry(record: SyncRecord, errorMessage: string): Promise<void> {
