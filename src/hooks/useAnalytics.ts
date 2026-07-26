@@ -16,7 +16,8 @@ import { useMemo } from 'react';
 import { getTaxRate } from '../utils/settingsConfig';
 import { useOrders } from './useOrders';
 import { useMenu } from './useMenu';
-import { Order, OrderStatus } from '../types/order';
+import { Order, OrderStatus, getOrderMoney } from '../types/order';
+import { addMoney, allocateMoney, averageMoney, lineTotal } from '../utils/money';
 import { MenuItem } from '../types/menu';
 
 // ─── Period type ──────────────────────────────────────────────────────────────
@@ -188,29 +189,18 @@ export function useAnalytics(period: AnalyticsPeriod): AnalyticsResult {
   // We compute both the tax-inclusive total AND the actual frozen tax, so net-profit
   // can subtract the real collected tax instead of re-guessing revenue * rate.
   const { realRevenue, realTax, realPreTax } = useMemo(() => {
+    // getOrderMoney is the single canonical resolver for the frozen money
+    // triple — it already handles missing/NaN fields and rounds to the piaster,
+    // so this loop no longer keeps its own copy of the tax fallback formula.
     let rev = 0;
     let tax = 0;
     let preTax = 0;
+    const fallbackRate = getTaxRate();
     for (const o of completedPeriod) {
-      let lineTax = 0;
-      let lineTotal = 0;
-      if (typeof o.taxAmount === 'number' && Number.isFinite(o.taxAmount)) {
-        lineTax = o.taxAmount;
-      } else {
-        const rate =
-          typeof o.taxRate === 'number' && Number.isFinite(o.taxRate) ? o.taxRate : getTaxRate();
-        lineTax = o.totalAmount * rate;
-      }
-      if (typeof o.grandTotal === 'number' && Number.isFinite(o.grandTotal) && o.grandTotal > 0) {
-        lineTotal = o.grandTotal;
-      } else {
-        lineTotal = o.totalAmount + lineTax;
-      }
-      lineTax = Number.isFinite(lineTax) ? lineTax : 0;
-      lineTotal = Number.isFinite(lineTotal) ? lineTotal : 0;
-      rev += lineTotal;
-      tax += lineTax;
-      preTax += Number.isFinite(o.totalAmount) ? o.totalAmount : 0;
+      const money = getOrderMoney(o, fallbackRate);
+      rev = addMoney(rev, money.grandTotal);
+      tax = addMoney(tax, money.taxAmount);
+      preTax = addMoney(preTax, money.subtotal);
     }
     return { realRevenue: rev, realTax: tax, realPreTax: preTax };
   }, [completedPeriod]);
@@ -227,12 +217,12 @@ export function useAnalytics(period: AnalyticsPeriod): AnalyticsResult {
 
   // ── Combined stats ──────────────────────────────────────────────────────────
   const bl             = BASELINE[period];
-  const totalRevenue   = bl.revenue        + realRevenue;
+  const totalRevenue   = addMoney(bl.revenue, realRevenue);
   const totalTax       = realTax;       // baseline has no tax component
-  const totalPreTax    = bl.revenue      + realPreTax;
+  const totalPreTax    = addMoney(bl.revenue, realPreTax);
   const totalOrders    = bl.orders         + periodOrdersCount;
   const completedTotal = bl.completedOrders + completedPeriod.length;
-  const avgOrderValue  = completedTotal > 0 ? totalRevenue / completedTotal : 0;
+  const avgOrderValue  = averageMoney(totalRevenue, completedTotal);
   const openOrders = useMemo(
     () => orders.filter(o => ['New', 'Preparing', 'Ready'].includes(o.status)).length,
     [orders],
@@ -247,28 +237,16 @@ export function useAnalytics(period: AnalyticsPeriod): AnalyticsResult {
     completedPeriod.forEach(o => {
       const idx = cfg.getBucket(new Date(o.paidAt || o.createdAt));
       if (idx >= 0 && idx < cfg.labels.length) {
-        let total = 0;
-        if (typeof o.grandTotal === 'number' && Number.isFinite(o.grandTotal) && o.grandTotal > 0) {
-          total = o.grandTotal;
-        } else {
-          const rate =
-            typeof o.taxRate === 'number' && Number.isFinite(o.taxRate) ? o.taxRate : getTaxRate();
-          const tax =
-            typeof o.taxAmount === 'number' && Number.isFinite(o.taxAmount)
-              ? o.taxAmount
-              : o.totalAmount * rate;
-          total = o.totalAmount + tax;
-        }
-        if (Number.isFinite(total)) {
-          realRev[idx] += total;
-          realCount[idx] += 1;
-        }
+        // Same canonical resolver as the revenue loop — no second copy of the formula.
+        const total = getOrderMoney(o, getTaxRate()).grandTotal;
+        realRev[idx] = addMoney(realRev[idx], total);
+        realCount[idx] += 1;
       }
     });
 
     return cfg.labels.map((label, i) => ({
       label,
-      value:       cfg.base[i] + realRev[i],
+      value:       addMoney(cfg.base[i], realRev[i]),
       realRevenue: realRev[i],
       orders:      realCount[i],
     }));
@@ -285,28 +263,18 @@ export function useAnalytics(period: AnalyticsPeriod): AnalyticsResult {
     completedPeriod.forEach(order => {
       // Resolve the order's actual grand total from the frozen snapshot so the
       // per-item revenue allocation matches what the dashboard / reports show.
-      const rate =
-        typeof order.taxRate === 'number' && Number.isFinite(order.taxRate)
-          ? order.taxRate
-          : getTaxRate();
-      const orderTax =
-        typeof order.taxAmount === 'number' && Number.isFinite(order.taxAmount)
-          ? order.taxAmount
-          : order.totalAmount * rate;
-      const orderTotal =
-        typeof order.grandTotal === 'number' && Number.isFinite(order.grandTotal) && order.grandTotal > 0
-          ? order.grandTotal
-          : Math.max(0, order.totalAmount + orderTax);
+      const orderTotal = getOrderMoney(order, getTaxRate()).grandTotal;
 
       // Allocate the order's real grand total proportionally by line subtotal.
-      const lineSubtotal = order.items.reduce(
-        (s, i) => s + i.price * i.quantity, 0
-      ) || 1;
-      order.items.forEach(item => {
+      // allocateMoney uses largest-remainder so the per-item parts sum back to
+      // orderTotal EXACTLY — naive `total * fraction` per item leaks piasters
+      // and made item revenue fail to reconcile with reported revenue.
+      const weights = order.items.map(i => lineTotal(i.price, i.quantity));
+      const shares = allocateMoney(orderTotal, weights);
+      order.items.forEach((item, i) => {
         if (!map[item.name]) map[item.name] = { name: item.name, count: 0, revenue: 0 };
-        const fraction = (item.price * item.quantity) / lineSubtotal;
         map[item.name].count += item.quantity;
-        map[item.name].revenue += orderTotal * fraction;
+        map[item.name].revenue = addMoney(map[item.name].revenue, shares[i]);
       });
     });
 

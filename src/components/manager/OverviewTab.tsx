@@ -4,6 +4,7 @@ import {
   TrendingUp, DollarSign, ShoppingBag,
   Clock, Coffee, Users, Scale, Award
 } from 'lucide-react';
+import { formatMoney } from '../../utils/money';
 
 interface OverviewTabProps {
   processedData: any;
@@ -73,7 +74,7 @@ export function OverviewTab({
           </div>
           <p className="text-gray-500 text-[10px] sm:text-xs font-medium uppercase tracking-wider">{t('Avg. Order Value')}</p>
           <h3 className="text-base sm:text-2xl md:text-3xl font-bold text-gray-900 mt-1 leading-tight">
-            {processedData.avgOrderValue.toFixed(2)} <span className="text-[10px] sm:text-xs text-gray-500 font-normal">ج.م</span>
+            {formatMoney(processedData.avgOrderValue)} <span className="text-[10px] sm:text-xs text-gray-500 font-normal">ج.م</span>
           </h3>
         </motion.div>
 
@@ -117,7 +118,7 @@ export function OverviewTab({
                     </div>
                   </div>
                   <span className="text-sm font-bold text-gray-900 shrink-0">
-                    {item.revenue.toFixed(2)} ج.م
+                    {formatMoney(item.revenue)} ج.م
                   </span>
                 </div>
               ))}
@@ -139,7 +140,7 @@ export function OverviewTab({
             <div>
               <div className="flex justify-between text-sm font-medium text-gray-700 mb-1">
                 <span>{t('Cash')} ({processedData.cashPercentage}%)</span>
-                <span>{processedData.cashAmount.toFixed(2)} ج.م</span>
+                <span>{formatMoney(processedData.cashAmount)} ج.م</span>
               </div>
               <div className="w-full bg-gray-100 rounded-full h-2.5 overflow-hidden">
                 <div className="bg-amber-500 h-2.5 rounded-full transition-all duration-500" style={{ width: `${processedData.cashPercentage}%` }}></div>
@@ -149,7 +150,7 @@ export function OverviewTab({
             <div>
               <div className="flex justify-between text-sm font-medium text-gray-700 mb-1">
                 <span>{t('Card')} ({processedData.cardPercentage}%)</span>
-                <span>{processedData.cardAmount.toFixed(2)} ج.م</span>
+                <span>{formatMoney(processedData.cardAmount)} ج.م</span>
               </div>
               <div className="w-full bg-gray-100 rounded-full h-2.5 overflow-hidden">
                 <div className="bg-blue-500 h-2.5 rounded-full transition-all duration-500" style={{ width: `${processedData.cardPercentage}%` }}></div>

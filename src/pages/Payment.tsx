@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Order, getOrderGrandTotal } from '../types/order';
+import { Order, getOrderGrandTotal, getOrderMoney } from '../types/order';
 import { PaymentModal, PaymentCompletePayload } from '../components/payment/PaymentModal';
 import {
   CreditCard,
@@ -29,6 +29,7 @@ import { isCompanyBilledOrder } from '../utils/accountBalance';
 import { formatOrderNumber, orderSeqSortValue } from '../utils/orderNumber';
 import { printCompanyStatement, printCustomerReceipt } from '../utils/printReceipts';
 import { clsx } from 'clsx';
+import { addMoney, compareMoney, formatMoney, lineTotal, sumMoneyBy } from '../utils/money';
 
 type AccountHolder = {
   key: string;
@@ -190,7 +191,7 @@ function orderMatchesSearch(
   // 6. Total Price / Amount
   if (searchField === 'all' || searchField === 'amount') {
     const total = o.grandTotal != null ? o.grandTotal : o.totalAmount || 0;
-    const totalStr = total.toFixed(2);
+    const totalStr = formatMoney(total);
     const totalRoundedStr = Math.round(total).toString();
 
     const isMatch = totalStr.includes(qLower) || (digitsOnly && totalRoundedStr === digitsOnly);
@@ -369,7 +370,7 @@ export default function Payment() {
         const resolvedCoName = coName || (language === 'ar' ? 'شركة' : 'Company');
         const existing = map.get(key);
         if (existing) {
-          existing.balance += total;
+          existing.balance = addMoney(existing.balance, total);
           existing.invoiceCount += 1;
           existing.orders.push(o);
           if (coName && (existing.name === (language === 'ar' ? 'شركة' : 'Company') || !existing.name)) {
@@ -403,7 +404,7 @@ export default function Payment() {
         (language === 'ar' ? 'عميل' : 'Customer');
 
       if (existing) {
-        existing.balance += total;
+        existing.balance = addMoney(existing.balance, total);
         existing.invoiceCount += 1;
         existing.orders.push(o);
         if (!existing.phone && o.customerPhone) existing.phone = o.customerPhone;
@@ -429,7 +430,7 @@ export default function Payment() {
       }
     }
 
-    return Array.from(map.values()).sort((a, b) => b.balance - a.balance);
+    return Array.from(map.values()).sort((a, b) => compareMoney(b.balance, a.balance));
   }, [accountOrders, fallbackTax, language, customerByPhone, companyById, customers]);
 
   const [searchField, setSearchField] = useState<SearchFieldType>('all');
@@ -463,7 +464,7 @@ export default function Payment() {
   }, [selectedHolderKey, filteredHolders, searchTerm]);
 
   const searchTotalBalance = useMemo(
-    () => filteredHolders.reduce((s, h) => s + h.balance, 0),
+    () => sumMoneyBy(filteredHolders, h => h.balance),
     [filteredHolders]
   );
 
@@ -482,13 +483,17 @@ export default function Payment() {
   const handlePaymentComplete = async (payload: PaymentCompletePayload) => {
     try {
       const order = allOrders.find(o => o.id === payload.orderId);
-      const taxRate = typeof order?.taxRate === 'number' ? order.taxRate : getTaxRate();
-      const taxAmount =
-        typeof order?.taxAmount === 'number'
-          ? order.taxAmount
-          : (order?.totalAmount || 0) * taxRate;
-
-      const grandTotal = Math.max(0, (order?.totalAmount || 0) + taxAmount);
+      // Piaster-exact frozen triple — these three fields are written to the DB,
+      // so they must never carry float drift (see utils/money).
+      const { taxRate, taxAmount, grandTotal } = getOrderMoney(
+        {
+          totalAmount: order?.totalAmount ?? 0,
+          taxRate: order?.taxRate,
+          taxAmount: order?.taxAmount,
+          grandTotal: undefined, // always re-derive from subtotal + tax at settle time
+        },
+        getTaxRate()
+      );
 
       // One write per payment: fold customer info + frozen tax/grandTotal into the
       // SAME completeWithPayment call. Previously this ran updateOrder() and then
@@ -621,9 +626,9 @@ export default function Payment() {
         o.paymentStatus === 'Paid' &&
         new Date(o.paidAt || o.createdAt).toDateString() === today
     )
-    .reduce((sum, o) => sum + getOrderGrandTotal(o, fallbackTax), 0);
+    .reduce((sum, o) => addMoney(sum, getOrderGrandTotal(o, fallbackTax)), 0);
 
-  const totalReceivables = accountHolders.reduce((s, h) => s + h.balance, 0);
+  const totalReceivables = sumMoneyBy(accountHolders, h => h.balance);
 
   const renderOrderCard = (order: Order) => (
     <motion.div
@@ -727,7 +732,7 @@ export default function Payment() {
               {item.quantity}x {t(item.name)}
             </span>
             <span>
-              {(item.price * item.quantity).toFixed(2)} {currency}
+              {formatMoney(lineTotal(item.price, item.quantity))} {currency}
             </span>
           </div>
         ))}
@@ -739,7 +744,7 @@ export default function Payment() {
         <div className="border-t border-gray-100 pt-2 flex justify-between font-bold text-lg text-gray-900">
           <span>{t('Total')}</span>
           <span>
-            {getOrderGrandTotal(order, fallbackTax).toFixed(2)} {currency}
+            {formatMoney(getOrderGrandTotal(order, fallbackTax))} {currency}
           </span>
         </div>
       </div>
@@ -794,7 +799,7 @@ export default function Payment() {
                 {t("Today's Revenue")}
               </p>
               <p className="text-base font-bold text-gray-900">
-                {totalRevenue.toFixed(2)} {currency}
+                {formatMoney(totalRevenue)} {currency}
               </p>
             </div>
           </div>
@@ -808,7 +813,7 @@ export default function Payment() {
                   {language === 'ar' ? 'إجمالي المبالغ المستحقة' : 'Total amounts due'}
                 </p>
                 <p className="text-base font-bold text-amber-800">
-                  {totalReceivables.toFixed(2)} {currency}
+                  {formatMoney(totalReceivables)} {currency}
                 </p>
               </div>
             </div>
@@ -1023,7 +1028,7 @@ export default function Payment() {
 
               {(searchTerm.trim() || focusedHolder) && (
                 <span className="text-[11px] font-black text-rose-300 bg-rose-500/20 border border-rose-500/30 px-2.5 py-1 rounded-xl">
-                  {(focusedHolder ? focusedHolder.balance : searchTotalBalance).toFixed(2)}{' '}
+                  {formatMoney(focusedHolder ? focusedHolder.balance : searchTotalBalance)}{' '}
                   <span className="text-[9px] font-bold">{currency}</span>
                 </span>
               )}
@@ -1094,7 +1099,7 @@ export default function Payment() {
 
                           <div className="text-right shrink-0">
                             <span className="inline-flex items-center gap-1 text-xs font-black bg-rose-50 text-rose-700 border border-rose-200/90 px-2.5 py-1 rounded-xl shadow-2xs">
-                              <span>{h.balance.toFixed(2)}</span>
+                              <span>{formatMoney(h.balance)}</span>
                               <span className="text-[9px] font-bold">{currency}</span>
                             </span>
                           </div>
@@ -1178,7 +1183,7 @@ export default function Payment() {
               {focusedHolder && (
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-black bg-rose-500/30 text-rose-100 border border-rose-400/40 px-3 py-1.5 rounded-xl">
-                    {language === 'ar' ? 'إجمالي المطلوب:' : 'Due:'} {focusedHolder.balance.toFixed(2)} {currency}
+                    {language === 'ar' ? 'إجمالي المطلوب:' : 'Due:'} {formatMoney(focusedHolder.balance)} {currency}
                   </span>
                   <button
                     type="button"

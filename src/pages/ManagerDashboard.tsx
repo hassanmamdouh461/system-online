@@ -34,8 +34,22 @@ import {
 } from '../utils/accountBalance';
 import { companiesService } from '../services/companiesService';
 import { formatOrderNumber } from '../utils/orderNumber';
-import { getOrderGrandTotal } from '../types/order';
+import { getOrderGrandTotal, getOrderMoney } from '../types/order';
 import { RevenueAreaChart } from '../components/ui/RevenueAreaChart';
+import {
+  addMoney,
+  subtractMoney,
+  multiplyMoney,
+  divideMoney,
+  averageMoney,
+  maxMoney,
+  compareMoney,
+  sumMoneyBy,
+  moneyRatio,
+  moneyPercent,
+  safeMoney,
+  formatMoney,
+} from '../utils/money';
 
 
 
@@ -391,13 +405,13 @@ export default function ManagerDashboard() {
       message += `⏱️ الفئة/الفترة: <b>${activePeriodLabel}</b> (بتاريخ: <code>${todayStr}</code>)\n\n`;
 
       message += `💰 <b>الملخص المالي للفترة:</b>\n`;
-      message += `• إجمالي المبيعات (المحصلة): <b>${processedData.totalRevenue.toFixed(2)}</b> ج.م\n`;
+      message += `• إجمالي المبيعات (المحصلة): <b>${formatMoney(processedData.totalRevenue)}</b> ج.م\n`;
       message += `• عدد الطلبات الكلي: <b>${processedData.totalCount}</b> طلب\n`;
-      message += `• إجمالي الآجل: <b>${processedData.unpaidAmount.toFixed(2)}</b> ج.م\n\n`;
+      message += `• إجمالي الآجل: <b>${formatMoney(processedData.unpaidAmount)}</b> ج.م\n\n`;
 
       message += `💳 <b>تفاصيل طرق الدفع (المحصلة):</b>\n`;
-      message += `• نقدي (Cash): <b>${processedData.cashAmount.toFixed(2)}</b> ج.م (${processedData.cashPercentage}%)\n`;
-      message += `• شبكة/بطاقة (Card): <b>${processedData.cardAmount.toFixed(2)}</b> ج.م (${processedData.cardPercentage}%)\n\n`;
+      message += `• نقدي (Cash): <b>${formatMoney(processedData.cashAmount)}</b> ج.م (${processedData.cashPercentage}%)\n`;
+      message += `• شبكة/بطاقة (Card): <b>${formatMoney(processedData.cardAmount)}</b> ج.م (${processedData.cardPercentage}%)\n\n`;
 
       message += `🍽️ <b>أنواع الطلبات:</b>\n`;
       message += `• سفري (Takeaway): <b>${processedData.takeawayCount}</b> طلب\n`;
@@ -414,18 +428,18 @@ export default function ManagerDashboard() {
       // ── Outstanding Receivables section ──
       if (receivablesData.grandTotal > 0) {
         message += `💸 <b>المبالغ المستحقة (على الحساب):</b>\n`;
-        message += `• إجمالي المستحقات: <b>${receivablesData.grandTotal.toFixed(2)}</b> ج.م\n`;
+        message += `• إجمالي المستحقات: <b>${formatMoney(receivablesData.grandTotal)}</b> ج.م\n`;
         if (receivablesData.companiesOwed.length > 0) {
           message += `🏢 <b>ديون الشركات:</b>\n`;
           receivablesData.companiesOwed.slice(0, 5).forEach(co => {
-            message += `• ${escapeTelegramHtml(co.name)}: <b>${co.balance.toFixed(2)}</b> ج.م (${co.invoiceCount} فاتورة)\n`;
+            message += `• ${escapeTelegramHtml(co.name)}: <b>${formatMoney(co.balance)}</b> ج.م (${co.invoiceCount} فاتورة)\n`;
           });
           message += `\n`;
         }
         if (receivablesData.customersOwed.length > 0) {
           message += `👤 <b>ديون العملاء:</b>\n`;
           receivablesData.customersOwed.slice(0, 5).forEach(c => {
-            message += `• ${escapeTelegramHtml(c.name)}: <b>${c.balance.toFixed(2)}</b> ج.م\n`;
+            message += `• ${escapeTelegramHtml(c.name)}: <b>${formatMoney(c.balance)}</b> ج.م\n`;
           });
           if (receivablesData.customersOwed.length > 5) {
             message += `• و ${receivablesData.customersOwed.length - 5} عميل آخر\n`;
@@ -466,13 +480,13 @@ export default function ManagerDashboard() {
       message += `• إجمالي العملاء المسجلين: <b>${customers.length}</b> عميل\n\n`;
 
       const owed = receivablesData.customersOwed;
-      const customersDebtTotal = owed.reduce((s, c) => s + (Number(c.balance) || 0), 0);
+      const customersDebtTotal = sumMoneyBy(owed, c => c.balance);
       if (owed.length > 0) {
         message += `💸 <b>مديونية العملاء (على الحساب):</b>\n`;
         message += `• إجمالي المستحق على العملاء: <b>${customersDebtTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</b> ج.م\n`;
         message += `• عدد العملاء المدينين: <b>${owed.length}</b> عميل\n`;
         owed.slice(0, 5).forEach(c => {
-          message += `• ${escapeTelegramHtml(c.name)}: <b>${c.balance.toFixed(2)}</b> ج.م (${c.invoiceCount} فاتورة)\n`;
+          message += `• ${escapeTelegramHtml(c.name)}: <b>${formatMoney(c.balance)}</b> ج.م (${c.invoiceCount} فاتورة)\n`;
         });
         if (owed.length > 5) {
           message += `• و ${owed.length - 5} عميل آخر\n`;
@@ -505,13 +519,15 @@ export default function ManagerDashboard() {
     // Canonical order total: prefer frozen grandTotal, else compute from totalAmount+tax-points
     const orderTotal = (o: any) => getOrderGrandTotal(o, taxRate);
 
-    const cashAmount = analytics.completedPeriod
-      .filter(o => o.paymentMethod === 'Cash')
-      .reduce((s, o) => s + orderTotal(o), 0);
-    const cardAmount = analytics.completedPeriod
-      .filter(o => o.paymentMethod === 'Card')
-      .reduce((s, o) => s + orderTotal(o), 0);
-    const cashCardTotal = cashAmount + cardAmount;
+    const cashAmount = sumMoneyBy(
+      analytics.completedPeriod.filter(o => o.paymentMethod === 'Cash'),
+      o => orderTotal(o)
+    );
+    const cardAmount = sumMoneyBy(
+      analytics.completedPeriod.filter(o => o.paymentMethod === 'Card'),
+      o => orderTotal(o)
+    );
+    const cashCardTotal = addMoney(cashAmount, cardAmount);
 
     return {
       totalRevenue: analytics.totalRevenue,
@@ -528,14 +544,15 @@ export default function ManagerDashboard() {
       ).length,
       totalCount: analytics.completedPeriod.length,
       paidAmount: analytics.realRevenue,
-      unpaidAmount: analytics.periodOrders
-        .filter(o => o.status !== 'Cancelled' && (o.paymentStatus === 'Unpaid' || o.paymentStatus === 'OnAccount'))
-        .reduce((s, o) => s + orderTotal(o), 0),
+      unpaidAmount: sumMoneyBy(
+        analytics.periodOrders.filter(o => o.status !== 'Cancelled' && (o.paymentStatus === 'Unpaid' || o.paymentStatus === 'OnAccount')),
+        o => orderTotal(o)
+      ),
       cashAmount,
       cardAmount,
       // Percentage of settled (cash+card) revenue — excludes on-account so cash+card = 100%
-      cashPercentage: cashCardTotal > 0 ? Math.round((cashAmount / cashCardTotal) * 100) : 0,
-      cardPercentage: cashCardTotal > 0 ? Math.round((cardAmount / cashCardTotal) * 100) : 0,
+      cashPercentage: moneyPercent(cashAmount, cashCardTotal),
+      cardPercentage: moneyPercent(cardAmount, cashCardTotal),
       recentTransactions: analytics.recentTransactions,
       customerCount: customers.length,
     };
@@ -599,12 +616,12 @@ export default function ManagerDashboard() {
 
     const menuTotalCostMap = new Map<string, number>();
     Object.entries(menuRecipeMap).forEach(([mId, ingList]) => {
-      const totalCost = ingList.reduce((sum, ing) => {
+      const totalCost = sumMoneyBy(ingList, ing => {
         const invItem = resolveInvItem(ing.inventoryItemId);
         const cost = invItem?.costPerUnit && invItem.costPerUnit > 0 ? invItem.costPerUnit : 1;
         const baseQty = getIngredientBaseQty(ing.quantity, ing.unit || '', invItem?.unit || '');
-        return sum + (baseQty * cost);
-      }, 0);
+        return multiplyMoney(cost, baseQty);
+      });
       menuTotalCostMap.set(mId, totalCost > 0 ? totalCost : 1);
     });
 
@@ -627,7 +644,7 @@ export default function ManagerDashboard() {
 
       if (itemRecipes.length === 0) {
         // No recipe linked — use a simple 2.5x markup as fallback estimate
-        yields[item.id] = itemUnitCost * 2.5;
+        yields[item.id] = multiplyMoney(itemUnitCost, 2.5);
         return;
       }
 
@@ -640,17 +657,17 @@ export default function ManagerDashboard() {
         if (menuItem && menuItem.price > 0 && rec.quantity > 0) {
           const baseQty = getIngredientBaseQty(rec.quantity, rec.unit || '', item.unit || '');
           if (baseQty > 0) {
-            const itemCostInRecipe = baseQty * itemUnitCost;
-            const costShareFraction = itemCostInRecipe / totalRecipeCost;
-            const allocatedRevenue = menuItem.price * costShareFraction;
-            const unitYield = allocatedRevenue / baseQty;
-            totalUnitYield += unitYield;
+            const itemCostInRecipe = multiplyMoney(itemUnitCost, baseQty);
+            const costShareFraction = moneyRatio(itemCostInRecipe, totalRecipeCost);
+            const allocatedRevenue = multiplyMoney(menuItem.price, costShareFraction);
+            const unitYield = divideMoney(allocatedRevenue, baseQty);
+            totalUnitYield = addMoney(totalUnitYield, unitYield);
             validCount++;
           }
         }
       });
 
-      yields[item.id] = validCount > 0 ? (totalUnitYield / validCount) : (itemUnitCost * 2.5);
+      yields[item.id] = validCount > 0 ? averageMoney(totalUnitYield, validCount) : multiplyMoney(itemUnitCost, 2.5);
     });
 
     return yields;
@@ -664,21 +681,22 @@ export default function ManagerDashboard() {
     let totalItems = 0;
 
     activeInventory.forEach((item: any) => {
-      const stock = Number(item.stock || 0);
-      const costPerUnit = Number(item.costPerUnit || 0);
-      const costVal = stock * costPerUnit;
-      const avgYield = itemYields[item.id] || (costPerUnit * 2.5);
-      const potSales = stock * avgYield;
-      const potProfit = potSales > 0 ? Math.max(potSales - costVal, 0) : 0;
+      const stock = Number(item.stock || 0); // quantity, not money
+      const costPerUnit = safeMoney(item.costPerUnit);
+      const costVal = multiplyMoney(costPerUnit, stock);
+      const avgYield = itemYields[item.id] || multiplyMoney(costPerUnit, 2.5);
+      const potSales = multiplyMoney(avgYield, stock);
+      // maxMoney clamps at 0 like the original Math.max(potSales - costVal, 0)
+      const potProfit = potSales > 0 ? maxMoney(subtractMoney(potSales, costVal), 0) : 0;
 
-      totalValue += costVal;
-      totalProfitValue += potProfit;
+      totalValue = addMoney(totalValue, costVal);
+      totalProfitValue = addMoney(totalProfitValue, potProfit);
 
       if (stock <= (item.minStock || 0)) lowStockCount++;
       totalItems++;
     });
 
-    return { totalValue, totalSalesValue: totalValue + totalProfitValue, totalProfitValue, lowStockCount, totalItems };
+    return { totalValue, totalSalesValue: addMoney(totalValue, totalProfitValue), totalProfitValue, lowStockCount, totalItems };
   }, [activeInventory, itemYields]);
 
   // Max bounds for graphing
@@ -704,7 +722,7 @@ export default function ManagerDashboard() {
       const invItem = activeInventory.find((i: any) => i.id === r.inventoryItemId);
       const itemCost = invItem ? invItem.costPerUnit : 0;
       const baseQty = getIngredientBaseQty(r.quantity, r.unit || '', invItem?.unit || '');
-      costMap[r.menuItemId] = (costMap[r.menuItemId] || 0) + (baseQty * itemCost);
+      costMap[r.menuItemId] = addMoney(costMap[r.menuItemId], multiplyMoney(itemCost, baseQty));
     }
     return costMap;
   }, [recipes, activeInventory]);
@@ -714,7 +732,7 @@ export default function ManagerDashboard() {
     for (const order of analytics.completedPeriod) {
       for (const item of order.items) {
         const itemCost = recipeCosts[item.menuItemId || item.id] || 0;
-        totalCogs += itemCost * item.quantity;
+        totalCogs = addMoney(totalCogs, multiplyMoney(itemCost, item.quantity));
       }
     }
     return totalCogs;
@@ -724,7 +742,7 @@ export default function ManagerDashboard() {
     // totalRevenue is tax-inclusive (sum of grandTotal). Subtract the ACTUAL
     // collected tax (from frozen snapshots) — NOT revenue * taxRate, which
     // would double-discount and under-report profit.
-    return Math.max(0, analytics.totalRevenue - analytics.totalTax - cogs);
+    return maxMoney(subtractMoney(analytics.totalRevenue, analytics.totalTax, cogs), 0);
   }, [analytics.totalRevenue, analytics.totalTax, cogs]);
 
   // ── Receivables breakdown (canonical, matching Payment.tsx exactly) ──
@@ -781,16 +799,12 @@ export default function ManagerDashboard() {
     let grandTotal = 0;
 
     for (const o of accountOrders) {
-      // Calculate order total exactly like Payment.tsx (using getOrderGrandTotal logic)
-      const rate = typeof o.taxRate === 'number' && Number.isFinite(o.taxRate) ? o.taxRate : taxRate;
-      const tax = typeof o.taxAmount === 'number' && Number.isFinite(o.taxAmount) ? o.taxAmount : (o.totalAmount || 0) * rate;
-      let total = (o.totalAmount || 0) + tax;
-      if (typeof o.grandTotal === 'number' && Number.isFinite(o.grandTotal) && o.grandTotal > 0) {
-        total = o.grandTotal;
-      }
-      total = Math.max(0, Number.isFinite(total) ? total : 0);
+      // Calculate order total exactly like Payment.tsx — frozen grandTotal/taxAmount
+      // snapshot preferred when valid, else computed from totalAmount * rate.
+      // Routed through getOrderMoney so this fallback formula lives in one place.
+      const total = getOrderMoney(o, taxRate).grandTotal;
 
-      grandTotal += total;
+      grandTotal = addMoney(grandTotal, total);
 
       const coId = resolveCompanyId(o);
       const custName = resolveCustomerName(o);
@@ -799,7 +813,7 @@ export default function ManagerDashboard() {
         const key = coId;
         const existing = companiesMap.get(key);
         if (existing) {
-          existing.balance += total;
+          existing.balance = addMoney(existing.balance, total);
           existing.invoiceCount += 1;
         } else {
           const co = companyById.get(coId);
@@ -823,7 +837,7 @@ export default function ManagerDashboard() {
       const displayName = custName || o.customerPhone?.trim() || (language === 'ar' ? 'عميل' : 'Customer');
 
       if (existing) {
-        existing.balance += total;
+        existing.balance = addMoney(existing.balance, total);
         existing.invoiceCount += 1;
         if (!existing.phone && o.customerPhone) existing.phone = o.customerPhone;
         if (custName) {
@@ -844,8 +858,9 @@ export default function ManagerDashboard() {
     }
 
     return {
-      customersOwed: Array.from(customersMap.values()).sort((a, b) => b.balance - a.balance),
-      companiesOwed: Array.from(companiesMap.values()).sort((a, b) => b.balance - a.balance),
+      // Descending by balance (largest debtor first) — compareMoney(b, a) instead of raw `b.balance - a.balance`
+      customersOwed: Array.from(customersMap.values()).sort((a, b) => compareMoney(b.balance, a.balance)),
+      companiesOwed: Array.from(companiesMap.values()).sort((a, b) => compareMoney(b.balance, a.balance)),
       grandTotal
     };
   }, [allRealOrders, customers, companies, taxRate, language]);
@@ -858,7 +873,7 @@ export default function ManagerDashboard() {
       label: t('TOTAL REVENUE (INCL. TAX)'),
       value: `${analytics.totalRevenue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currencyStr}`,
       icon: DollarSign,
-      trend: analytics.realRevenue > 0 ? `+${analytics.realRevenue.toFixed(2)} ${currencyStr} ${pLabel}` : t('Lifetime total'),
+      trend: analytics.realRevenue > 0 ? `+${formatMoney(analytics.realRevenue)} ${currencyStr} ${pLabel}` : t('Lifetime total'),
       color: 'green' as const,
     },
     {
@@ -1166,7 +1181,7 @@ export default function ManagerDashboard() {
             </div>
             {processedData.totalRevenue > 0 && (
               <span className="text-xs text-green-600 bg-green-50 px-3 py-1 rounded-full font-bold border border-green-100">
-                +{processedData.totalRevenue.toFixed(0)} {currencyStr}
+                +{formatMoney(processedData.totalRevenue, 0)} {currencyStr}
               </span>
             )}
           </div>
@@ -1230,7 +1245,7 @@ export default function ManagerDashboard() {
                     />
                   </div>
                   <p className="text-[10px] text-gray-400">
-                    {item.revenue.toFixed(2)} {currencyStr} {language === 'ar' ? 'مبيعات' : 'revenue'}
+                    {formatMoney(item.revenue)} {currencyStr} {language === 'ar' ? 'مبيعات' : 'revenue'}
                   </p>
                 </div>
               ))}
@@ -1333,7 +1348,7 @@ export default function ManagerDashboard() {
                   />
                 </div>
                 <p className="text-[10px] text-gray-400 font-bold">
-                  {t('Total Paid')}: {processedData.paidAmount.toFixed(2)} {currencyStr}
+                  {t('Total Paid')}: {formatMoney(processedData.paidAmount)} {currencyStr}
                 </p>
               </div>
 
@@ -1352,7 +1367,7 @@ export default function ManagerDashboard() {
                   />
                 </div>
                 <p className="text-[10px] text-gray-400 font-bold">
-                  {t('Total Open')}: {processedData.unpaidAmount.toFixed(2)} {currencyStr}
+                  {t('Total Open')}: {formatMoney(processedData.unpaidAmount)} {currencyStr}
                 </p>
               </div>
 
@@ -1377,7 +1392,7 @@ export default function ManagerDashboard() {
                     />
                   </div>
                   <p className="text-[9px] text-gray-400 font-bold">
-                    {t('Total Cash')}: {processedData.cashAmount.toFixed(2)} {currencyStr}
+                    {t('Total Cash')}: {formatMoney(processedData.cashAmount)} {currencyStr}
                   </p>
                 </div>
 
@@ -1396,7 +1411,7 @@ export default function ManagerDashboard() {
                     />
                   </div>
                   <p className="text-[9px] text-gray-400 font-bold">
-                    {t('Total Card')}: {processedData.cardAmount.toFixed(2)} {currencyStr}
+                    {t('Total Card')}: {formatMoney(processedData.cardAmount)} {currencyStr}
                   </p>
                 </div>
 
@@ -1469,7 +1484,7 @@ export default function ManagerDashboard() {
                     <div className="flex items-center gap-2 shrink-0">
                       <div className="text-right">
                         <p className="text-xs md:text-sm font-extrabold text-gray-900">
-                          {getOrderGrandTotal(order, taxRate).toFixed(2)} {currencyStr}
+                          {formatMoney(getOrderGrandTotal(order, taxRate))} {currencyStr}
                         </p>
                         <p className="text-[10px] text-gray-400 mt-0.5">{timeStr}</p>
                       </div>
@@ -1694,7 +1709,7 @@ export default function ManagerDashboard() {
                   <p className="text-xs text-gray-500">{language === 'ar' ? 'فاتورة رقم' : 'Invoice'}</p>
                   <p className="font-black text-gray-900 text-lg">#{formatOrderNumber(refundTarget)}</p>
                   <p className="text-xs text-gray-400 mt-0.5">{new Date(refundTarget.createdAt).toLocaleString()}</p>
-                  <p className="text-sm font-bold text-emerald-600 mt-1">{getOrderGrandTotal(refundTarget, taxRate).toFixed(2)} {currencyStr}</p>
+                  <p className="text-sm font-bold text-emerald-600 mt-1">{formatMoney(getOrderGrandTotal(refundTarget, taxRate))} {currencyStr}</p>
                 </div>
 
                 <div>

@@ -2,6 +2,17 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { getTaxRate } from '../../utils/settingsConfig';
+import {
+  addMoney,
+  calcChangeDue,
+  calcGrandTotal,
+  calcTax,
+  compareMoney,
+  formatMoney,
+  lineTotal,
+  safeMoney,
+  sumLineTotals,
+} from '../../utils/money';
 import { MenuItem, CATEGORIES } from '../../types/menu';
 import { OrderItem, Order } from '../../types/order';
 import { useLanguage } from '../../context/LanguageContext';
@@ -204,26 +215,27 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
     });
   }, [menuItems, selectedCategory, searchQuery, t]);
 
-  // Total invoice amount
-  const totalAmount = useMemo(() => {
-    return invoiceItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
-  }, [invoiceItems]);
+  // Total invoice amount — piaster-exact sum of rounded line totals, so the
+  // printed receipt lines always add up to this subtotal (see utils/money).
+  const totalAmount = useMemo(() => sumLineTotals(invoiceItems), [invoiceItems]);
 
   const taxRate = getTaxRate();
-  const taxAmount = useMemo(() => totalAmount * taxRate, [totalAmount, taxRate]);
-  const grandTotal = useMemo(() => totalAmount + taxAmount, [totalAmount, taxAmount]);
+  const taxAmount = useMemo(() => calcTax(totalAmount, taxRate), [totalAmount, taxRate]);
+  const grandTotal = useMemo(
+    () => calcGrandTotal(totalAmount, taxAmount),
+    [totalAmount, taxAmount]
+  );
 
   // Items count
   const itemsCount = useMemo(() => {
     return invoiceItems.reduce((sum, item) => sum + item.quantity, 0);
   }, [invoiceItems]);
 
-  // Change amount
-  const changeAmount = useMemo(() => {
-    const received = parseFloat(receivedAmount);
-    if (isNaN(received) || received <= grandTotal) return 0;
-    return received - grandTotal;
-  }, [receivedAmount, grandTotal]);
+  // Change amount — exact subtraction, clamped at zero for under-payment.
+  const changeAmount = useMemo(
+    () => calcChangeDue(receivedAmount, grandTotal),
+    [receivedAmount, grandTotal]
+  );
 
   // Add item to invoice
   const handleAddItem = (menuItem: MenuItem) => {
@@ -283,8 +295,7 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
   // Quick cash buttons
   const handleQuickCash = (amount: number) => {
     setReceivedAmount(prev => {
-      const current = parseFloat(prev) || 0;
-      return String(current + amount);
+      return String(addMoney(prev, amount));
     });
   };
 
@@ -329,8 +340,8 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
     }
 
     if (orderMode === 'Takeaway') {
-      const received = parseFloat(receivedAmount) || 0;
-      if (paymentMethod === 'Cash' && received < grandTotal) {
+      const received = safeMoney(receivedAmount);
+      if (paymentMethod === 'Cash' && compareMoney(received, grandTotal) < 0) {
         alert(isRtl ? 'يجب دفع الفاتورة أولاً لطلبات التيك أواي' : 'Takeaway orders must be paid in full first');
         return;
       }
@@ -597,7 +608,7 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
               <div className="space-y-0.5">
                 <label className="text-[10px] md:text-xs text-gray-500 font-extrabold"><span className="font-sans">{t('Total Due')}</span></label>
                 <div className="w-full bg-gray-950 text-amber-400 font-mono text-sm md:text-base font-black px-2 py-0.5 rounded-lg border border-gray-800 flex justify-between items-center select-all h-[30px]">
-                  <span>{grandTotal.toFixed(2)}</span>
+                  <span>{formatMoney(grandTotal)}</span>
                   <span className="text-[10px] text-gray-500 font-sans font-bold">{isRtl ? 'ج.م' : 'EGP'}</span>
                 </div>
               </div>
@@ -615,7 +626,7 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
             <div className="space-y-0.5 shrink-0">
               <label className="text-[10px] md:text-xs text-gray-500 font-extrabold"><span className="font-sans">{t('Change for Customer')}</span></label>
               <div className="w-full bg-gray-950 text-amber-400 font-mono text-sm md:text-base font-black px-2 py-0.5 rounded-lg border border-gray-800 flex justify-between items-center h-[30px]">
-                <span>{changeAmount.toFixed(2)}</span>
+                <span>{formatMoney(changeAmount)}</span>
                 <span className="text-[10px] text-gray-500 font-sans font-bold">{isRtl ? 'ج.م' : 'EGP'}</span>
               </div>
             </div>
@@ -809,7 +820,7 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
                 >
                   <span className="font-bold text-xs sm:text-sm md:text-base text-gray-900 group-hover:text-mocha-700 font-sans leading-snug pt-0.5">{t(item.name)}</span>
                   <div className="w-full flex justify-between items-center z-10 mt-2">
-                    <span className="font-mono text-sm sm:text-base md:text-lg font-black text-mocha-800">{item.price.toFixed(2)} <span className="text-[10px] sm:text-xs text-gray-400 font-sans font-bold">{isRtl ? 'ج.م' : 'EGP'}</span></span>
+                    <span className="font-mono text-sm sm:text-base md:text-lg font-black text-mocha-800">{formatMoney(item.price)} <span className="text-[10px] sm:text-xs text-gray-400 font-sans font-bold">{isRtl ? 'ج.م' : 'EGP'}</span></span>
                     <span className="bg-mocha-50 text-mocha-600 text-xs sm:text-sm px-2 py-0.5 rounded-lg border border-mocha-200 group-hover:bg-mocha-600 group-hover:text-white transition-colors font-black">+</span>
                   </div>
                   {/* Subtle hover icon decoration */}
@@ -942,7 +953,7 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
                         <span className="font-extrabold text-[10px] md:text-xs text-gray-400 font-sans">{idx + 1}.</span>
                         <span className="font-extrabold text-gray-900 truncate text-xs md:text-sm font-sans">{t(item.name)}</span>
                       </div>
-                      <span className="text-[11px] md:text-xs text-mocha-700 font-extrabold font-mono">{(item.price * item.quantity).toFixed(2)} <span className="font-sans text-[9px] md:text-[10px]">{isRtl ? 'ج.م' : 'EGP'}</span></span>
+                      <span className="text-[11px] md:text-xs text-mocha-700 font-extrabold font-mono">{formatMoney(lineTotal(item.price, item.quantity))} <span className="font-sans text-[9px] md:text-[10px]">{isRtl ? 'ج.م' : 'EGP'}</span></span>
                     </div>
 
                     <div className="flex items-center gap-1 shrink-0">
@@ -997,7 +1008,7 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
           <div className="bg-amber-50/80 px-2.5 py-1 rounded-xl border border-amber-200 flex items-center justify-between shadow-xs">
             <span className="text-[11px] font-extrabold text-amber-900">{t('Total')}:</span>
             <span className="font-mono text-sm font-black text-amber-950">
-              {grandTotal.toFixed(2)} <span className="text-[9px] font-sans font-bold text-amber-800">{isRtl ? 'ج.م' : 'EGP'}</span>
+              {formatMoney(grandTotal)} <span className="text-[9px] font-sans font-bold text-amber-800">{isRtl ? 'ج.م' : 'EGP'}</span>
             </span>
           </div>
           

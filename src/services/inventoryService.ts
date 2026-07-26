@@ -1,6 +1,7 @@
 import { InventoryItem, InventoryTransaction, RecipeIngredient } from '../types/inventory';
 import { getDB, withDB, enqueueWrite } from '../repositories/indexeddb/db';
 import { syncService } from './syncService';
+import { multiplyMoney, sumMoneyBy } from '../utils/money';
 
 const WEB_RECIPES_STORAGE_KEY = 'web_menu_recipes_store';
 
@@ -599,10 +600,11 @@ export const inventoryService = {
     try {
       const recipe = await this.getMenuItemRecipe(menuItemId);
       const inventory = await this.getAll();
-      return recipe.reduce((sum, ing) => {
+      // Money math routed through utils/money so recipe cost is piaster-exact.
+      return sumMoneyBy(recipe, ing => {
         const item = inventory.find(i => i.id === ing.inventoryItemId);
-        return sum + (item ? item.costPerUnit * ing.quantity : 0);
-      }, 0);
+        return item ? multiplyMoney(item.costPerUnit, ing.quantity) : 0;
+      });
     } catch (error) {
       return 0;
     }

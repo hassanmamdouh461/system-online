@@ -5,10 +5,11 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
-    "lint": "tsc --noEmit",
+    "build": "node scripts/check-money-safety.mjs && vite build",
+    "lint": "tsc --noEmit && node scripts/check-money-safety.mjs",
     "typecheck": "tsc --noEmit",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "check:money": "node scripts/check-money-safety.mjs"
   },
   "dependencies": {
     "clsx": "^2.1.0",

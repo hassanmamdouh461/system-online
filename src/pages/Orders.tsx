@@ -15,6 +15,7 @@ import { POSView } from '../components/orders/POSView';
 import { filterItemsBySection, getOrderStatusForSection } from '../utils/orderSection';
 import { printAllOrderTickets } from '../utils/printReceipts';
 import { getTaxRate } from '../utils/settingsConfig';
+import { calcGrandTotal, calcTax, sumLineTotals } from '../utils/money';
 import { nextOrderSeq, orderSeqSortValue } from '../utils/orderNumber';
 
 interface OrdersProps {
@@ -45,10 +46,11 @@ export default function Orders({ type = 'all' }: OrdersProps) {
       billedToType?: 'customer' | 'company';
     }
   ) => {
-    const totalAmount = items.reduce((sum, i) => sum + i.price * i.quantity, 0);
+    // Money math goes through utils/money — never raw `*` / `+` (see money.ts).
+    const totalAmount = sumLineTotals(items);
     const taxRate = getTaxRate();
-    const taxAmount = totalAmount * taxRate;
-    const grandTotal = Math.max(0, totalAmount + taxAmount);
+    const taxAmount = calcTax(totalAmount, taxRate);
+    const grandTotal = calcGrandTotal(totalAmount, taxAmount);
     void paidAmount;
     const newOrder = await addOrder({
       orderNumber: '',
@@ -81,10 +83,11 @@ export default function Orders({ type = 'all' }: OrdersProps) {
   }, [orders, type]);
 
   const handleCreateOrder = async (tableId: string, items: OrderItem[]) => {
-    const totalAmount = items.reduce((sum, i) => sum + i.price * i.quantity, 0);
+    // Money math goes through utils/money — never raw `*` / `+` (see money.ts).
+    const totalAmount = sumLineTotals(items);
     const taxRate = getTaxRate();
-    const taxAmount = totalAmount * taxRate;
-    const grandTotal = totalAmount + taxAmount;
+    const taxAmount = calcTax(totalAmount, taxRate);
+    const grandTotal = calcGrandTotal(totalAmount, taxAmount);
     const newOrder = await addOrder({
       orderNumber: '',
       tableId,

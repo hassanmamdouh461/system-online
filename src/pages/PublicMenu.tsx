@@ -3,6 +3,7 @@ import { Coffee, Search, AlertCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { menuService } from '../services/menuService';
 import { MenuItem, CATEGORY_TRANSLATIONS } from '../types/menu';
+import { formatMoney } from '../utils/money';
 
 const PAGE_BACKGROUND_URL = 'https://images.unsplash.com/photo-1447933601403-0c6688de566e?q=80&w=1000';
 
@@ -273,7 +274,7 @@ export default function PublicMenu() {
                         >
                           <div className="flex justify-between items-start gap-2">
                             <h3 className="font-extrabold text-gray-900 text-base">{displayName}</h3>
-                            <span className="font-black text-mocha-700 text-base whitespace-nowrap">{item.price.toFixed(2)} ج.م</span>
+                            <span className="font-black text-mocha-700 text-base whitespace-nowrap">{formatMoney(item.price)} ج.م</span>
                           </div>
                           {displayDesc && <p className="text-gray-500 text-xs mt-1.5 font-medium leading-relaxed">{displayDesc}</p>}
                         </motion.div>
@@ -342,7 +343,7 @@ export default function PublicMenu() {
                         >
                           <div className="flex justify-between items-start gap-2">
                             <h3 className="font-extrabold text-gray-900 text-base">{displayName}</h3>
-                            <span className="font-black text-mocha-700 text-base whitespace-nowrap">{item.price.toFixed(2)} ج.م</span>
+                            <span className="font-black text-mocha-700 text-base whitespace-nowrap">{formatMoney(item.price)} ج.م</span>
                           </div>
                           {displayDesc && <p className="text-gray-500 text-xs mt-1.5 font-medium leading-relaxed">{displayDesc}</p>}
                         </motion.div>

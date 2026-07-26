@@ -1,13 +1,14 @@
 import { Order, getOrderGrandTotal } from '../types/order';
 import { Customer } from '../types/customer';
+import { sumMoneyBy, roundMoney } from './money';
 
 /**
- * Utility function to handle Javascript Floating Point issues (e.g. 0.1 + 0.2)
- * Ensures money calculations are accurate to 2 decimal places.
+ * `roundMoney` now lives in `utils/money.ts` — the single home for all money
+ * arithmetic. Re-exported here only so existing importers keep working.
+ *
+ * @deprecated Import from `utils/money` instead.
  */
-export const roundMoney = (amount: number): number => {
-  return Math.round((amount + Number.EPSILON) * 100) / 100;
-};
+export { roundMoney };
 
 function phonesMatch(a?: string, b?: string): boolean {
   if (!a || !b) return false;
@@ -46,11 +47,9 @@ export function getCustomerAccountBalance(
   customer: Pick<Customer, 'id' | 'phone'>,
   taxRate = 0
 ): number {
-  const totalDebt = getCustomerOpenInvoices(orders, customer).reduce(
-    (s, o) => s + getOrderGrandTotal(o, taxRate),
-    0
+  return sumMoneyBy(getCustomerOpenInvoices(orders, customer), o =>
+    getOrderGrandTotal(o, taxRate)
   );
-  return roundMoney(totalDebt);
 }
 
 /**
@@ -66,11 +65,10 @@ export function getCompanyAccountBalance(
   memberIds: string[] = [],
   includeMemberPersonal = false
 ): number {
-  const totalDebt = getCompanyOpenInvoices(orders, companyId, memberPhones, memberIds, includeMemberPersonal).reduce(
-    (s, o) => s + getOrderGrandTotal(o, taxRate),
-    0
+  return sumMoneyBy(
+    getCompanyOpenInvoices(orders, companyId, memberPhones, memberIds, includeMemberPersonal),
+    o => getOrderGrandTotal(o, taxRate)
   );
-  return roundMoney(totalDebt);
 }
 
 export function getCustomerOpenInvoices(

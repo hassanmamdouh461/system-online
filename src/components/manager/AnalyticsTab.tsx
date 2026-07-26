@@ -1,6 +1,7 @@
 import React from 'react';
 import { motion } from 'framer-motion';
 import { TrendingUp, BarChart3 } from 'lucide-react';
+import { formatMoney } from '../../utils/money';
 
 interface AnalyticsTabProps {
   processedData: any;
@@ -33,7 +34,7 @@ export function AnalyticsTab({ processedData, dateRange, t }: AnalyticsTabProps)
             return (
               <div key={index} className="flex-1 flex flex-col items-center gap-2 group h-full justify-end">
                 <div className="opacity-0 group-hover:opacity-100 transition-opacity bg-gray-900 text-white text-[10px] py-1 px-2 rounded shadow-lg whitespace-nowrap z-10 pointer-events-none">
-                  {point.value.toFixed(2)} ج.م ({point.orders} {t('orders')})
+                  {formatMoney(point.value)} ج.م ({point.orders} {t('orders')})
                 </div>
                 <motion.div
                   initial={{ height: 0 }}

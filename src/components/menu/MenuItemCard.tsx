@@ -3,6 +3,7 @@ import { MenuItem } from '../../types/menu';
 import { Edit, Trash2, Power } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useLanguage } from '../../context/LanguageContext';
+import { formatMoney } from '../../utils/money';
 
 interface MenuItemCardProps {
   item: MenuItem;
@@ -29,7 +30,7 @@ export function MenuItemCard({ item, onEdit, onDelete, onToggleStatus, isManager
             <h3 className="font-bold text-base text-gray-900 truncate">{t(item.name)}</h3>
           </div>
           <div className="flex flex-col items-end shrink-0 gap-1">
-            <span className="font-bold text-base text-mocha-700">{item.price.toFixed(2)} {isRtl ? 'ج.م' : 'EGP'}</span>
+            <span className="font-bold text-base text-mocha-700">{formatMoney(item.price)} {isRtl ? 'ج.م' : 'EGP'}</span>
             {!item.available && (
               <span className="bg-red-100 text-red-700 px-2 py-0.5 rounded-full text-[10px] font-bold">
                 {t('Sold Out')}

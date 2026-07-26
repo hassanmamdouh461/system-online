@@ -54,6 +54,54 @@ const ALLOWED_COLUMNS: Record<string, Set<string>> = {
 
 const MAX_SNAPSHOTS_PER_BRANCH = 10;
 
+/* ─────────────────────────────────────────────────────────────────────────────
+ * Money precision guard (mirror of src/utils/money.ts on the client)
+ *
+ * Defence in depth for issue B.1. The client now rounds every money value
+ * before it is stored, but this Worker is the shared write boundary for ALL
+ * branches — including any till still running an older bundle. Rounding here
+ * means a drifted float like 112.49999999999999 can never land in D1 (on write)
+ * and never leaves D1 unrounded (on read), whatever the client did.
+ *
+ * Arithmetic happens in minor units (piasters) where it is exact.
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+const MONEY_MINOR_UNITS = 100;
+const MONEY_DUST_SCALE = 1e6;
+
+/** Round a money value to the piaster. Returns null for null/blank/non-finite. */
+function roundMoneyOrNull(value: any): number | null {
+  if (value === null || value === undefined || value === '') return null;
+  const n = Number(value);
+  if (!Number.isFinite(n)) return null;
+  if (n === 0) return 0;
+  const scaled = n * MONEY_MINOR_UNITS;
+  const dedusted = Math.round(scaled * MONEY_DUST_SCALE) / MONEY_DUST_SCALE;
+  const minor = dedusted < 0 ? -Math.round(-dedusted) : Math.round(dedusted);
+  return minor / MONEY_MINOR_UNITS;
+}
+
+/** Round a money value to the piaster, treating missing/invalid input as 0. */
+function roundMoneyOrZero(value: any): number {
+  return roundMoneyOrNull(value) ?? 0;
+}
+
+/**
+ * Round the money columns of a row in place.
+ * `nullableFields` keep null (a missing tax snapshot must stay missing —
+ * coercing it to 0 is what used to break revenue after a restore).
+ */
+function roundMoneyFields(row: any, fields: string[], nullableFields: string[] = []) {
+  for (const f of fields) {
+    if (f in row) row[f] = roundMoneyOrZero(row[f]);
+  }
+  for (const f of nullableFields) {
+    if (f in row) row[f] = roundMoneyOrNull(row[f]);
+  }
+  return row;
+}
+
+
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -486,6 +534,8 @@ function normalizeData(table: string, data: any) {
   const normalized: any = { ...data };
   
   if (table === 'orders') {
+    // Money precision guard — never persist a drifted float (see roundMoneyFields).
+    roundMoneyFields(normalized, ['totalAmount', 'total_amount'], ['taxAmount', 'tax_amount', 'grandTotal', 'grand_total']);
     if ('total_amount' in normalized) normalized.totalAmount = normalized.total_amount;
     if ('payment_method' in normalized) normalized.paymentMethod = normalized.payment_method;
     if ('branchId' in normalized) normalized.branch_id = normalized.branchId;
@@ -516,6 +566,8 @@ function normalizeData(table: string, data: any) {
   }
   
   if (table === 'menu_items') {
+    // Money precision guard — item prices feed every line total.
+    roundMoneyFields(normalized, ['price']);
     if ('branchId' in normalized) normalized.branch_id = normalized.branchId;
     delete normalized.branchId;
     if ('available' in normalized) {
@@ -576,6 +628,8 @@ function normalizeData(table: string, data: any) {
   }
 
   if (table === 'inventory') {
+    // Money precision guard — costPerUnit feeds COGS and valuation.
+    roundMoneyFields(normalized, ['costPerUnit']);
     if ('branchId' in normalized) normalized.branch_id = normalized.branchId;
     if ('createdAt' in normalized) {
       normalized.created_at = normalized.createdAt;
@@ -667,7 +721,9 @@ function denormalizeData(table: string, row: any) {
   doc.$updatedAt = updated;
 
   if (table === 'orders') {
-    doc.totalAmount = Number(row.totalAmount || row.total_amount) || 0;
+    // Money precision guard — legacy rows written before the money.ts fix may
+    // still hold drifted floats, so round on read too.
+    doc.totalAmount = roundMoneyOrZero(row.totalAmount ?? row.total_amount);
     doc.total_amount = doc.totalAmount;
     doc.paymentMethod = row.paymentMethod || row.payment_method || 'Cash';
     doc.payment_method = doc.paymentMethod;
@@ -677,9 +733,9 @@ function denormalizeData(table: string, row: any) {
     doc.paymentStatus = row.paymentStatus || 'Unpaid';
     // Keep nullish tax fields as null — never Number(null) => 0 (breaks revenue after restore)
     const n = (v: any) => (v === null || v === undefined || v === '' ? null : (Number.isFinite(Number(v)) ? Number(v) : null));
-    doc.taxRate = n(row.taxRate ?? row.tax_rate);
-    doc.taxAmount = n(row.taxAmount ?? row.tax_amount);
-    doc.grandTotal = n(row.grandTotal ?? row.grand_total);
+    doc.taxRate = n(row.taxRate ?? row.tax_rate); // a rate, not money — not rounded
+    doc.taxAmount = roundMoneyOrNull(row.taxAmount ?? row.tax_amount);
+    doc.grandTotal = roundMoneyOrNull(row.grandTotal ?? row.grand_total);
     doc.branch_id = MAIN_BRANCH_ID;
     doc.branchId = MAIN_BRANCH_ID;
     doc.customerPhone = row.customerPhone || row.customer_phone || undefined;
@@ -698,6 +754,8 @@ function denormalizeData(table: string, row: any) {
 
   
   if (table === 'menu_items') {
+    // Money precision guard — round legacy drifted prices on read.
+    doc.price = roundMoneyOrZero(row.price);
     doc.available = Boolean(row.available);
     doc.branchId = MAIN_BRANCH_ID;
     doc.branch_id = MAIN_BRANCH_ID;
@@ -751,7 +809,7 @@ function denormalizeData(table: string, row: any) {
     doc.branch_id = MAIN_BRANCH_ID;
     doc.stock = Number(row.stock) || 0;
     doc.minStock = Number(row.minStock) || 0;
-    doc.costPerUnit = Number(row.costPerUnit) || 0;
+    doc.costPerUnit = roundMoneyOrZero(row.costPerUnit); // money — rounded; stock/minStock are quantities
     doc.createdAt = row.created_at || row.createdAt || created;
     doc.updatedAt = row.updated_at || row.updatedAt || updated;
     // Echo the soft-delete tombstone back to clients (matches menu_items).
