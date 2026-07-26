@@ -335,15 +335,17 @@ export function can(ctx: AuthzContext): Decision {
     );
   }
 
-  // Snapshots are full-database dumps. A cashier writing them is not needed
-  // (the scheduler runs on any device but backups are a manager concern) and a
-  // forged snapshot could later be restored over live data.
-  if (table === "snapshots") {
-    return deny(
-      "cashier_snapshot_forbidden",
-      "النسخ الاحتياطي غير مسموح لصلاحية الكاشير."
-    );
-  }
+  // Snapshots: ALLOWED for cashiers.
+  //
+  // `startSnapshotScheduler` runs on every device without a role check
+  // (App.tsx), so blocking cashiers would silently stop backups whenever the
+  // cashier till is the only device left open — which is the common case.
+  // The snapshot payload is built entirely from data the cashier already reads
+  // (orders, menu, inventory, settings including password hashes that are
+  // needed for client-side login). `restoreFromSnapshotIfNeeded` is a no-op
+  // (returns false), and there is no manual restore UI, so a forged snapshot
+  // cannot be weaponized into a privilege escalation today.
+  // If a restore path is ever added, gate it behind manager-only.
 
   if (table === "settings") return canWriteSetting(ctx);
   if (table === "orders") return canWriteOrder(ctx);

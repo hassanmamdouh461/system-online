@@ -462,9 +462,9 @@ check(
 section("12. Snapshots + customers");
 
 check(
-  "cashier writes snapshot         => DENIED",
+  "cashier writes snapshot         => ALLOWED (scheduler runs on every device)",
   allowed({ role: "cashier", table: "snapshots", method: "POST", docId: "s1", submitted: { payload: "{}" } }),
-  false
+  true
 );
 check(
   "manager writes snapshot         => ALLOWED",
