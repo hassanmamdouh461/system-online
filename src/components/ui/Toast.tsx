@@ -52,7 +52,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
               initial={{ opacity: 0, y: 20, scale: 0.95 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, scale: 0.9, transition: { duration: 0.2 } }}
-              className={`pointer-events-auto flex items-start space-x-3 space-x-reverse p-4 rounded-xl shadow-2xl border backdrop-blur-md ${
+              className={`pointer-events-auto flex items-start gap-3 p-4 rounded-xl shadow-2xl border backdrop-blur-md ${
                 toast.type === 'success'
                   ? 'bg-slate-900/90 text-emerald-300 border-emerald-500/40'
                   : toast.type === 'error'
@@ -65,7 +65,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
                 {toast.type === 'error' && <AlertCircle className="w-5 h-5 text-rose-400" />}
                 {toast.type === 'info' && <Info className="w-5 h-5 text-cyan-400" />}
               </div>
-              <div className="flex-1 min-w-0 dir-rtl text-right">
+              <div className="flex-1 min-w-0 text-start">
                 {toast.title && <h4 className="text-sm font-semibold text-white mb-0.5">{toast.title}</h4>}
                 <p className="text-xs text-slate-200 leading-relaxed">{toast.message}</p>
               </div>

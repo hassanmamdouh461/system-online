@@ -96,7 +96,7 @@ export const OrderCard = React.forwardRef<HTMLDivElement, OrderCardProps>(
         {/* Header */}
         <div className="flex justify-between items-start mb-2 md:mb-3">
           <div className="flex items-center gap-1.5 md:gap-2">
-            <span className="font-bold text-base md:text-lg text-gray-900">{order.tableId}</span>
+            <span className="font-bold text-base md:text-lg text-gray-900">{t(order.tableId)}</span>
             <span className="text-[10px] md:text-xs px-1.5 md:px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 font-medium font-mono">
               #{formatOrderNumber(order)}
             </span>
@@ -112,7 +112,7 @@ export const OrderCard = React.forwardRef<HTMLDivElement, OrderCardProps>(
               "border-current/10"
             )}>
               <StatusIcon size={14} className={colors.icon} />
-              {cardStatus}
+              {t(cardStatus)}
             </div>
 
             {onCancel && order.status !== 'Cancelled' && order.status !== 'Completed' && (
@@ -122,7 +122,7 @@ export const OrderCard = React.forwardRef<HTMLDivElement, OrderCardProps>(
                   onCancel(order.id);
                 }}
                 className="p-1 rounded-full text-gray-400 hover:text-red-600 hover:bg-red-50 hover:border-red-200 transition-colors border border-gray-200/60 z-20"
-                title="Cancel Order"
+                title={t('Cancel Order')}
               >
                 <X size={16} />
               </button>
