@@ -28,6 +28,7 @@ import { useToast } from '../components/ui/Toast';
 import { isCompanyBilledOrder } from '../utils/accountBalance';
 import { formatOrderNumber, orderSeqSortValue } from '../utils/orderNumber';
 import { printCompanyStatement, printCustomerReceipt } from '../utils/printReceipts';
+import { businessDayKey, getDayStartHour } from '../utils/businessDay';
 import { clsx } from 'clsx';
 
 type AccountHolder = {
@@ -537,17 +538,21 @@ export default function Payment() {
       source = focusedHolder.orders;
     }
 
+    const dayStartHour = getDayStartHour();
+    const todayKey = businessDayKey(new Date().toISOString(), dayStartHour);
+
     const list = source.filter(o => {
       const matchesSearch =
         activeTab === 'accounts' && focusedHolder
           ? true
           : orderMatchesSearch(o, searchTerm, searchField, customerByPhone, companyById);
 
-      const orderDate = new Date(o.paidAt || o.createdAt).toLocaleDateString('en-CA');
-      
+      // Business-day key so late-night invoices group with the correct trading day.
+      const orderDate = businessDayKey(o.paidAt || o.createdAt, dayStartHour);
+
       let matchesDate = true;
       if (activeTab === 'paid') {
-        matchesDate = orderDate === (filterDate || new Date().toLocaleDateString('en-CA'));
+        matchesDate = orderDate === (filterDate || todayKey);
       } else {
         if (filterDate) {
           matchesDate = orderDate === filterDate;
@@ -614,12 +619,15 @@ export default function Payment() {
     );
   }
 
-  const today = new Date().toDateString();
+  // "Today's" drawer revenue uses the shared business-day boundary, so it agrees
+  // with the dashboard/report "Today" figures even for post-midnight trading.
+  const dayStartHour = getDayStartHour();
+  const todayKey = businessDayKey(new Date().toISOString(), dayStartHour);
   const totalRevenue = allOrders
     .filter(
       o =>
         o.paymentStatus === 'Paid' &&
-        new Date(o.paidAt || o.createdAt).toDateString() === today
+        businessDayKey(o.paidAt || o.createdAt, dayStartHour) === todayKey
     )
     .reduce((sum, o) => sum + getOrderGrandTotal(o, fallbackTax), 0);
 
@@ -823,17 +831,17 @@ export default function Payment() {
             {
               id: 'pending' as const,
               label: t('Pending Payments'),
-              count: pendingOrders.filter(o => !filterDate || new Date(o.paidAt || o.createdAt).toLocaleDateString('en-CA') === filterDate).length,
+              count: pendingOrders.filter(o => !filterDate || businessDayKey(o.paidAt || o.createdAt, dayStartHour) === filterDate).length,
             },
             {
               id: 'accounts' as const,
               label: language === 'ar' ? 'على الحساب' : 'On Account',
-              count: accountOrders.filter(o => !filterDate || new Date(o.paidAt || o.createdAt).toLocaleDateString('en-CA') === filterDate).length,
+              count: accountOrders.filter(o => !filterDate || businessDayKey(o.paidAt || o.createdAt, dayStartHour) === filterDate).length,
             },
             {
               id: 'paid' as const,
               label: t('Paid Invoices'),
-              count: paidOrders.filter(o => new Date(o.paidAt || o.createdAt).toLocaleDateString('en-CA') === (filterDate || new Date().toLocaleDateString('en-CA'))).length,
+              count: paidOrders.filter(o => businessDayKey(o.paidAt || o.createdAt, dayStartHour) === (filterDate || todayKey)).length,
             },
           ] as const
         ).map(tab => (

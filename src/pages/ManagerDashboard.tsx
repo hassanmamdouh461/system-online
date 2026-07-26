@@ -13,6 +13,7 @@ import { useLanguage } from '../context/LanguageContext';
 import { getTaxRate, getBranchConfig } from '../utils/settingsConfig';
 import { useMenu } from '../hooks/useMenu';
 import { useAnalytics, AnalyticsPeriod } from '../hooks/useAnalytics';
+import { inBusinessPeriod } from '../utils/businessDay';
 import { inventoryService } from '../services/inventoryService';
 import { resolveInvItem } from '../utils/inventoryHelpers';
 import { telegramService, escapeTelegramHtml } from '../services/telegramService';
@@ -67,54 +68,11 @@ interface D1OrderDoc {
 }
 
 // ─── Date Period Config ────────────────────────────────────────────────────────
-// AnalyticsPeriod is imported from useAnalytics (single source of truth)
-
-const CHART_CONFIG: Record<AnalyticsPeriod, {
-  labelsAr: string[];
-  labelsEn: string[];
-  getBucket: (d: Date) => number;
-}> = {
-  'Today': {
-    labelsAr: ['١٢ص', '٢ص', '٤ص', '٦ص', '٨ص', '١٠ص', '١٢م', '٢م', '٤م', '٦م', '٨م', '١٠م'],
-    labelsEn: ['12am', '2am', '4am', '6am', '8am', '10am', '12pm', '2pm', '4pm', '6pm', '8pm', '10pm'],
-    getBucket: (d) => Math.floor(d.getHours() / 2),
-  },
-  'This Week': {
-    labelsAr: ['الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت', 'الأحد'],
-    labelsEn: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
-    getBucket: (d) => (d.getDay() + 6) % 7,
-  },
-  'This Month': {
-    labelsAr: ['الأسبوع ١', 'الأسبوع ٢', 'الأسبوع ٣', 'الأسبوع ٤'],
-    labelsEn: ['Wk 1', 'Wk 2', 'Wk 3', 'Wk 4'],
-    getBucket: (d) => Math.min(Math.floor((d.getDate() - 1) / 7), 3),
-  },
-  'This Year': {
-    labelsAr: ['يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'],
-    labelsEn: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
-    getBucket: (d) => d.getMonth(),
-  },
-};
-
-// ─── Date Filter Check ────────────────────────────────────────────────────────
-function inPeriod(dateStr: string, period: AnalyticsPeriod): boolean {
-  const d = new Date(dateStr);
-  const now = new Date();
-  switch (period) {
-    case 'Today':
-      return d.toDateString() === now.toDateString();
-    case 'This Week': {
-      const start = new Date(now);
-      start.setDate(now.getDate() - ((now.getDay() + 6) % 7));
-      start.setHours(0, 0, 0, 0);
-      return d >= start;
-    }
-    case 'This Month':
-      return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
-    case 'This Year':
-      return d.getFullYear() === now.getFullYear();
-  }
-}
+// AnalyticsPeriod is imported from useAnalytics (single source of truth).
+// Day/period bucketing is delegated to src/utils/businessDay.ts
+// (inBusinessPeriod) so this screen honours the same configurable business-day
+// boundary as the dashboard and reports. Chart series come from
+// useAnalytics().chartData — no local chart config is needed here anymore.
 
 // ─── Stat Card Component ──────────────────────────────────────────────────────
 interface StatCardProps {
@@ -379,8 +337,10 @@ export default function ManagerDashboard() {
       };
       const activePeriodLabel = periodNames[dateRange] || dateRange;
 
-      // Filter orders matching current dateRange (single-branch system)
-      const filteredOrders = orders.filter(order => inPeriod(order.$createdAt, dateRange));
+      // Filter orders matching current dateRange (single-branch system).
+      // Uses the shared business-day boundary so the report's "period" matches
+      // the dashboard/report figures above it.
+      const filteredOrders = orders.filter(order => inBusinessPeriod(order.$createdAt, dateRange));
 
       if (filteredOrders.length === 0) {
         alert(language === 'ar' ? 'لا توجد مبيعات مسجلة في هذه الفترة لإرسالها!' : 'No orders recorded in this period to send!');

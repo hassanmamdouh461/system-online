@@ -52,6 +52,13 @@ export interface StoreConfig {
   receiptHeader: string;
   tagline?: string;
   taxNumber?: string;
+  /**
+   * Hour (0–23) at which the business day rolls over. 0 = calendar midnight
+   * (legacy behaviour). Set to e.g. 6 for a venue that closes after midnight,
+   * so a 12:10am order is still counted on the previous business day. Consumed
+   * by src/utils/businessDay.ts — the single source of truth for day bucketing.
+   */
+  dayStartHour?: number;
 }
 
 export interface TelegramConfig {
@@ -75,6 +82,7 @@ const DEFAULT_STORE_CONFIG: StoreConfig = {
   footerText: 'شكراً لزيارتكم',
   receiptHeader: 'أهلاً بكم في BrewMaster',
   tagline: 'أفضل تجربة قهوة',
+  dayStartHour: 0,
 };
 
 const DEFAULT_TELEGRAM_CONFIG: TelegramConfig = {

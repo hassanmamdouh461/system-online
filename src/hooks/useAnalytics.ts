@@ -14,6 +14,13 @@
  */
 import { useMemo } from 'react';
 import { getTaxRate } from '../utils/settingsConfig';
+import {
+  inBusinessPeriod,
+  businessDate,
+  revenueTimestamp,
+  countTimestamp,
+  getDayStartHour,
+} from '../utils/businessDay';
 import { useOrders } from './useOrders';
 import { useMenu } from './useMenu';
 import { Order, OrderStatus } from '../types/order';
@@ -73,31 +80,9 @@ const TOP_ITEMS_BOOST: Record<AnalyticsPeriod, TopItem[]> = {
 };
 
 // ─── Period filter ────────────────────────────────────────────────────────────
-function inPeriod(dateStr: string | undefined, period: AnalyticsPeriod): boolean {
-  if (!dateStr) return false;
-  const d = new Date(dateStr);
-  if (isNaN(d.getTime())) return false;
-  const now = new Date();
-
-  switch (period) {
-    case 'Today':
-      return (
-        d.getFullYear() === now.getFullYear() &&
-        d.getMonth() === now.getMonth() &&
-        d.getDate() === now.getDate()
-      );
-    case 'This Week': {
-      const start = new Date(now);
-      start.setDate(now.getDate() - ((now.getDay() + 6) % 7));
-      start.setHours(0, 0, 0, 0);
-      return d >= start;
-    }
-    case 'This Month':
-      return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
-    case 'This Year':
-      return d.getFullYear() === now.getFullYear();
-  }
-}
+// Day bucketing now lives in src/utils/businessDay.ts (inBusinessPeriod), so a
+// configurable business-day start hour is applied consistently across the app and
+// an order never splits its count/revenue across two days at midnight.
 
 // ─── Exported types ───────────────────────────────────────────────────────────
 export interface ChartPoint {
@@ -162,24 +147,33 @@ export function useAnalytics(period: AnalyticsPeriod): AnalyticsResult {
   const loading = ordersLoading || menuLoading;
   const error   = ordersError ?? menuError ?? null;
 
-  // All orders that fall inside the requested period
-  // Do NOT blank out while loading if we already have orders (prevents flash-to-zero after hydrate)
+  // Business-day start hour is read ONCE per render and threaded into every day
+  // check below, so we never re-read localStorage per order inside a filter.
+  const startHour = getDayStartHour();
+
+  // All orders that fall inside the requested period.
+  // COUNT is attributed to CREATION time (countTimestamp) — the only timestamp
+  // present on every order, including Unpaid / OnAccount. Do NOT blank out while
+  // loading if we already have orders (prevents flash-to-zero after hydrate).
   const periodOrders = useMemo(
-    () => orders.filter(o => inPeriod(o.createdAt, period)),
-    [orders, period],
+    () => orders.filter(o => inBusinessPeriod(countTimestamp(o), period, startHour)),
+    [orders, period, startHour],
   );
 
-  // Realized Sales: Include strictly paid orders (Cash + Card) based on creation date.
-  // OnAccount / Unpaid orders are tracked as receivables (outstanding amounts), not realized drawer revenue.
+  // Realized Sales: strictly paid orders (Cash + Card). REVENUE is attributed to
+  // PAYMENT time (revenueTimestamp = paidAt || createdAt). Both this and the count
+  // above run through the same business-day boundary, so a cross-midnight order
+  // (opened 11:50pm, paid 12:10am) lands on the SAME day in both once the venue's
+  // dayStartHour is set. OnAccount / Unpaid orders are receivables, not drawer revenue.
   const completedPeriod = useMemo(
     () =>
       orders.filter(
         (o) =>
           o.paymentStatus === 'Paid' &&
           o.status !== 'Cancelled' &&
-          inPeriod(o.paidAt || o.createdAt, period)
+          inBusinessPeriod(revenueTimestamp(o), period, startHour)
       ),
-    [orders, period],
+    [orders, period, startHour],
   );
 
 
@@ -245,7 +239,11 @@ export function useAnalytics(period: AnalyticsPeriod): AnalyticsResult {
     const realCount = new Array(cfg.labels.length).fill(0);
 
     completedPeriod.forEach(o => {
-      const idx = cfg.getBucket(new Date(o.paidAt || o.createdAt));
+      const ts = revenueTimestamp(o);
+      // 'Today' buckets by real clock hour; coarser periods bucket by the
+      // business date so a post-midnight order aligns to the correct day/week/month.
+      const bucketDate = period === 'Today' ? new Date(ts) : businessDate(ts, startHour);
+      const idx = cfg.getBucket(bucketDate);
       if (idx >= 0 && idx < cfg.labels.length) {
         let total = 0;
         if (typeof o.grandTotal === 'number' && Number.isFinite(o.grandTotal) && o.grandTotal > 0) {
@@ -272,7 +270,7 @@ export function useAnalytics(period: AnalyticsPeriod): AnalyticsResult {
       realRevenue: realRev[i],
       orders:      realCount[i],
     }));
-  }, [completedPeriod, period]);
+  }, [completedPeriod, period, startHour]);
 
   // ── Top items ──────────────────────────────────────────────────────────────
   // 'Today'  → pure real data: aggregate items ONLY from today's paid orders.
