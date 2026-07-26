@@ -40,13 +40,15 @@ Fresh DB:
 npx wrangler d1 execute system-online-db --remote --file=schema.sql
 ```
 
-Existing DB — apply the migrations **in numeric order**, `v2` through `v11`:
+Existing DB — apply the migrations **in numeric order**, `v2` through `v12`
+(`v11` is intentionally skipped — see the note below):
 
 ```bash
 npx wrangler d1 execute system-online-db --remote --file=schema-migrate-v2.sql
 # ... v3 through v9 ...
 npx wrangler d1 execute system-online-db --remote --file=schema-migrate-v10.sql
-npx wrangler d1 execute system-online-db --remote --file=schema-migrate-v11.sql
+# v11 is intentionally skipped (superseded server-auth migration — see note below)
+npx wrangler d1 execute system-online-db --remote --file=schema-migrate-v12.sql
 ```
 
 There is no migration-tracking table, so applying these is manual and **order
@@ -72,9 +74,18 @@ npx wrangler d1 execute system-online-db --remote \
 ```
 
 Migrations `v2`–`v9` are additive — `ALTER TABLE ADD COLUMN` or `CREATE TABLE IF
-NOT EXISTS` only. `v11` is a data-only backfill that rounds already-stored money
-columns to the piaster with `ROUND()`; it changes no schema, is idempotent, and
-is safe to re-run.
+NOT EXISTS` only.
+
+**`v11` is intentionally absent.** It was a server-side authentication migration
+(`auth_users`, `login_attempts`) belonging to a session-auth approach that was
+**superseded by the API-key role model** (see `SECURITY-DEPLOY.md`). Do **not**
+apply it on fresh installs. If an existing database already created those tables
+from an earlier run, they are **inert** — no worker code reads them — and can be
+left in place.
+
+`v12` is a data-only backfill that rounds already-stored money columns to the
+piaster with `ROUND()`; it changes no schema, is idempotent, and is safe to
+re-run.
 
 ### 4. Deploy Worker
 
