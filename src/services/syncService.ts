@@ -105,6 +105,22 @@ export class SyncService {
         const failed = open.filter((r) => r.dead || (r.attempts || 0) >= MAX_ATTEMPTS).length;
         const lastErr =
           open.map((r) => r.lastError).filter(Boolean).slice(-1)[0] || this.lastError;
+        // this.lastSuccessAt only covers writes made since this tab loaded, so
+        // after a refresh it is null and a caller cannot tell "never synced"
+        // apart from "synced five minutes ago". syncedAt is already persisted on
+        // every successful record, so recover the real high-water mark from the
+        // queue and keep whichever is newer.
+        let lastSuccessAt = this.lastSuccessAt;
+        for (const r of all) {
+          if (r.synced === 1 && r.syncedAt) {
+            if (
+              !lastSuccessAt ||
+              new Date(r.syncedAt).getTime() > new Date(lastSuccessAt).getTime()
+            ) {
+              lastSuccessAt = r.syncedAt;
+            }
+          }
+        }
         return {
           configured: !!workerUrl,
           workerUrl,
@@ -112,7 +128,7 @@ export class SyncService {
           pending,
           failed,
           lastError: lastErr || null,
-          lastSuccessAt: this.lastSuccessAt,
+          lastSuccessAt,
         };
       });
     } catch {
