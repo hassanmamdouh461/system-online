@@ -11,10 +11,13 @@ const SENTINEL_KEY = 'brewmaster_locale_migration_v1_done';
 // Known orphaned / superseded keys from older builds. Newer code uses the
 // canonical names on the right; these legacy variants are safe to drop.
 const LEGACY_KEYS: Record<string, string | null> = {
-  // Old locale stores superseded by i18next-backed keys.
-  'brewmaster_locale': null, // no canonical replacement — language now via i18n_* keys
-  'brewmaster_language': 'i18nextLng',
-  'brewmaster_lang': 'i18nextLng',
+  // Truly orphaned old locale store from a very early build.
+  // IMPORTANT: brewmaster_language / brewmaster_lang are NOT legacy — the app's
+  // live language preference is stored under brewmaster_language (see
+  // LanguageContext + DURABLE_SETTING_KEYS). There is no i18next in this project,
+  // so i18nextLng is dead. Migrating/removing brewmaster_language here wiped the
+  // user's language on the first boot after deploy — never list it below.
+  'brewmaster_locale': null,
   // Old PIN variants before the hashed format landed.
   'brewmaster_pin': 'brewmaster_admin_pin',
   'brewmaster_admin_pin_legacy': null,
