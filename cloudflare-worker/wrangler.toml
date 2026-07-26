@@ -2,6 +2,14 @@ name = "system-online-backend"
 main = "src/index.ts"
 compatibility_date = "2024-02-22"
 
+# Allowlisted browser origins for CORS. The Worker is fail-closed: when this is
+# unset it returns NO Access-Control-Allow-Origin header, so the browser blocks
+# every request from the POS to the Worker and local changes never sync.
+# Add more origins comma-separated if the POS is opened from other domains
+# (e.g. a workers.dev preview URL, or http://localhost:5173 during development).
+[vars]
+ALLOWED_ORIGINS = "https://pos.engaz.tech"
+
 [[d1_databases]]
 binding = "DB"
 database_name = "system-online-db"
