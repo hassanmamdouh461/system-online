@@ -4,6 +4,23 @@ import { filterItemsBySection } from './orderSection';
 import { formatOrderNumber } from './orderNumber';
 
 /**
+ * Escape user/cloud-sourced text before interpolating it into receipt HTML.
+ * Item names, customer/company names, notes and store settings can arrive from
+ * other devices via cloud sync, so they must never be trusted as raw HTML —
+ * otherwise a crafted value could break the receipt layout or inject a script
+ * into the (same-origin) print iframe.
+ */
+function escapeHtml(value: unknown): string {
+  if (value === null || value === undefined) return '';
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+/**
  * Write receipt content into a hidden iframe and trigger native browser print dialog.
  * This completely avoids browser popup blockers and blank new tabs.
  */
@@ -47,7 +64,7 @@ function printHtml(htmlContent: string) {
  */
 export function printCustomerReceipt(order: Order, lang: 'en' | 'ar' = 'ar') {
   const isRtl = lang === 'ar';
-  const ticketNo = formatOrderNumber(order);
+  const ticketNo = escapeHtml(formatOrderNumber(order));
   const subtotal = order.totalAmount;
   // Prefer frozen tax snapshot on the order (historical accuracy).
   const taxRate = typeof order.taxRate === 'number' ? order.taxRate : getTaxRate();
@@ -63,7 +80,7 @@ export function printCustomerReceipt(order: Order, lang: 'en' | 'ar' = 'ar') {
   const dateLabel = isRtl ? 'التاريخ' : 'Date';
   const itemLabel = isRtl ? 'الأصناف' : 'Items';
   const subtotalLabel = isRtl ? 'المجموع الفرعي' : 'Subtotal';
-  const taxLabel = isRtl ? `الضريبة (${taxRate * 100}%)` : `Tax (${taxRate * 100}%)`;
+  const taxLabel = isRtl ? `الضريبة (${(taxRate * 100).toFixed(0)}%)` : `Tax (${(taxRate * 100).toFixed(0)}%)`;
   const totalLabel = isRtl ? 'الإجمالي المدفوع' : 'TOTAL PAID';
   const totalUnpaidLabel = isRtl ? 'المطلوب سداده' : 'TOTAL DUE';
   const paymentMethodLabel = isRtl ? 'طريقة الدفع' : 'Payment Method';
@@ -87,16 +104,16 @@ export function printCustomerReceipt(order: Order, lang: 'en' | 'ar' = 'ar') {
             : 'UNPAID';
 
   const store = getStoreConfig();
-  const storeName = store.storeName || 'BrewMaster';
-  const storeTagline = store.tagline || (isRtl ? 'تجربة قهوة مميزة' : 'Premium Coffee Experience');
-  const storePhone = store.phone || '';
-  const storeAddress = store.address || '';
+  const storeName = escapeHtml(store.storeName || 'BrewMaster');
+  const storeTagline = escapeHtml(store.tagline || (isRtl ? 'تجربة قهوة مميزة' : 'Premium Coffee Experience'));
+  const storePhone = escapeHtml(store.phone || '');
+  const storeAddress = escapeHtml(store.address || '');
 
   const html = `
     <!DOCTYPE html>
     <html dir="${isRtl ? 'rtl' : 'ltr'}">
     <head>
-      <title>${title} - ${formatOrderNumber(order)}</title>
+      <title>${title} - ${escapeHtml(formatOrderNumber(order))}</title>
       <meta charset="utf-8">
       <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -196,17 +213,17 @@ export function printCustomerReceipt(order: Order, lang: 'en' | 'ar' = 'ar') {
         </div>
         <div class="info-row">
           <strong>${tableLabel}:</strong>
-          <span>${order.tableId === 'Takeaway' || order.tableId === 'Dine-in' ? (isRtl && order.tableId === 'Takeaway' ? 'take away' : isRtl && order.tableId === 'Dine-in' ? 'مطعم' : order.tableId) : order.tableId}</span>
+          <span>${escapeHtml(order.tableId === 'Takeaway' || order.tableId === 'Dine-in' ? (isRtl && order.tableId === 'Takeaway' ? 'take away' : isRtl && order.tableId === 'Dine-in' ? 'مطعم' : order.tableId) : order.tableId)}</span>
         </div>
         ${order.customerName || order.customerPhone ? `
         <div class="info-row">
           <strong>${isRtl ? 'العميل' : 'Customer'}:</strong>
-          <span>${order.customerName || ''}${order.customerName && order.customerPhone ? ' · ' : ''}${order.customerPhone || ''}</span>
+          <span>${escapeHtml(order.customerName || '')}${order.customerName && order.customerPhone ? ' · ' : ''}${escapeHtml(order.customerPhone || '')}</span>
         </div>` : ''}
         ${order.companyName || (order.billedToType === 'company' && order.companyId) ? `
         <div class="info-row">
           <strong>${isRtl ? 'الشركة / الحساب' : 'Company / Account'}:</strong>
-          <span>${order.companyName || order.companyId}</span>
+          <span>${escapeHtml(order.companyName || order.companyId)}</span>
         </div>` : ''}
         <div class="info-row">
           <strong>${isRtl ? 'حالة الدفع' : 'Payment Status'}:</strong>
@@ -222,7 +239,7 @@ export function printCustomerReceipt(order: Order, lang: 'en' | 'ar' = 'ar') {
         <h3 style="font-size: 13px; margin-bottom: 6px;">${itemLabel}:</h3>
         ${order.items.map(item => `
           <div class="item">
-            <span class="item-name">${item.quantity}x ${item.name}</span>
+            <span class="item-name">${item.quantity}x ${escapeHtml(item.name)}</span>
             <span>${(item.price * item.quantity).toFixed(2)} ${isRtl ? 'ج.م' : 'EGP'}</span>
           </div>
         `).join('')}
@@ -245,7 +262,7 @@ export function printCustomerReceipt(order: Order, lang: 'en' | 'ar' = 'ar') {
 
       ${order.paymentStatus === 'Paid' && order.paymentMethod ? `
         <div class="payment-info">
-          <strong>${paymentMethodLabel}:</strong> ${isRtl && order.paymentMethod === 'Cash' ? 'نقداً' : isRtl && order.paymentMethod === 'Card' ? 'بطاقة' : order.paymentMethod}
+          <strong>${paymentMethodLabel}:</strong> ${escapeHtml(isRtl && order.paymentMethod === 'Cash' ? 'نقداً' : isRtl && order.paymentMethod === 'Card' ? 'بطاقة' : order.paymentMethod)}
         </div>
       ` : ''}
 
@@ -278,7 +295,7 @@ export function printKitchenReceipt(order: Order, lang: 'en' | 'ar' = 'ar') {
     <!DOCTYPE html>
     <html dir="${isRtl ? 'rtl' : 'ltr'}">
     <head>
-      <title>${title} - ${formatOrderNumber(order)}</title>
+      <title>${title} - ${escapeHtml(formatOrderNumber(order))}</title>
       <meta charset="utf-8">
       <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -359,11 +376,11 @@ export function printKitchenReceipt(order: Order, lang: 'en' | 'ar' = 'ar') {
       <div class="details-box">
         <div class="details-row">
           <span><strong>${orderLabel}:</strong></span>
-          <span class="large-text">#${formatOrderNumber(order)}</span>
+          <span class="large-text">#${escapeHtml(formatOrderNumber(order))}</span>
         </div>
         <div class="details-row">
           <span><strong>${tableLabel}:</strong></span>
-          <span class="large-text">${order.tableId === 'Takeaway' || order.tableId === 'Dine-in' ? (isRtl && order.tableId === 'Takeaway' ? 'take away' : isRtl && order.tableId === 'Dine-in' ? 'مطعم' : order.tableId) : order.tableId}</span>
+          <span class="large-text">${escapeHtml(order.tableId === 'Takeaway' || order.tableId === 'Dine-in' ? (isRtl && order.tableId === 'Takeaway' ? 'take away' : isRtl && order.tableId === 'Dine-in' ? 'مطعم' : order.tableId) : order.tableId)}</span>
         </div>
         <div class="details-row" style="font-size: 11px; margin-top: 6px;">
           <span>${dateLabel}: ${new Date(order.createdAt).toLocaleString(isRtl ? 'ar-EG' : 'en-US')}</span>
@@ -375,7 +392,7 @@ export function printKitchenReceipt(order: Order, lang: 'en' | 'ar' = 'ar') {
         ${items.map(item => `
           <div class="item-row">
             <span class="item-qty">${item.quantity}</span>
-            <span class="item-name">${item.name}</span>
+            <span class="item-name">${escapeHtml(item.name)}</span>
           </div>
         `).join('')}
       </div>
@@ -408,7 +425,7 @@ export function printDrinksReceipt(order: Order, lang: 'en' | 'ar' = 'ar') {
     <!DOCTYPE html>
     <html dir="${isRtl ? 'rtl' : 'ltr'}">
     <head>
-      <title>${title} - ${formatOrderNumber(order)}</title>
+      <title>${title} - ${escapeHtml(formatOrderNumber(order))}</title>
       <meta charset="utf-8">
       <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -489,11 +506,11 @@ export function printDrinksReceipt(order: Order, lang: 'en' | 'ar' = 'ar') {
       <div class="details-box">
         <div class="details-row">
           <span><strong>${orderLabel}:</strong></span>
-          <span class="large-text">#${formatOrderNumber(order)}</span>
+          <span class="large-text">#${escapeHtml(formatOrderNumber(order))}</span>
         </div>
         <div class="details-row">
           <span><strong>${tableLabel}:</strong></span>
-          <span class="large-text">${order.tableId === 'Takeaway' || order.tableId === 'Dine-in' ? (isRtl && order.tableId === 'Takeaway' ? 'take away' : isRtl && order.tableId === 'Dine-in' ? 'مطعم' : order.tableId) : order.tableId}</span>
+          <span class="large-text">${escapeHtml(order.tableId === 'Takeaway' || order.tableId === 'Dine-in' ? (isRtl && order.tableId === 'Takeaway' ? 'take away' : isRtl && order.tableId === 'Dine-in' ? 'مطعم' : order.tableId) : order.tableId)}</span>
         </div>
         <div class="details-row" style="font-size: 11px; margin-top: 6px;">
           <span>${dateLabel}: ${new Date(order.createdAt).toLocaleString(isRtl ? 'ar-EG' : 'en-US')}</span>
@@ -505,7 +522,7 @@ export function printDrinksReceipt(order: Order, lang: 'en' | 'ar' = 'ar') {
         ${items.map(item => `
           <div class="item-row">
             <span class="item-qty">${item.quantity}</span>
-            <span class="item-name">${item.name}</span>
+            <span class="item-name">${escapeHtml(item.name)}</span>
           </div>
         `).join('')}
       </div>
@@ -589,17 +606,17 @@ export function printCompanyStatement(opts: {
   const invLabel = isRtl ? 'فاتورة' : 'Invoice';
   const byLabel = isRtl ? 'بواسطة' : 'By';
   const totalLabel = isRtl ? 'إجمالي المبالغ المستحقة' : 'Total amounts due';
-  const storeName = store.storeName || 'BrewMaster';
+  const storeName = escapeHtml(store.storeName || 'BrewMaster');
 
   const rows = open
     .map(o => {
-      const who =
+      const who = escapeHtml(
         resolveCustomerLabel?.(o) ||
         o.customerName ||
         o.customerPhone ||
-        '—';
+        '—');
       const amt = getOrderGrandTotal(o, fallbackTax);
-      const no = formatOrderNumber(o);
+      const no = escapeHtml(formatOrderNumber(o));
       return `
         <tr>
           <td style="padding:6px 4px;border-bottom:1px dashed #ccc;">#${no}</td>
@@ -614,7 +631,7 @@ export function printCompanyStatement(opts: {
     <!DOCTYPE html>
     <html dir="${isRtl ? 'rtl' : 'ltr'}">
     <head>
-      <title>${title} - ${companyName}</title>
+      <title>${title} - ${escapeHtml(companyName)}</title>
       <meta charset="utf-8">
       <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -635,8 +652,8 @@ export function printCompanyStatement(opts: {
       <div class="header">
         <h1>${storeName}</h1>
         <p>${title}</p>
-        <h2>${companyName}</h2>
-        ${companyPhone ? `<p>${companyPhone}</p>` : ''}
+        <h2>${escapeHtml(companyName)}</h2>
+        ${companyPhone ? `<p>${escapeHtml(companyPhone)}</p>` : ''}
       </div>
       <div class="meta">
         <div><span>${dateLabel}</span><span>${new Date().toLocaleString(isRtl ? 'ar-EG' : 'en-US')}</span></div>
@@ -694,17 +711,17 @@ export function printCustomerStatement(opts: {
   const dateLabel = isRtl ? 'التاريخ' : 'Date';
   const invLabel = isRtl ? 'فاتورة' : 'Invoice';
   const totalLabel = isRtl ? 'إجمالي الرصيد المستحق' : 'Total balance due';
-  const storeName = store.storeName || 'BrewMaster';
+  const storeName = escapeHtml(store.storeName || 'BrewMaster');
 
   const rows = open
     .map(o => {
       const amt = getOrderGrandTotal(o, fallbackTax);
-      const no = formatOrderNumber(o);
+      const no = escapeHtml(formatOrderNumber(o));
       return `
         <tr>
           <td style="padding:6px 4px;border-bottom:1px dashed #ccc;">#${no}</td>
           <td style="padding:6px 4px;border-bottom:1px dashed #ccc;">${new Date(o.createdAt).toLocaleString(isRtl ? 'ar-EG' : 'en-US')}</td>
-          <td style="padding:6px 4px;border-bottom:1px dashed #ccc;">${o.tableId || 'Takeaway'}</td>
+          <td style="padding:6px 4px;border-bottom:1px dashed #ccc;">${escapeHtml(o.tableId || 'Takeaway')}</td>
           <td style="padding:6px 4px;border-bottom:1px dashed #ccc;text-align:${isRtl ? 'left' : 'right'};font-weight:bold;">${amt.toFixed(2)}</td>
         </tr>`;
     })
@@ -714,7 +731,7 @@ export function printCustomerStatement(opts: {
     <!DOCTYPE html>
     <html dir="${isRtl ? 'rtl' : 'ltr'}">
     <head>
-      <title>${title} - ${customerName}</title>
+      <title>${title} - ${escapeHtml(customerName)}</title>
       <meta charset="utf-8">
       <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -735,8 +752,8 @@ export function printCustomerStatement(opts: {
       <div class="header">
         <h1>${storeName}</h1>
         <p>${title}</p>
-        <h2>${customerName}</h2>
-        ${customerPhone ? `<p>${customerPhone}</p>` : ''}
+        <h2>${escapeHtml(customerName)}</h2>
+        ${customerPhone ? `<p>${escapeHtml(customerPhone)}</p>` : ''}
       </div>
       <div class="meta">
         <div><span>${dateLabel}</span><span>${new Date().toLocaleString(isRtl ? 'ar-EG' : 'en-US')}</span></div>
