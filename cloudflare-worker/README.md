@@ -40,11 +40,39 @@ Fresh DB:
 npx wrangler d1 execute system-online-db --remote --file=schema.sql
 ```
 
-Existing DB (safe alters, no DROP):
+Existing DB — apply the migrations **in numeric order**, `v2` through `v11`:
 
 ```bash
 npx wrangler d1 execute system-online-db --remote --file=schema-migrate-v2.sql
+# ... v3 through v9 ...
+npx wrangler d1 execute system-online-db --remote --file=schema-migrate-v10.sql
+npx wrangler d1 execute system-online-db --remote --file=schema-migrate-v11.sql
 ```
+
+There is no migration-tracking table, so applying these is manual and **order
+matters**. Each file's header comment states its prerequisite and how to verify
+it landed.
+
+⚠️ **`v10` is the one destructive migration.** SQLite cannot drop a column-level
+constraint in place, so removing `UNIQUE` from `customers.phone` requires a table
+rebuild (`CREATE` → copy → `DROP TABLE customers` → `RENAME`). It is wrapped in a
+transaction and rolls back on any error, but it is not reversible once committed.
+Export a backup first:
+
+```bash
+npx wrangler d1 export system-online-db --remote --output=pre-v10-backup.sql
+```
+
+`v10` also drops the dormant `customers.points` column left over from the removed
+loyalty feature. If your database still holds values there, export them first:
+
+```bash
+npx wrangler d1 execute system-online-db --remote \
+  --command="SELECT id, points FROM customers WHERE points > 0;"
+```
+
+Every other migration (`v2`–`v9`, `v11`) is additive — `ALTER TABLE ADD COLUMN`
+or `CREATE TABLE IF NOT EXISTS` only — and safe to re-run.
 
 ### 4. Deploy Worker
 
