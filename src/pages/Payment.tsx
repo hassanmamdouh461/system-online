@@ -590,6 +590,9 @@ export default function Payment() {
   }, [
     orders,
     searchTerm,
+    searchField,
+    customerByPhone,
+    companyById,
     activeTab,
     filterDate,
     filterStartTime,
