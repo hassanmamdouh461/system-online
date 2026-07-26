@@ -12,9 +12,6 @@ function normalizePhone(phone: string): string {
 export const customersService = {
   async getAll(branchId?: string): Promise<Customer[]> {
     try {
-      if (typeof window !== 'undefined' && window.electronAPI?.getCustomers) {
-        return await window.electronAPI.getCustomers();
-      }
       return await customerRepository.getAll(branchId);
     } catch (error) {
       return await customerRepository.getAll(branchId);
@@ -25,9 +22,6 @@ export const customersService = {
     const normalized = normalizePhone(phone);
     if (!normalized) return null;
     try {
-      if (typeof window !== 'undefined' && window.electronAPI?.getCustomerByPhone) {
-        return await window.electronAPI.getCustomerByPhone(normalized);
-      }
       return await customerRepository.getByPhone(normalized, branchId);
     } catch (error) {
       return await customerRepository.getByPhone(normalized, branchId);
@@ -109,9 +103,6 @@ export const customersService = {
       phone: normalizePhone(customer.phone),
     };
     try {
-      if (typeof window !== 'undefined' && window.electronAPI?.saveCustomer) {
-        return await window.electronAPI.saveCustomer(payload);
-      }
       return await customerRepository.save(payload, branchId);
     } catch (error) {
       return await customerRepository.save(payload, branchId);
@@ -120,10 +111,6 @@ export const customersService = {
 
   async delete(id: string): Promise<void> {
     try {
-      if (typeof window !== 'undefined' && window.electronAPI?.deleteCustomer) {
-        await window.electronAPI.deleteCustomer(id);
-        return;
-      }
       await customerRepository.delete(id);
     } catch (error) {
       await customerRepository.delete(id);

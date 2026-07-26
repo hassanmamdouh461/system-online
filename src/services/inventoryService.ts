@@ -123,9 +123,6 @@ function saveWebTransactions(txs: InventoryTransaction[]) {
 export const inventoryService = {
   async getAll(branchId?: string): Promise<InventoryItem[]> {
     try {
-      if (typeof window !== 'undefined' && window.electronAPI?.getInventory) {
-        return await window.electronAPI.getInventory(branchId);
-      }
       const { withDB, enqueueWrite } = await import('../repositories/indexeddb/db');
       let localItems = await withDB((db) => db.getAll('inventory'));
 
@@ -260,9 +257,6 @@ export const inventoryService = {
 
   async create(item: Omit<InventoryItem, 'id' | 'createdAt' | 'updatedAt'>): Promise<InventoryItem> {
     try {
-      if (typeof window !== 'undefined' && window.electronAPI?.createInventoryItem) {
-        return await window.electronAPI.createInventoryItem(item);
-      }
       const newItem = await enqueueWrite(async () => {
         return withDB(async (db) => {
           const id = `inv_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
@@ -326,9 +320,6 @@ export const inventoryService = {
 
   async update(id: string, data: Partial<Omit<InventoryItem, 'id' | 'createdAt' | 'updatedAt'>>): Promise<InventoryItem> {
     try {
-      if (typeof window !== 'undefined' && window.electronAPI?.updateInventoryItem) {
-        return await window.electronAPI.updateInventoryItem(id, data);
-      }
       const updated = await enqueueWrite(async () => {
         return withDB(async (db) => {
           const existing = await db.get('inventory', id);
@@ -382,10 +373,6 @@ export const inventoryService = {
 
   async delete(id: string): Promise<void> {
     try {
-      if (typeof window !== 'undefined' && window.electronAPI?.deleteInventoryItem) {
-        await window.electronAPI.deleteInventoryItem(id);
-        return;
-      }
       const now = new Date().toISOString();
 
       // Soft-delete: write a tombstone row (deletedAt) locally AND push it to the cloud.
@@ -441,10 +428,6 @@ export const inventoryService = {
   /** Read a single item from local IDB only (no cloud merge — avoids race on sales). */
   async getByIdLocal(itemId: string): Promise<InventoryItem | undefined> {
     try {
-      if (typeof window !== 'undefined' && window.electronAPI?.getInventory) {
-        const all = await window.electronAPI.getInventory();
-        return all.find((i: InventoryItem) => i.id === itemId || i.name === itemId);
-      }
       return await withDB(async (db) => {
         const byId = await db.get('inventory', itemId) as InventoryItem | undefined;
         if (byId && !byId.deletedAt) return byId;
@@ -507,9 +490,6 @@ export const inventoryService = {
 
   async getTransactions(itemId?: string, branchId?: string): Promise<InventoryTransaction[]> {
     try {
-      if (typeof window !== 'undefined' && window.electronAPI?.getInventoryTransactions) {
-        return await window.electronAPI.getInventoryTransactions(itemId, branchId);
-      }
       let list = getWebTransactions();
       if (itemId) {
         list = list.filter(t => t.itemId === itemId);
@@ -525,9 +505,6 @@ export const inventoryService = {
 
   async createTransaction(tx: Omit<InventoryTransaction, 'id' | 'createdAt'>): Promise<InventoryTransaction> {
     try {
-      if (typeof window !== 'undefined' && window.electronAPI?.createInventoryTransaction) {
-        return await window.electronAPI.createInventoryTransaction(tx);
-      }
       const newTx: InventoryTransaction = {
         ...tx,
         id: `tx_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
@@ -547,9 +524,6 @@ export const inventoryService = {
 
   async getMenuRecipes(): Promise<RecipeIngredient[]> {
     try {
-      if (typeof window !== 'undefined' && window.electronAPI?.getMenuRecipes) {
-        return await window.electronAPI.getMenuRecipes();
-      }
       const store = getWebRecipeStore();
       const allIngredients: RecipeIngredient[] = [];
 
@@ -572,9 +546,6 @@ export const inventoryService = {
 
   async getMenuItemRecipe(menuItemId: string): Promise<RecipeIngredient[]> {
     try {
-      if (typeof window !== 'undefined' && window.electronAPI?.getMenuItemRecipe) {
-        return await window.electronAPI.getMenuItemRecipe(menuItemId);
-      }
       const store = getWebRecipeStore();
       let ingredients: RecipeIngredient[] = store[menuItemId] || [];
 
@@ -605,9 +576,6 @@ export const inventoryService = {
 
   async saveMenuRecipe(menuItemId: string, ingredients: RecipeIngredient[]): Promise<RecipeIngredient[]> {
     try {
-      if (typeof window !== 'undefined' && window.electronAPI?.saveMenuRecipe) {
-        return await window.electronAPI.saveMenuRecipe(menuItemId, ingredients);
-      }
       const store = getWebRecipeStore();
       store[menuItemId] = ingredients;
       setWebRecipeStore(store);
@@ -620,9 +588,6 @@ export const inventoryService = {
 
   async getRecipeCost(menuItemId: string): Promise<number> {
     try {
-      if (typeof window !== 'undefined' && window.electronAPI?.getRecipeCost) {
-        return await window.electronAPI.getRecipeCost(menuItemId);
-      }
       const recipe = await this.getMenuItemRecipe(menuItemId);
       const inventory = await this.getAll();
       return recipe.reduce((sum, ing) => {
