@@ -228,8 +228,8 @@ export class SyncService {
         return;
       }
 
-      const body = await response.text().catch(() => '');
-      const msg = `HTTP ${response.status}: ${body.slice(0, 200)}`;
+      const errBody = await response.text().catch(() => '');
+      const msg = `HTTP ${response.status}: ${errBody.slice(0, 200)}`;
       this.lastError = msg;
       if (response.status === 401 || response.status === 403 || response.status === 404) {
         this.disableWorkerTemporarily(300_000);
