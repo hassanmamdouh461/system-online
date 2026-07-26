@@ -228,7 +228,7 @@ function holderMatchesSearch(
 export default function Payment() {
   const toast = useToast();
   const { t, isRtl, language } = useLanguage();
-  const { orders: allOrders, error, completeWithPayment, updateOrder, refundOrder } = useOrders();
+  const { orders: allOrders, error, completeWithPayment, refundOrder } = useOrders();
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -490,7 +490,11 @@ export default function Payment() {
 
       const grandTotal = Math.max(0, (order?.totalAmount || 0) + taxAmount);
 
-      await updateOrder(payload.orderId, {
+      // One write per payment: fold customer info + frozen tax/grandTotal into the
+      // SAME completeWithPayment call. Previously this ran updateOrder() and then
+      // completeWithPayment() — two IndexedDB writes + two cloud pushes for a single
+      // payment, plus a race between the two updates on the same order.
+      await completeWithPayment(payload.orderId, payload.method, {
         ...(payload.customerPhone ? { customerPhone: payload.customerPhone } : {}),
         ...(payload.customerId ? { customerId: payload.customerId } : {}),
         ...(payload.customerName ? { customerName: payload.customerName } : {}),
@@ -501,7 +505,6 @@ export default function Payment() {
         taxAmount,
         grandTotal,
       });
-      await completeWithPayment(payload.orderId, payload.method);
     } catch (err) {
       console.error('Failed to complete payment:', err);
       alert(t('Failed to complete payment'));
@@ -590,9 +593,6 @@ export default function Payment() {
   }, [
     orders,
     searchTerm,
-    searchField,
-    customerByPhone,
-    companyById,
     activeTab,
     filterDate,
     filterStartTime,

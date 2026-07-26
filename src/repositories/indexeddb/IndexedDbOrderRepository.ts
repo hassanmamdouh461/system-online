@@ -339,15 +339,26 @@ export class IndexedDbOrderRepository implements IOrderRepository {
     return this.update(id, { status });
   }
 
-  async completeWithPayment(id: string, method: 'Cash' | 'Card' | 'OnAccount'): Promise<Order> {
+  async completeWithPayment(
+    id: string,
+    method: 'Cash' | 'Card' | 'OnAccount',
+    patch?: Partial<Omit<Order, 'id'>>,
+  ): Promise<Order> {
+    // `patch` folds any caller-supplied fields (customer info, frozen tax /
+    // grandTotal) into the SAME write, so completing a payment is a single
+    // IndexedDB put + single cloud upsert — instead of a separate updateOrder()
+    // followed by a second write here (two writes/uploads + a race for one
+    // payment). Payment fields are spread last so they always win over `patch`.
     // OnAccount = charge to customer/company credit (receivable). Cash/Card = settled revenue.
     if (method === 'OnAccount') {
       return this.update(id, {
+        ...patch,
         paymentStatus: 'OnAccount',
         paymentMethod: 'OnAccount',
       });
     }
     return this.update(id, {
+      ...patch,
       paymentStatus: 'Paid',
       paymentMethod: method,
       paidAt: new Date().toISOString(),

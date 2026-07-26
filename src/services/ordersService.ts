@@ -38,11 +38,11 @@ export const ordersService = {
     }
   },
 
-  async completeWithPayment(id: string, method: 'Cash' | 'Card' | 'OnAccount' = 'Cash'): Promise<Order> {
+  async completeWithPayment(id: string, method: 'Cash' | 'Card' | 'OnAccount' = 'Cash', patch?: Partial<Omit<Order, 'id'>>): Promise<Order> {
     try {
-      return await orderRepository.completeWithPayment(id, method);
+      return await orderRepository.completeWithPayment(id, method, patch);
     } catch (error) {
-      return await orderRepository.completeWithPayment(id, method);
+      return await orderRepository.completeWithPayment(id, method, patch);
     }
   },
 

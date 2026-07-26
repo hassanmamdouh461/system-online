@@ -22,7 +22,17 @@ export class SqliteOrderRepository implements IOrderRepository {
     return window.electronAPI.updateOrderStatus(id, status);
   }
 
-  async completeWithPayment(id: string, method: 'Cash' | 'Card' | 'OnAccount'): Promise<Order> {
+  async completeWithPayment(
+    id: string,
+    method: 'Cash' | 'Card' | 'OnAccount',
+    patch?: Partial<Omit<Order, 'id'>>,
+  ): Promise<Order> {
+    // Desktop IPC settles payment in the main process; fold any extra fields
+    // (customer info, frozen tax) in first so this path honors the same single
+    // "complete payment" contract and never drops them.
+    if (patch && Object.keys(patch).length > 0) {
+      await window.electronAPI.updateOrder(id, patch);
+    }
     return window.electronAPI.completeOrderPayment(id, method);
   }
 

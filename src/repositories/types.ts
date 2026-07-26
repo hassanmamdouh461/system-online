@@ -18,7 +18,7 @@ export interface IOrderRepository {
   create(order: Omit<Order, 'id'>, branchId?: string): Promise<Order>;
   update(id: string, data: Partial<Omit<Order, 'id'>>): Promise<Order>;
   updateStatus(id: string, status: OrderStatus): Promise<Order>;
-  completeWithPayment(id: string, method: 'Cash' | 'Card' | 'OnAccount'): Promise<Order>;
+  completeWithPayment(id: string, method: 'Cash' | 'Card' | 'OnAccount', patch?: Partial<Omit<Order, 'id'>>): Promise<Order>;
   delete(id: string): Promise<void>;
   resetToDefaults(defaults: Omit<Order, 'id'>[], branchId?: string): Promise<Order[]>;
   /** Optional: rewrite timestamp-like ticket numbers to short 1..N sequence */

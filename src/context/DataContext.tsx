@@ -28,7 +28,7 @@ interface OrdersState {
   error: Error | null;
   addOrder: (order: Omit<Order, 'id'>) => Promise<Order | null>;
   updateOrderStatus: (id: string, status: OrderStatus) => Promise<void>;
-  completeWithPayment: (id: string, method?: 'Cash' | 'Card' | 'OnAccount') => Promise<void>;
+  completeWithPayment: (id: string, method?: 'Cash' | 'Card' | 'OnAccount', patch?: Partial<Omit<Order, 'id'>>) => Promise<void>;
   refundOrder: (id: string, reason?: string) => Promise<void>;
   updateOrder: (id: string, data: Partial<Omit<Order, 'id'>>) => Promise<void>;
   deleteOrder: (id: string) => Promise<void>;
@@ -316,9 +316,13 @@ async function applyOrderInventory(
     }
   }, []);
 
-  const completeWithPayment = useCallback(async (id: string, method: 'Cash' | 'Card' | 'OnAccount' = 'Cash') => {
+  const completeWithPayment = useCallback(async (
+    id: string,
+    method: 'Cash' | 'Card' | 'OnAccount' = 'Cash',
+    patch?: Partial<Omit<Order, 'id'>>,
+  ) => {
     try {
-      const updatedOrder = await orderRepository.completeWithPayment(id, method);
+      const updatedOrder = await orderRepository.completeWithPayment(id, method, patch);
       setOrdersList(prev => prev.map(o => o.id === id ? updatedOrder : o));
       void syncService.syncPendingData();
     } catch (err) {
