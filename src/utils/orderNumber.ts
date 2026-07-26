@@ -174,6 +174,33 @@ export function mergeOrderRecords(local: OrderLike | undefined, remote: OrderLik
     Number.isFinite(remoteUpdated) &&
     remoteUpdated - localUpdated > REMOTE_NEWER_SKEW_MS;
 
+  // Refund is a TERMINAL void. Resolve it like the delete tombstone: whichever
+  // side actually carries a refund wins (newer refundedAt breaks ties), and a
+  // 'Refunded' status is never silently overwritten by a non-refunded remote.
+  // Without this: (a) a local refund's refundedAt/refundReason were wiped by the
+  // `...remote` spread below (the spread always carries remote's undefined refund
+  // fields), and (b) an offline refund could revert to 'Paid' when a newer
+  // unrelated remote edit won state — re-counting a refunded order as revenue.
+  // There is no un-refund flow in this POS, so treating refund as terminal is safe.
+  const localRefundedAt = local.refundedAt;
+  const remoteRefundedAt = remote.refundedAt;
+  const effectiveRefundedAt =
+    !localRefundedAt
+      ? remoteRefundedAt
+      : !remoteRefundedAt
+        ? localRefundedAt
+        : new Date(localRefundedAt).getTime() >= new Date(remoteRefundedAt).getTime()
+          ? localRefundedAt
+          : remoteRefundedAt;
+  const effectiveRefundReason =
+    effectiveRefundedAt === localRefundedAt
+      ? (local.refundReason ?? remote.refundReason)
+      : (remote.refundReason ?? local.refundReason);
+  const isRefunded =
+    !!effectiveRefundedAt ||
+    local.paymentStatus === 'Refunded' ||
+    remote.paymentStatus === 'Refunded';
+
   return {
     // Note: the spread below layers remote on top of local. The explicit keys
     // after it override the spread so local identity (company/customer) is
@@ -193,13 +220,19 @@ export function mergeOrderRecords(local: OrderLike | undefined, remote: OrderLik
     taxRate: remote.taxRate ?? local.taxRate,
     taxAmount: remote.taxAmount ?? local.taxAmount,
     grandTotal: remote.grandTotal ?? local.grandTotal,
+    // Refund is terminal: never let a non-refunded remote un-refund the order,
+    // and never drop the refund metadata (see the refund resolution above).
+    refundedAt: effectiveRefundedAt || undefined,
+    refundReason: effectiveRefundReason || undefined,
     // Payment state: local wins when it paid locally; otherwise prefer remote
     // when remote is clearly newer (e.g. a refund landed in D1 first).
-    paymentStatus: localWinsPayment
-      ? (local.paymentStatus || remote.paymentStatus)
-      : remoteWinsState
-        ? (remote.paymentStatus || local.paymentStatus)
-        : (local.paymentStatus || remote.paymentStatus),
+    paymentStatus: isRefunded
+      ? 'Refunded'
+      : localWinsPayment
+        ? (local.paymentStatus || remote.paymentStatus)
+        : remoteWinsState
+          ? (remote.paymentStatus || local.paymentStatus)
+          : (local.paymentStatus || remote.paymentStatus),
     paymentMethod: localWinsPayment
       ? (local.paymentMethod || remote.paymentMethod)
       : remoteWinsState
