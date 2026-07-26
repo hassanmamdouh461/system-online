@@ -5,7 +5,10 @@
   "scripts": {
     "deploy": "wrangler deploy",
     "dev": "wrangler dev",
-    "start": "wrangler dev"
+    "start": "wrangler dev",
+    "test": "node --experimental-strip-types test-permissions.mjs && node --experimental-strip-types test-worker-e2e.mjs",
+    "test:permissions": "node --experimental-strip-types test-permissions.mjs",
+    "test:e2e": "node --experimental-strip-types test-worker-e2e.mjs"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20240222.0",

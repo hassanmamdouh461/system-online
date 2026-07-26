@@ -1,5 +1,27 @@
+// Types are imported separately so they are erased at compile time rather than
+// emitted as runtime named imports (which would fail under plain ESM resolution).
+import type { Role, HttpMethod } from "./permissions";
+import { resolveRole, can, timingSafeEqual } from "./permissions";
+
 interface Env {
   DB: D1Database;
+  /**
+   * Role-scoped API keys. The caller's role is derived from WHICH of these was
+   * presented — the client never declares its own role.
+   */
+  MANAGER_API_KEY?: string;
+  CASHIER_API_KEY?: string;
+  /**
+   * Server-side refund PIN. Previously the refund PIN lived only in
+   * localStorage and was checked by PaymentModal, so `curl` skipped it
+   * entirely. A cashier now proves refund authority by sending X-Refund-PIN.
+   */
+  REFUND_PIN?: string;
+  /**
+   * DEPRECATED transitional key. Grants manager access so installs already in
+   * the field keep working during rollout. Remove it (`wrangler secret delete
+   * API_KEY`) once real keys are distributed — see SECURITY-DEPLOY.md.
+   */
   API_KEY?: string;
   ALLOWED_ORIGINS?: string;
 }
@@ -74,8 +96,11 @@ export default {
     // from deployment) every endpoint served unauthenticated traffic: any
     // caller could read all customer phone numbers or DELETE every order.
     // An unconfigured deployment must refuse service, not open the database.
-    if (!env.API_KEY) {
-      console.error("[worker] API_KEY secret is not configured — refusing all requests.");
+    //
+    // Any ONE configured key is enough to serve traffic, so an install that
+    // only has the transitional API_KEY still works mid-rollout.
+    if (!env.MANAGER_API_KEY && !env.CASHIER_API_KEY && !env.API_KEY) {
+      console.error("[worker] No API key secret is configured — refusing all requests.");
       return new Response(JSON.stringify({
         error: "Service Unavailable",
         message: "Server is not configured for authenticated access."
@@ -122,17 +147,99 @@ export default {
       }
     }
 
+    // 2c. AUTHENTICATE and derive the ROLE from the presented secret.
+    //
+    // The role is never taken from the request body or a client-side session —
+    // the old system stored `role` in localStorage, so a user could edit
+    // 'admin' to 'manager' in DevTools. Here the secret IS the role.
+    let role: Role;
     {
       const authHeader = request.headers.get("Authorization");
       const apiKeyHeader = request.headers.get("X-API-Key");
-      const token = authHeader ? authHeader.replace(/^Bearer\s+/i, "") : apiKeyHeader;
-      if (!token || token !== env.API_KEY) {
+      const token = authHeader ? authHeader.replace(/^Bearer\s+/i, "").trim() : (apiKeyHeader || "").trim();
+
+      const resolved = resolveRole(token || null, env);
+      if (!resolved) {
         return new Response(JSON.stringify({ error: "Unauthorized", message: "Invalid or missing API key" }), {
           status: 401,
           headers: { "Content-Type": "application/json", ...corsHeaders }
         });
       }
+      role = resolved.role;
+
+      if (resolved.viaLegacyKey) {
+        // Loud, actionable warning: this key is a rollout crutch, not a role.
+        console.warn(
+          "[worker] Request authenticated with DEPRECATED shared API_KEY and granted manager rights. " +
+          "Distribute MANAGER_API_KEY / CASHIER_API_KEY and run `wrangler secret delete API_KEY`."
+        );
+      }
     }
+
+    /** Did the caller prove refund authority with a valid server-side PIN? */
+    const refundEscalated = (() => {
+      const pin = (request.headers.get("X-Refund-PIN") || "").trim();
+      const expected = (env.REFUND_PIN || "").trim();
+      // Fail-closed: with no REFUND_PIN secret set, escalation is impossible
+      // and refunds remain manager-only.
+      if (!pin || !expected) return false;
+      return timingSafeEqual(pin, expected);
+    })();
+
+    /**
+     * THE enforcement point. Loads the current row (needed because guards
+     * compare submitted values against stored ones — see permissions.ts) and
+     * returns a ready 403 Response when denied, or null when allowed.
+     */
+    const authorize = async (args: {
+      table: string;
+      method: HttpMethod;
+      docId?: string | null;
+      submitted?: Record<string, any> | null;
+    }): Promise<Response | null> => {
+      let current: Record<string, any> | null = null;
+
+      // Managers are unconditionally allowed, so skip the extra D1 read.
+      if (role !== "manager" && args.docId && args.method !== "DELETE") {
+        try {
+          current = (await env.DB
+            .prepare(`SELECT * FROM ${args.table} WHERE id = ?`)
+            .bind(args.docId)
+            .first()) as Record<string, any> | null;
+        } catch {
+          current = null;
+        }
+      }
+
+      const decision = can({
+        role,
+        table: args.table,
+        method: args.method,
+        docId: args.docId ?? null,
+        submitted: args.submitted ?? null,
+        current,
+        refundEscalated
+      });
+
+      if (decision.allowed) return null;
+
+      console.warn(
+        `[worker] 403 role=${role} table=${args.table} method=${args.method} code=${decision.code}`
+      );
+
+      return new Response(JSON.stringify({
+        error: "Forbidden",
+        message: decision.reason,
+        code: decision.code
+      }), {
+        status: 403,
+        headers: {
+          "Content-Type": "application/json",
+          "X-Auth-Role": role,
+          ...corsHeaders
+        }
+      });
+    };
 
     try {
       const url = new URL(request.url);
@@ -169,6 +276,24 @@ export default {
               status: 400,
               headers: { "Content-Type": "application/json", ...corsHeaders }
             });
+          }
+
+          // AUTHORIZE — this path was previously unguarded. `/api/sync` accepted
+          // `action: "delete"` on any table with no role check at all, so it
+          // was a complete bypass of the REST DELETE rules below.
+          if (action === "delete") {
+            const denied = await authorize({ table, method: "DELETE", docId });
+            if (denied) return denied;
+          } else {
+            const preview = sanitizeAndNormalize(table, data);
+            preview.id = docId;
+            const denied = await authorize({
+              table,
+              method: "PATCH",
+              docId,
+              submitted: preview
+            });
+            if (denied) return denied;
           }
 
           if (action === "delete") {
@@ -320,6 +445,18 @@ export default {
         // Single-branch system: always stamp the one branch id.
         data.branch_id = MAIN_BRANCH_ID;
 
+        // POST is an upsert here (ON CONFLICT DO UPDATE), so it can modify an
+        // existing row and must be authorized like a write, not just a create.
+        {
+          const denied = await authorize({
+            table,
+            method: "POST",
+            docId: documentId,
+            submitted: data
+          });
+          if (denied) return denied;
+        }
+
         const keys = Object.keys(data);
         if (keys.length === 0) {
           return new Response(JSON.stringify({ error: "Bad Request", message: "No valid attributes provided" }), {
@@ -367,6 +504,16 @@ export default {
         const rawData = body.data || {};
         const data = sanitizeAndNormalize(table, rawData);
 
+        {
+          const denied = await authorize({
+            table,
+            method: "PATCH",
+            docId,
+            submitted: data
+          });
+          if (denied) return denied;
+        }
+
         const keys = Object.keys(data);
         if (keys.length === 0) {
           const row = await env.DB.prepare(`SELECT * FROM ${table} WHERE id = ?`).bind(docId).first();
@@ -404,10 +551,17 @@ export default {
           });
         }
 
+        // This is the check the audit called for: a cashier key on
+        // DELETE /v1/.../orders/<id> must return 403, not 200.
+        {
+          const denied = await authorize({ table, method: "DELETE", docId });
+          if (denied) return denied;
+        }
+
         await env.DB.prepare(`DELETE FROM ${table} WHERE id = ?`).bind(docId).run();
         return new Response(JSON.stringify({ success: true }), {
           status: 200,
-          headers: { "Content-Type": "application/json", ...corsHeaders }
+          headers: { "Content-Type": "application/json", "X-Auth-Role": role, ...corsHeaders }
         });
       }
 
