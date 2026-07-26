@@ -23,8 +23,12 @@ function escapeHtml(value: unknown): string {
 /**
  * Write receipt content into a hidden iframe and trigger native browser print dialog.
  * This completely avoids browser popup blockers and blank new tabs.
+ *
+ * Exported so every print path in the app (receipts, QR menu poster, …) shares
+ * the same popup-proof mechanism instead of calling window.open(), which fails
+ * silently when the browser blocks popups.
  */
-function printHtml(htmlContent: string) {
+export function printHtml(htmlContent: string) {
   let printIframe = document.getElementById('pos-print-iframe') as HTMLIFrameElement | null;
   
   if (!printIframe) {

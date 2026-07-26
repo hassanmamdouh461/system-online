@@ -143,6 +143,7 @@
   "Ready": "Ready",
   "Completed": "Completed",
   "Cancelled": "Cancelled",
+  "QR service unavailable — copy the link below instead": "QR service unavailable — copy the link below instead",
   "New Order": "New Order",
   "Select items and choose order type": "Select items and choose order type",
   "Search menu...": "Search menu...",

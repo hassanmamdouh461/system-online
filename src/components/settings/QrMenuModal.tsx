@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { X, Copy, Check, Printer, Download, QrCode } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useLanguage } from '../../context/LanguageContext';
+import { printHtml } from '../../utils/printReceipts';
 
 interface QrMenuModalProps {
   isOpen: boolean;
@@ -12,7 +13,8 @@ interface QrMenuModalProps {
 export function QrMenuModal({ isOpen, onClose }: QrMenuModalProps) {
   const { t } = useLanguage();
   const [copied, setCopied] = useState(false);
-  
+  const [qrFailed, setQrFailed] = useState(false);
+
   const publicMenuUrl = import.meta.env.VITE_PUBLIC_MENU_URL || (typeof window !== 'undefined' ? `${window.location.origin}/public-menu` : 'https://brewmaster-pos.app/public-menu');
   const qrCodeImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=350x350&data=${encodeURIComponent(publicMenuUrl)}`;
 
@@ -40,15 +42,18 @@ export function QrMenuModal({ isOpen, onClose }: QrMenuModalProps) {
       window.URL.revokeObjectURL(url);
     } catch (error) {
       console.error('Failed to download QR code:', error);
-      // Fallback: open in new window for direct save
-      window.open(qrCodeImageUrl, '_blank');
+      // Fallback: open the image directly so the user can save it manually.
+      // window.open returns null when the popup is blocked — surface that
+      // instead of leaving the button looking broken.
+      const opened = window.open(qrCodeImageUrl, '_blank');
+      if (!opened) setQrFailed(true);
     }
   };
 
   const handlePrint = () => {
-    const printWindow = window.open('', '_blank');
-    if (!printWindow) return;
-    printWindow.document.write(`
+    // Print through the shared hidden-iframe helper instead of window.open():
+    // a blocked popup used to make this button do nothing at all, with no error.
+    printHtml(`
       <html>
         <head>
           <title>Print Menu QR Code - BrewMaster</title>
@@ -140,18 +145,9 @@ export function QrMenuModal({ isOpen, onClose }: QrMenuModalProps) {
               <div class="english">Scan QR Code to view menu & availability</div>
             </div>
           </div>
-          <script>
-            window.onload = function() {
-              setTimeout(function() {
-                window.print();
-                window.close();
-              }, 600);
-            };
-          </script>
         </body>
       </html>
     `);
-    printWindow.document.close();
   };
 
   return createPortal(
@@ -197,11 +193,24 @@ export function QrMenuModal({ isOpen, onClose }: QrMenuModalProps) {
               
               {/* QR Image Frame */}
               <div className="bg-white p-3 rounded-xl shadow-md border border-mocha-100/50">
-                <img
-                  src={qrCodeImageUrl}
-                  alt="Customer Menu QR Code"
-                  className="w-40 h-40 object-contain"
-                />
+                {qrFailed ? (
+                  // The QR image comes from an external service (api.qrserver.com).
+                  // If it is unreachable, say so instead of rendering a broken image —
+                  // the link below still works and can be shared manually.
+                  <div className="w-40 h-40 flex flex-col items-center justify-center gap-2 text-center px-2">
+                    <QrCode className="w-8 h-8 text-mocha-300" />
+                    <p className="text-[10px] font-semibold text-gray-500 leading-snug">
+                      {t('QR service unavailable — copy the link below instead')}
+                    </p>
+                  </div>
+                ) : (
+                  <img
+                    src={qrCodeImageUrl}
+                    alt="Customer Menu QR Code"
+                    className="w-40 h-40 object-contain"
+                    onError={() => setQrFailed(true)}
+                  />
+                )}
               </div>
               
               <div className="mt-4 text-center">
@@ -226,7 +235,8 @@ export function QrMenuModal({ isOpen, onClose }: QrMenuModalProps) {
             <div className="grid grid-cols-2 gap-3 w-full">
               <button
                 onClick={handlePrint}
-                className="flex items-center justify-center gap-2 py-3 px-4 bg-mocha-700 hover:bg-mocha-800 text-white rounded-xl font-semibold shadow-md shadow-mocha-700/20 transition-all active:scale-[0.98] text-sm"
+                disabled={qrFailed}
+                className="flex items-center justify-center gap-2 py-3 px-4 bg-mocha-700 hover:bg-mocha-800 text-white rounded-xl font-semibold shadow-md shadow-mocha-700/20 transition-all active:scale-[0.98] text-sm disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Printer size={16} />
                 <span>{t('Print Code')}</span>
@@ -234,7 +244,8 @@ export function QrMenuModal({ isOpen, onClose }: QrMenuModalProps) {
               
               <button
                 onClick={handleDownload}
-                className="flex items-center justify-center gap-2 py-3 px-4 bg-mocha-100 hover:bg-mocha-200 text-mocha-800 rounded-xl font-semibold border border-mocha-200 transition-all active:scale-[0.98] text-sm"
+                disabled={qrFailed}
+                className="flex items-center justify-center gap-2 py-3 px-4 bg-mocha-100 hover:bg-mocha-200 text-mocha-800 rounded-xl font-semibold border border-mocha-200 transition-all active:scale-[0.98] text-sm disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Download size={16} />
                 <span>{t('Download Image')}</span>
