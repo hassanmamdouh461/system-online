@@ -55,7 +55,12 @@ CREATE TABLE IF NOT EXISTS customers (
   notes TEXT,
   createdAt TEXT NOT NULL,
   updated_at TEXT,
-  branch_id TEXT DEFAULT 'default'
+  branch_id TEXT DEFAULT 'default',
+  -- Soft-delete tombstone. NULL = live; ISO string = deleted (hidden everywhere).
+  -- Must exist on a fresh deploy or the tombstone upsert 500s and deleted
+  -- customers (with stale points / OnAccount ledgers) resurrect on hydrate.
+  -- Added additively to existing DBs by schema-migrate-v9.sql.
+  deleted_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS companies (
@@ -66,7 +71,12 @@ CREATE TABLE IF NOT EXISTS companies (
   notes TEXT,
   createdAt TEXT NOT NULL,
   updated_at TEXT,
-  branch_id TEXT DEFAULT 'default'
+  branch_id TEXT DEFAULT 'default',
+  -- Soft-delete tombstone. NULL = live; ISO string = deleted (hidden everywhere).
+  -- Must exist on a fresh deploy or the tombstone upsert 500s and deleted
+  -- companies (with their OnAccount receivables) resurrect on hydrate.
+  -- Added additively to existing DBs by schema-migrate-v9.sql.
+  deleted_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS inventory (
@@ -78,7 +88,12 @@ CREATE TABLE IF NOT EXISTS inventory (
   costPerUnit REAL NOT NULL DEFAULT 0,
   branch_id TEXT DEFAULT NULL,
   created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
+  updated_at TEXT NOT NULL,
+  -- Soft-delete tombstone. NULL = live; ISO string = deleted (hidden everywhere).
+  -- Must exist on a fresh deploy or the tombstone upsert 500s and deleted
+  -- inventory items resurrect on hydrate. Added additively to existing DBs by
+  -- schema-migrate-v8.sql.
+  deleted_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS settings (
