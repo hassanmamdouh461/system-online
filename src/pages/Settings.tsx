@@ -42,18 +42,21 @@ export default function Settings() {
           },
         ]
       : []),
-    {
-      title: language === 'ar' ? 'المتجر والفرع' : 'Store & Branch',
-      items: [
-        {
-          icon: Store,
-          label: language === 'ar' ? 'إعدادات المتجر' : 'Store Configuration',
-          desc: language === 'ar' ? 'نسبة الضريبة والإعدادات العامة' : 'Tax rate and store options',
-          onClick: () => setOpenModal('store'),
-        },
-
-      ],
-    },
+    ...(isManager
+      ? [
+          {
+            title: language === 'ar' ? 'المتجر والفرع' : 'Store & Branch',
+            items: [
+              {
+                icon: Store,
+                label: language === 'ar' ? 'إعدادات المتجر' : 'Store Configuration',
+                desc: language === 'ar' ? 'نسبة الضريبة والإعدادات العامة' : 'Tax rate and store options',
+                onClick: () => setOpenModal('store'),
+              },
+            ],
+          },
+        ]
+      : []),
     {
       title: language === 'ar' ? 'القائمة والتنبيهات' : 'Menu & Alerts',
       items: [
@@ -63,12 +66,16 @@ export default function Settings() {
           desc: language === 'ar' ? 'رابط ورمز قائمة العملاء' : 'Public menu link and QR code',
           onClick: () => setOpenModal('qr'),
         },
-        {
-          icon: Send,
-          label: language === 'ar' ? 'تقارير تيليجرام' : 'Telegram Reports',
-          desc: language === 'ar' ? 'تقارير المبيعات اليومية' : 'Daily sales report notifications',
-          onClick: () => setOpenModal('telegram'),
-        },
+        ...(isManager
+          ? [
+              {
+                icon: Send,
+                label: language === 'ar' ? 'تقارير تيليجرام' : 'Telegram Reports',
+                desc: language === 'ar' ? 'تقارير المبيعات اليومية' : 'Daily sales report notifications',
+                onClick: () => setOpenModal('telegram'),
+              },
+            ]
+          : []),
       ],
     },
   ];
