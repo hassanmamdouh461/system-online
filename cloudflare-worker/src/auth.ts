@@ -333,16 +333,31 @@ async function derivePasswordHashHex(password: string, saltHex: string): Promise
   return bytesToHex(new Uint8Array(exported));
 }
 
-/** Read the most-recent stored credential record for a settings key from D1. */
+/**
+ * The canonical id prefix for credential (and other durable) settings rows.
+ * The POS client writes these with id = `global::<key>` only — see
+ * settingsCloudService.ts → settingDocId, which returns `global::<key>` for every
+ * key in DURABLE_SETTING_KEYS (both credential keys are). Older code revisions
+ * left per-branch rows (`main_branch::<key>`, `manager::<key>`) with DIFFERENT
+ * hashes; reading by `WHERE key = ?` matched an arbitrary one and password
+ * verification silently failed (the 401 storm fixed in
+ * docs/fix-401-session-bootstrap.md). Pin the read to the exact id the client
+ * writes so the source of truth is unambiguous.
+ */
+const GLOBAL_SETTING_ID_PREFIX = "global::";
+
+/** Read the stored credential record for a settings key from D1 (deterministic). */
 async function readCredsRecord(
   env: AuthEnv,
   settingsKey: string
 ): Promise<{ hash?: string; salt?: string; password?: string } | null> {
   try {
+    // Bind the full id (`global::<key>`) so there is exactly one candidate row
+    // and no ORDER BY tie can pick a stale orphan over the live credential.
     const row = (await env.DB.prepare(
-      "SELECT value FROM settings WHERE key = ? ORDER BY updated_at DESC LIMIT 1"
+      "SELECT value FROM settings WHERE id = ?"
     )
-      .bind(settingsKey)
+      .bind(`${GLOBAL_SETTING_ID_PREFIX}${settingsKey}`)
       .first()) as { value?: string } | null;
     if (!row || !row.value) return null;
     const parsed = JSON.parse(row.value);
