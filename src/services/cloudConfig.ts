@@ -112,6 +112,9 @@ export function setSessionCredential(password: string): void {
   sessionCredential = password ? String(password) : null;
   // A new credential invalidates any cached mint so the next call re-mints.
   sessionPromise = null;
+  // A fresh credential resets the mint cooldown so the login attempt goes
+  // through immediately instead of waiting for a stale backoff window.
+  resetMintCooldown();
 }
 
 /** Forget the in-memory credential, role and CSRF token (called on logout). */
@@ -160,16 +163,52 @@ export async function refreshCloudSessionRole(): Promise<'manager' | 'cashier' |
   }
 }
 
+// ─── Mint-failure cooldown ──────────────────────────────────────────────────
+// After consecutive mint failures (wrong password, missing creds, network
+// error), pause further mint attempts for a cooldown window instead of retrying
+// on every cloudFetch / setInterval / hydrate cycle. This kills the "401 storm"
+// — tens of rapid POST /v1/session per second visible in the F12 console.
+const MINT_COOLDOWN_BASE_MS = 5_000; // 5s initial cooldown
+const MINT_COOLDOWN_MAX_MS = 120_000; // 2min cap
+let mintConsecutiveFailures = 0;
+let mintCooldownUntil = 0;
+
+/** Reset the cooldown (called on successful mint or fresh login credential). */
+function resetMintCooldown(): void {
+  mintConsecutiveFailures = 0;
+  mintCooldownUntil = 0;
+}
+
+/** Advance the cooldown after a failed mint. */
+function advanceMintCooldown(): void {
+  mintConsecutiveFailures++;
+  const delay = Math.min(
+    MINT_COOLDOWN_BASE_MS * Math.pow(2, mintConsecutiveFailures - 1),
+    MINT_COOLDOWN_MAX_MS
+  );
+  mintCooldownUntil = Date.now() + delay;
+}
+
 /**
  * Ensure a cloud session cookie exists. Concurrent callers share one in-flight
  * mint. Best-effort: with no in-memory credential this resolves false WITHOUT
  * erroring, so an existing (valid) cookie from a prior page-load still rides the
  * request. Pass force=true to discard any cached result and mint anew (used
  * after a 401 / right after login).
+ *
+ * After consecutive failures the function enters a capped exponential cooldown
+ * (5s → 10s → … → 2min) and short-circuits until the window elapses, preventing
+ * the 401 storm that fills the F12 console and saturates the Worker when a
+ * cashier session repeatedly fails to mint.
  */
 export function ensureCloudSession(force = false): Promise<boolean> {
   if (force) sessionPromise = null;
   if (sessionPromise) return sessionPromise;
+
+  // Respect cooldown unless this is a force-mint (fresh login credential).
+  if (!force && mintCooldownUntil > Date.now()) {
+    return Promise.resolve(false);
+  }
 
   const p = (async (): Promise<boolean> => {
     const base = getWorkerUrl();
@@ -184,7 +223,10 @@ export function ensureCloudSession(force = false): Promise<boolean> {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ password: sessionCredential }),
       });
-      if (!res.ok) return false;
+      if (!res.ok) {
+        advanceMintCooldown();
+        return false;
+      }
       try {
         const json = await res.json();
         if (json && (json.role === 'manager' || json.role === 'cashier')) {
@@ -196,9 +238,11 @@ export function ensureCloudSession(force = false): Promise<boolean> {
       } catch {
         // role/csrf are best-effort; cookie is what actually authenticates
       }
+      resetMintCooldown();
       return true;
     } catch (err) {
       console.warn('[cloud] session mint failed:', err);
+      advanceMintCooldown();
       return false;
     }
   })();
@@ -289,6 +333,41 @@ export function optionalNumber(value: unknown): number | undefined {
   return Number.isFinite(n) ? n : undefined;
 }
 
+// ─── Session-expiry signal ─────────────────────────────────────────────────────
+/**
+ * Dispatched (once per burst) when an AUTHENTICATED cloud request keeps
+ * returning 401 and we cannot silently re-mint — i.e. the operator's session has
+ * truly lapsed (the 12h cookie expired and there is no in-memory password to
+ * re-mint with). The app listens for this to surface "Session expired — please
+ * log in again" instead of silently rendering empty screens.
+ *
+ * Deliberately gated on EVIDENCE that a session once existed (a persisted CSRF
+ * token, an in-memory role, or a live credential). A brand-new, never-signed-in
+ * browser hitting a 401 must NOT see a spurious "expired" prompt.
+ */
+export const SESSION_EXPIRED_EVENT = 'pos:session-expired';
+let lastExpiryNotifyAt = 0;
+
+function hadEstablishedSession(): boolean {
+  return !!(csrfToken || sessionRole || sessionCredential);
+}
+
+function notifySessionExpired(): void {
+  if (!hadEstablishedSession()) return;
+  const now = Date.now();
+  // Collapse a burst of parallel 401s (a boot hydrate reads several collections
+  // at once) into a single notification.
+  if (now - lastExpiryNotifyAt < 5000) return;
+  lastExpiryNotifyAt = now;
+  if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+    try {
+      window.dispatchEvent(new CustomEvent(SESSION_EXPIRED_EVENT));
+    } catch {
+      // ignore — the toast is best-effort
+    }
+  }
+}
+
 export async function cloudFetch(
   path: string,
   init?: RequestInit & { timeoutMs?: number; skipSession?: boolean }
@@ -342,6 +421,13 @@ export async function cloudFetch(
     resetCloudSession();
     const ok = await ensureCloudSession(true);
     if (ok) res = await attempt();
+  }
+
+  // Still 401 after a re-mint attempt on an authenticated path ⇒ the session is
+  // genuinely gone (cookie expired, no credential to re-mint with). Signal the
+  // app so it prompts a fresh login instead of leaving empty screens behind.
+  if (!skipSession && res && res.status === 401) {
+    notifySessionExpired();
   }
 
   return res;

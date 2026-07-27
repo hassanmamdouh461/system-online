@@ -58,9 +58,12 @@ typings/
 .env
 .env.test
 
-# Credential seed files contain PBKDF2 password hashes for D1 login rows.
-# Never commit — regenerating them is a one-line local command.
+# Generated credential seed + D1 backups (contain PBKDF2 hashes / live data).
+# Apply them, then delete; never commit.
 seed-*.sql
+seed-credentials.sql
+seed-manager.sql
+pre-v*.sql
 
 # parcel-bundler cache (https://parceljs.org/)
 .cache
