@@ -289,6 +289,41 @@ export function optionalNumber(value: unknown): number | undefined {
   return Number.isFinite(n) ? n : undefined;
 }
 
+// ─── Session-expiry signal ─────────────────────────────────────────────────────
+/**
+ * Dispatched (once per burst) when an AUTHENTICATED cloud request keeps
+ * returning 401 and we cannot silently re-mint — i.e. the operator's session has
+ * truly lapsed (the 12h cookie expired and there is no in-memory password to
+ * re-mint with). The app listens for this to surface "Session expired — please
+ * log in again" instead of silently rendering empty screens.
+ *
+ * Deliberately gated on EVIDENCE that a session once existed (a persisted CSRF
+ * token, an in-memory role, or a live credential). A brand-new, never-signed-in
+ * browser hitting a 401 must NOT see a spurious "expired" prompt.
+ */
+export const SESSION_EXPIRED_EVENT = 'pos:session-expired';
+let lastExpiryNotifyAt = 0;
+
+function hadEstablishedSession(): boolean {
+  return !!(csrfToken || sessionRole || sessionCredential);
+}
+
+function notifySessionExpired(): void {
+  if (!hadEstablishedSession()) return;
+  const now = Date.now();
+  // Collapse a burst of parallel 401s (a boot hydrate reads several collections
+  // at once) into a single notification.
+  if (now - lastExpiryNotifyAt < 5000) return;
+  lastExpiryNotifyAt = now;
+  if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+    try {
+      window.dispatchEvent(new CustomEvent(SESSION_EXPIRED_EVENT));
+    } catch {
+      // ignore — the toast is best-effort
+    }
+  }
+}
+
 export async function cloudFetch(
   path: string,
   init?: RequestInit & { timeoutMs?: number; skipSession?: boolean }
@@ -342,6 +377,13 @@ export async function cloudFetch(
     resetCloudSession();
     const ok = await ensureCloudSession(true);
     if (ok) res = await attempt();
+  }
+
+  // Still 401 after a re-mint attempt on an authenticated path ⇒ the session is
+  // genuinely gone (cookie expired, no credential to re-mint with). Signal the
+  // app so it prompts a fresh login instead of leaving empty screens behind.
+  if (!skipSession && res && res.status === 401) {
+    notifySessionExpired();
   }
 
   return res;

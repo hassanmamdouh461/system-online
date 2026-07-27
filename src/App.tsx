@@ -1,17 +1,23 @@
-import { useState, useEffect, Suspense } from 'react';
+import { useState, useEffect, useRef, Suspense } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, Outlet, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { DataProvider } from './context/DataContext';
 import { InlinePageSpinner } from './components/ui/InlinePageSpinner';
 import { LanguageProvider } from './context/LanguageContext';
-import { ToastProvider } from './components/ui/Toast';
+import { ToastProvider, useToast } from './components/ui/Toast';
 import { syncService } from './services/syncService';
 import { requestPersistentStorage } from './repositories/indexeddb/db';
 import { hydrateFromCloud, resetHydrateCache } from './services/cloudHydrate';
 import { DashboardLayout } from './components/layout/DashboardLayout';
 import { ErrorBoundary } from './components/ui/ErrorBoundary';
 import { mustChangePassword } from './utils/settingsConfig';
-import { checkCloudHealth, isCloudConfigured } from './services/cloudConfig';
+import {
+  checkCloudHealth,
+  isCloudConfigured,
+  getSessionRole,
+  refreshCloudSessionRole,
+  SESSION_EXPIRED_EVENT,
+} from './services/cloudConfig';
 
 // Direct eager imports for 100% instant navigation without chunk pauses or splash screens
 import Login from './pages/Login';
@@ -176,6 +182,44 @@ function DefaultPasswordBanner() {
   );
 }
 
+/**
+ * Turns a lapsed cloud session into a clear, actionable prompt.
+ *
+ * When the 12h session cookie expires (or is cleared) but the app still believes
+ * it is signed in — e.g. a tab left open overnight, or a reload where the stored
+ * login survives in localStorage but the cookie does not — authenticated cloud
+ * reads 401 and, with no in-memory password to re-mint, cannot recover. Left
+ * alone that reads as blank screens. cloudFetch emits SESSION_EXPIRED_EVENT in
+ * exactly that case; here we surface it and drop the user back to login instead
+ * of leaving them staring at empty data.
+ */
+function SessionExpiryWatcher() {
+  const { isAuthenticated, logout } = useAuth();
+  const toast = useToast();
+  // Read auth state inside the handler without re-subscribing the listener.
+  const authedRef = useRef(isAuthenticated);
+  useEffect(() => {
+    authedRef.current = isAuthenticated;
+  }, [isAuthenticated]);
+
+  useEffect(() => {
+    const onExpired = () => {
+      // Nothing to expire on the login screen (or right after a logout).
+      if (!authedRef.current) return;
+      toast.error(
+        'انتهت الجلسة — من فضلك سجّل الدخول من جديد. (Session expired — please log in again.)',
+        'انتهت الجلسة'
+      );
+      // Clears the stored session → ProtectedRoute redirects to /login.
+      logout();
+    };
+    window.addEventListener(SESSION_EXPIRED_EVENT, onExpired);
+    return () => window.removeEventListener(SESSION_EXPIRED_EVENT, onExpired);
+  }, [toast, logout]);
+
+  return null;
+}
+
 function ProtectedRoute() {
   const { isAuthenticated } = useAuth();
   const location = useLocation();
@@ -271,28 +315,50 @@ function App() {
         const { getDB } = await import('./repositories/indexeddb/db');
         await getDB();
 
-        // Cloud restore in background — never blocks POS UI for long
+        // Cloud restore in background — never blocks POS UI for long.
         resetHydrateCache();
         if (navigator.onLine) {
-          void hydrateFromCloud(true)
-            .then(async (result) => {
-              if (import.meta.env.DEV) {
-                console.debug('[App boot] cloud hydrate:', result);
-              }
-              // If wipe left everything empty, try last full snapshot
-              try {
-                const { restoreFromSnapshotIfNeeded, startSnapshotScheduler } = await import(
-                  './services/snapshotService'
-                );
-                await restoreFromSnapshotIfNeeded(result);
-                startSnapshotScheduler();
-              } catch (snapErr) {
-                console.warn('[App boot] snapshot restore/schedule failed:', snapErr);
-              }
-              await syncService.resetDeadRecords();
-              await syncService.syncPendingData();
-            })
-            .catch((err) => console.warn('[App boot] hydrate/sync failed:', err));
+          // Only touch the AUTHENTICATED cloud endpoints when a session actually
+          // exists. Before login there is no cookie, so an unconditional boot
+          // hydrate fired a 401 at every collection (orders, menu, customers,
+          // inventory, companies, recipes, transactions, settings) — a needless
+          // 401 storm that also masked the real outage. Probe the session once
+          // via GET /v1/session (its sanctioned status check: 401 → null when
+          // unauthenticated, no storm). After login, DataProvider (mounted inside
+          // ProtectedRoute) performs the hydrate; on an authenticated reload the
+          // still-valid cookie makes this probe succeed and we hydrate here too.
+          const hasSession = isCloudConfigured()
+            ? !!(getSessionRole() || (await refreshCloudSessionRole()))
+            : false;
+
+          if (hasSession) {
+            void hydrateFromCloud(true)
+              .then(async (result) => {
+                if (import.meta.env.DEV) {
+                  console.debug('[App boot] cloud hydrate:', result);
+                }
+                // If wipe left everything empty, try last full snapshot
+                try {
+                  const { restoreFromSnapshotIfNeeded, startSnapshotScheduler } = await import(
+                    './services/snapshotService'
+                  );
+                  await restoreFromSnapshotIfNeeded(result);
+                  startSnapshotScheduler();
+                } catch (snapErr) {
+                  console.warn('[App boot] snapshot restore/schedule failed:', snapErr);
+                }
+                await syncService.resetDeadRecords();
+                await syncService.syncPendingData();
+              })
+              .catch((err) => console.warn('[App boot] hydrate/sync failed:', err));
+          } else {
+            // Not signed in yet — skip cloud reads to avoid pre-login 401s. Data
+            // hydrates right after login. Still start the snapshot scheduler so
+            // backups resume automatically once a session is established.
+            void import('./services/snapshotService')
+              .then((m) => m.startSnapshotScheduler())
+              .catch(() => {});
+          }
         } else {
           // Offline: still start snapshot scheduler for when we come back online
           void import('./services/snapshotService')
@@ -320,6 +386,7 @@ function App() {
     <AuthProvider>
       <LanguageProvider>
         <ToastProvider>
+          <SessionExpiryWatcher />
           <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
             <AppRoutes />
           </Router>
