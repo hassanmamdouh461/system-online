@@ -185,14 +185,24 @@ npx wrangler login
 npx wrangler d1 create system-online-db
 # put database_id into wrangler.toml
 npx wrangler d1 execute system-online-db --remote --file=schema.sql
+npx wrangler secret put SESSION_SECRET          # REQUIRED — signs session cookies
 npx wrangler deploy
+
+# One-time: seed the login credentials into D1, or every login 401s.
+# (Password stays local; only a PBKDF2 hash is written.)
+cd ..
+MANAGER_PASSWORD='…' CASHIER_PASSWORD='…' node scripts/seed-manager-credential.mjs
+cd cloudflare-worker
+npx wrangler d1 execute system-online-db --remote --file=../seed-credentials.sql
 ```
 
 Then set `VITE_CLOUDFLARE_WORKER_URL` to the deployed Worker URL and rebuild the frontend.
 
 API surface:
-- `POST /api/sync` — upsert/delete from the client sync queue
-- Appwrite-compatible REST style under `/v1/databases/.../collections/{menu_items|orders|customers|inventory|companies}/documents`
+- `POST/GET/DELETE /v1/session` — mint / probe / clear the session cookie (mint requires a valid credential)
+- `GET /api/health` — public liveness + D1 probe (no data); `GET /public/menu` — public QR menu
+- `POST /api/sync` — upsert/delete from the client sync queue (session required)
+- Appwrite-compatible REST style under `/v1/databases/.../collections/{menu_items|orders|customers|inventory|companies}/documents` (session required)
 
 ---
 
@@ -219,8 +229,9 @@ online-system/
 
 ## 🔐 Notes
 
-- **Auth is client-side** for demo/local POS use — change the default password before any real deployment. Passwords are stored **hashed** (PBKDF2 / SHA-256 / random salt via Web Crypto); the one-time `123` bootstrap password only works until a real password is set, after which it is permanently disabled.
-- **The Cloudflare Worker is fail-closed.** It refuses every request with `503` unless an `API_KEY` secret is configured, rejects requests whose `X-API-Key` header does not match (`401`), and only emits CORS headers for origins listed in `ALLOWED_ORIGINS` (no wildcard reflection). Configure both secrets before exposing it to the internet.
+- **Auth is a role-bearing session cookie.** The operator signs in with the manager/cashier password; the browser hands it to the Worker (`POST /v1/session`), which verifies it against PBKDF2 (SHA-256, 100k, random salt) hashes stored in D1 and sets an HMAC-signed HttpOnly cookie carrying the role. Passwords are never stored in plaintext, and the client never holds an API key. The one-time `123` bootstrap password only works on a brand-new install until a real password is set, after which it is permanently disabled.
+- **The Cloudflare Worker is fail-closed.** It refuses to mint sessions (`503`) unless the `SESSION_SECRET` secret is set, returns `401` for any request without a valid session cookie (or role-scoped key), and emits CORS headers only for origins in `ALLOWED_ORIGINS` (no wildcard reflection). Cookie writes are additionally CSRF-guarded (strict `Origin` allowlist + double-submit `X-CSRF-Token`). Set `SESSION_SECRET` and `ALLOWED_ORIGINS`, then **seed the login credentials** before use — see [`cloudflare-worker/README.md`](./cloudflare-worker/README.md) (there is no `API_KEY`/`X-API-Key` requirement for the browser POS anymore).
+- **First-run login deadlock:** a fresh D1 has no credential rows, so login `401`s until you seed them once with `scripts/seed-manager-credential.mjs` (see the Worker README's Recovery section).
 - Seed data (menu + inventory) is applied automatically on first IndexedDB open — no separate seed script required.
 
 ---

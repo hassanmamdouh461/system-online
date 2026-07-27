@@ -1,7 +1,29 @@
 # Operational scripts
 
-One-off diagnostic and infrastructure scripts. **None of these are referenced by
-`package.json`** — they are run manually by an operator, not by the build.
+One-off diagnostic and infrastructure scripts. Apart from
+`seed-manager-credential.mjs` (below), these are run manually by an operator,
+not by the build.
+
+## `seed-manager-credential.mjs` — bootstrap the POS login credentials
+
+The supported recovery path for the **first-run / locked-out login deadlock**:
+the Worker verifies logins against PBKDF2 credential rows in D1
+(`brewmaster_manager_creds_v1` / `brewmaster_admin_creds_v2`), but a fresh D1
+has none, so `POST /v1/session` `401`s and the POS renders empty. This script
+derives the exact same hash the browser POS produces and emits a ready
+`wrangler d1 execute` seed file. The password is supplied at run time and never
+committed.
+
+```bash
+MANAGER_PASSWORD='…' CASHIER_PASSWORD='…' node scripts/seed-manager-credential.mjs
+cd cloudflare-worker
+npx wrangler d1 execute system-online-db --remote --file=../seed-credentials.sql
+# also exposed as: npm run seed:creds   (from cloudflare-worker/)
+```
+
+Its KDF is pinned to the Worker by
+`cloudflare-worker/test/seed-bootstrap.integration.test.mts`. See
+`cloudflare-worker/README.md` → *Recovery* for the full runbook.
 
 ## Required environment variables
 
