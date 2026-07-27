@@ -222,7 +222,31 @@ export function getAdminCredentials() {
   return readStoredCredentials(LS_ADMIN_CREDS_KEY);
 }
 
+/**
+ * Persist a new cashier credential. When cloud sync is configured and a session
+ * is active, the D1 write must be PERMITTED (current role is manager) before
+ * localStorage is touched — otherwise D1 keeps the old hash and the next login
+ * mints against it, producing a 401 that bricks the cloud session. The UI
+ * should prevent reaching this path from a cashier session, but this check is
+ * defense-in-depth.
+ *
+ * @throws {Error} with code `credential_sync_denied` when the current session
+ *   role cannot push this key to D1 — the caller must surface the error
+ *   without altering localStorage.
+ */
 export async function setAdminCredentials(username: string, password: string): Promise<void> {
+  const { canPushSettingKey } = await import('../services/settingsCloudService');
+  const { isCloudConfigured } = await import('../services/cloudConfig');
+  // Only gate on role when cloud sync is live — a purely offline install has no
+  // D1 divergence risk and must remain self-service.
+  if (isCloudConfigured() && !canPushSettingKey(LS_ADMIN_CREDS_KEY)) {
+    const err = new Error(
+      'credential_sync_denied: تغيير كلمة المرور يحتاج صلاحية مدير. ' +
+      '/ Changing login passwords requires manager access.'
+    );
+    err.name = 'CredentialSyncDenied';
+    throw err;
+  }
   const { hash, salt } = await hashPassword(password);
   const payload = JSON.stringify({ username, hash, salt });
   localStorage.setItem(LS_ADMIN_CREDS_KEY, payload);
@@ -275,7 +299,24 @@ export function getManagerCredentials() {
   return readStoredCredentials(LS_MANAGER_CREDS_KEY);
 }
 
+/**
+ * Persist a new manager credential. Same defense-in-depth as setAdminCredentials:
+ * refuse to update localStorage unless the D1 write is permitted.
+ *
+ * @throws {Error} with code `credential_sync_denied` when the current session
+ *   role cannot push this key to D1.
+ */
 export async function setManagerCredentials(username: string, password: string): Promise<void> {
+  const { canPushSettingKey } = await import('../services/settingsCloudService');
+  const { isCloudConfigured } = await import('../services/cloudConfig');
+  if (isCloudConfigured() && !canPushSettingKey(LS_MANAGER_CREDS_KEY)) {
+    const err = new Error(
+      'credential_sync_denied: تغيير كلمة المرور يحتاج صلاحية مدير. ' +
+      '/ Changing login passwords requires manager access.'
+    );
+    err.name = 'CredentialSyncDenied';
+    throw err;
+  }
   const { hash, salt } = await hashPassword(password);
   const payload = JSON.stringify({ username, hash, salt });
   localStorage.setItem(LS_MANAGER_CREDS_KEY, payload);
