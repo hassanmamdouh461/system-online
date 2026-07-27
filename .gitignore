@@ -58,6 +58,13 @@ typings/
 .env
 .env.test
 
+# Generated credential seed + D1 backups (contain PBKDF2 hashes / live data —
+# produced by scripts/seed-manager-credential.mjs and `wrangler d1 export`).
+# Apply them, then delete; never commit.
+seed-credentials.sql
+seed-manager.sql
+pre-v*.sql
+
 # parcel-bundler cache (https://parceljs.org/)
 .cache
 
