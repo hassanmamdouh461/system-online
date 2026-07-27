@@ -189,6 +189,35 @@ export function PaymentModal({
     };
   }, [isOpen, order?.id]);
 
+  // Refund authority = the server-verified manager role baked into the session
+  // cookie by the Worker — NOT a per-device localStorage PIN (the old gate was
+  // skipped whenever no PIN happened to be saved on that browser). Refresh the
+  // role whenever the refund step opens so the UI matches what the server allows.
+  //
+  // MUST stay above the `if (!isOpen || !order) return null` early return below:
+  // a hook called after a conditional return runs in a different order between
+  // renders, which is a React rules-of-hooks violation (it broke `npm run lint`
+  // and risks a "rendered more hooks than during the previous render" crash on
+  // this — the payment/refund — screen). The `!isOpen` guard inside the effect
+  // already makes it a no-op while the modal is closed, so hoisting it changes
+  // no behaviour.
+  useEffect(() => {
+    if (!isOpen || step !== 'refund') return;
+    let alive = true;
+    void (async () => {
+      await ensureCloudSession();
+      // getSessionRole() is null right after a reload (in-memory role is gone),
+      // even when the cookie is still valid — probe the Worker so a signed-in
+      // manager is not wrongly shown the "manager-only" gate.
+      let r = getSessionRole();
+      if (r == null) r = await refreshCloudSessionRole();
+      if (alive) setRefundAuthRole(r);
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [isOpen, step]);
+
   if (!isOpen || !order) return null;
 
   // Single piaster-exact resolution of the frozen money triple (see utils/money).
@@ -326,26 +355,9 @@ export function PaymentModal({
     );
   };
 
-  // Refund authority = the server-verified manager role baked into the session
-  // cookie by the Worker — NOT a per-device localStorage PIN (the old gate was
-  // skipped whenever no PIN happened to be saved on that browser). Refresh the
-  // role whenever the refund step opens so the UI matches what the server allows.
-  useEffect(() => {
-    if (!isOpen || step !== 'refund') return;
-    let alive = true;
-    void (async () => {
-      await ensureCloudSession();
-      // getSessionRole() is null right after a reload (in-memory role is gone),
-      // even when the cookie is still valid — probe the Worker so a signed-in
-      // manager is not wrongly shown the "manager-only" gate.
-      let r = getSessionRole();
-      if (r == null) r = await refreshCloudSessionRole();
-      if (alive) setRefundAuthRole(r);
-    })();
-    return () => {
-      alive = false;
-    };
-  }, [isOpen, step]);
+  // NOTE: the refund-authority effect that used to live here was hoisted above
+  // the `if (!isOpen || !order) return null` early return — see the comment on
+  // that hook. Calling it here made it a conditional hook.
 
   const handleRefundSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
