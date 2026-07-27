@@ -22,22 +22,26 @@ type ModalKey = 'profile' | 'store' | 'qr' | 'telegram' | null;
 
 export default function Settings() {
   const [openModal, setOpenModal] = useState<ModalKey>(null);
-  const { logout } = useAuth();
+  const { logout, user } = useAuth();
   const { language } = useLanguage();
+  const isManager = user?.role === 'manager';
 
   const sections = [
-    {
-      title: language === 'ar' ? 'الحساب' : 'Account',
-      items: [
-        {
-          icon: User,
-          label: language === 'ar' ? 'حسابي' : 'My Account',
-          desc: language === 'ar' ? 'تغيير كلمة مرور الدخول' : 'Change login password',
-          onClick: () => setOpenModal('profile'),
-        },
-
-      ],
-    },
+    ...(isManager
+      ? [
+          {
+            title: language === 'ar' ? 'الحساب' : 'Account',
+            items: [
+              {
+                icon: User,
+                label: language === 'ar' ? 'حسابي' : 'My Account',
+                desc: language === 'ar' ? 'تغيير كلمة مرور الدخول' : 'Change login password',
+                onClick: () => setOpenModal('profile'),
+              },
+            ],
+          },
+        ]
+      : []),
     {
       title: language === 'ar' ? 'المتجر والفرع' : 'Store & Branch',
       items: [
