@@ -43,7 +43,11 @@ function mapOrder(doc: any): Order {
     tableId: doc.tableId || 'Takeaway',
     items,
     status: (doc.status as Order['status']) || 'Completed',
-    paymentStatus: (doc.paymentStatus as Order['paymentStatus']) || 'Paid',
+    // Unpaid is the safe default and matches the Worker + D1 schema
+    // (cloudflare-worker/src/index.ts, schema DEFAULT 'Unpaid'). Defaulting to
+    // 'Paid' counted any row with a missing/empty payment status as collected
+    // revenue, inflating sales reports and hiding it from receivables.
+    paymentStatus: (doc.paymentStatus as Order['paymentStatus']) || 'Unpaid',
     paymentMethod: (doc.paymentMethod || doc.payment_method || 'Cash') as Order['paymentMethod'],
     totalAmount,
     ...(taxRate !== undefined ? { taxRate } : {}),
