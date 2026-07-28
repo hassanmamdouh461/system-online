@@ -8,6 +8,7 @@ import {
   getCloudSyncSince,
   setCloudSyncSince,
   newestRemoteTimestamp,
+  getSessionRole,
 } from '../../services/cloudConfig';
 
 function mapRemoteMenu(doc: any): MenuItem {
@@ -27,7 +28,24 @@ function mapRemoteMenu(doc: any): MenuItem {
   };
 }
 
+/**
+ * May the CURRENT session push menu writes to the cloud?
+ *
+ * Mirrors canPushSettingKey in settingsCloudService: menu_items (and recipes)
+ * are in the Worker's CASHIER_READONLY_TABLES, so any cashier write can only
+ * 403 on the server and leave a dead sync-queue row that poisons the queue
+ * ("failed" badge, blocked retries). A cashier session — or one that has not
+ * minted a role yet (null) — skips the push entirely; a manager device owns
+ * the menu write. The local IndexedDB write still happens (the caller), we
+ * only suppress the doomed cloud round-trip.
+ */
+function canPushMenuWrite(): boolean {
+  return getSessionRole() === 'manager';
+}
+
 async function pushMenuImmediate(item: MenuItem, action: 'create' | 'update' | 'delete') {
+  // Cashier devices never enqueue/push menu writes (see canPushMenuWrite).
+  if (!canPushMenuWrite()) return;
   try {
     if (action === 'delete') {
       const now = item.deletedAt || new Date().toISOString();
@@ -181,6 +199,9 @@ export class IndexedDbMenuRepository implements IMenuRepository {
 
   /** Push entire local menu to D1 when cloud is empty */
   async bootstrapPushAll(items?: MenuItem[]): Promise<number> {
+    // Cashier devices never push menu writes (see canPushMenuWrite): the server
+    // would 403 every row and fill the queue with dead records.
+    if (!canPushMenuWrite()) return 0;
     const list =
       items || ((await withDB((db) => db.getAll('menu_items'))) as MenuItem[]);
     if (!list.length) return 0;
