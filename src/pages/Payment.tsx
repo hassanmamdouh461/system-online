@@ -20,6 +20,7 @@ import { useLanguage } from '../context/LanguageContext';
 import {
   getTaxRate,
 } from '../utils/settingsConfig';
+import { isMoney } from '../utils/money';
 import { customersService } from '../services/customersService';
 import { companiesService } from '../services/companiesService';
 import { Customer } from '../types/customer';
@@ -484,12 +485,24 @@ export default function Payment() {
       const order = allOrders.find(o => o.id === payload.orderId);
       // Piaster-exact frozen triple — these three fields are written to the DB,
       // so they must never carry float drift (see utils/money).
+      //
+      // Do NOT unconditionally re-derive: zeroing grandTotal + recomputing at
+      // the CURRENT tax rate would re-price an old order (e.g. a deferred /
+      // on-account collection created before a tax-rate change) with the wrong
+      // tax. When the order carries a real frozen tax snapshot (taxAmount, or
+      // an explicit taxRate), getOrderMoney already honors it — so keep the
+      // frozen grandTotal in that case. Only force a re-derivation from the
+      // subtotal at the current rate when the order has NO tax snapshot at all
+      // (a genuinely legacy order with neither taxAmount nor taxRate).
+      const hasFrozenTaxSnapshot =
+        (order?.taxAmount != null && isMoney(order.taxAmount)) ||
+        (order?.taxRate != null && isMoney(order.taxRate));
       const { taxRate, taxAmount, grandTotal } = getOrderMoney(
         {
           totalAmount: order?.totalAmount ?? 0,
           taxRate: order?.taxRate,
           taxAmount: order?.taxAmount,
-          grandTotal: undefined, // always re-derive from subtotal + tax at settle time
+          grandTotal: hasFrozenTaxSnapshot ? order?.grandTotal : undefined,
         },
         getTaxRate()
       );
