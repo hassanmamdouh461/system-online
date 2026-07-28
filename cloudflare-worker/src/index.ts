@@ -443,11 +443,22 @@ export default {
                                 .map(k => `${k} = excluded.${k}`)
                                 .join(", ");
 
+            // Last-writer-wins freshness guard. Two devices can race an upsert on
+            // the same row (inventory stock moves are the classic case); without a
+            // freshness check the LATER arrival silently overwrites a NEWER row.
+            // For tables with an updated-at column, only apply the conflict update
+            // when the incoming row is strictly newer than the stored one. The
+            // INSERT path (genuinely new id) is unaffected.
+            const updatedAtCol = UPDATED_AT_COLUMN[table];
+            const freshness = updatedAtCol
+              ? ` WHERE excluded.${updatedAtCol} > ${table}.${updatedAtCol}`
+              : "";
+
             const sql = `
               INSERT INTO ${table} (${columns})
               VALUES (${placeholders})
               ON CONFLICT(id) DO UPDATE SET
-                ${updates}
+                ${updates}${freshness}
             `;
 
             const values = keys.map(k => normalized[k]);
@@ -609,11 +620,17 @@ export default {
                             .map(k => `${k} = excluded.${k}`)
                             .join(", ");
 
+        // Last-writer-wins freshness guard — see the /api/sync upsert above.
+        const updatedAtCol = UPDATED_AT_COLUMN[table];
+        const freshness = updatedAtCol
+          ? ` WHERE excluded.${updatedAtCol} > ${table}.${updatedAtCol}`
+          : "";
+
         const sql = `
           INSERT INTO ${table} (${columns})
           VALUES (${placeholders})
           ON CONFLICT(id) DO UPDATE SET
-            ${updates}
+            ${updates}${freshness}
         `;
 
         const values = keys.map(k => data[k]);
