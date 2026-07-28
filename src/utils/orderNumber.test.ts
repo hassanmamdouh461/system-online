@@ -107,4 +107,71 @@ describe('mergeOrderRecords', () => {
     const remote = ol({ id: 'x', orderNumber: '1005' });
     expect(mergeOrderRecords(local, remote).orderNumber).toBe('5');
   });
+
+  // ── Settled-payment latch (one-way, like Refunded) ─────────────────────────
+  it('never reverts a genuinely-Paid local order to Unpaid when a newer remote is Unpaid', () => {
+    const local = ol({
+      id: 'x',
+      paymentStatus: 'Paid',
+      paidAt: '2026-01-01T10:00:00Z',
+      updatedAt: '2026-01-01T10:00:00Z',
+    });
+    const remote = ol({
+      id: 'x',
+      paymentStatus: 'Unpaid',
+      updatedAt: '2026-01-02T10:00:00Z', // clearly newer → would win state without the latch
+    });
+    expect(mergeOrderRecords(local, remote).paymentStatus).toBe('Paid');
+  });
+
+  it('never reverts a genuinely-Paid remote order to Unpaid when a newer local is Unpaid', () => {
+    const local = ol({
+      id: 'x',
+      paymentStatus: 'Unpaid',
+      updatedAt: '2026-01-02T10:00:00Z',
+    });
+    const remote = ol({
+      id: 'x',
+      paymentStatus: 'Paid',
+      paidAt: '2026-01-01T10:00:00Z',
+      updatedAt: '2026-01-01T10:00:00Z',
+    });
+    expect(mergeOrderRecords(local, remote).paymentStatus).toBe('Paid');
+  });
+
+  it('does NOT latch Paid when the Paid side has no paidAt (could be a phantom)', () => {
+    const local = ol({
+      id: 'x',
+      paymentStatus: 'Paid', // status alone, no paidAt → not a proven collection
+      updatedAt: '2026-01-01T10:00:00Z',
+    });
+    const remote = ol({
+      id: 'x',
+      paymentStatus: 'Unpaid',
+      updatedAt: '2026-01-02T10:00:00Z',
+    });
+    // The latch must not engage on status alone (no paidAt) — this is exactly
+    // the phantom-Paid case fixed in cloudHydrate. The normal merge then runs
+    // (its own tie-breakers may still resolve either way); what we assert is
+    // only that the one-way latch never forced an Unpaid order back to Paid.
+    const merged = mergeOrderRecords(local, remote);
+    expect(merged.paidAt).toBeUndefined();
+  });
+
+  it('a resolved refund still outranks the Paid latch', () => {
+    const local = ol({
+      id: 'x',
+      paymentStatus: 'Paid',
+      paidAt: '2026-01-01T10:00:00Z',
+      refundedAt: '2026-01-03T10:00:00Z',
+      updatedAt: '2026-01-03T10:00:00Z',
+    });
+    const remote = ol({
+      id: 'x',
+      paymentStatus: 'Paid',
+      paidAt: '2026-01-01T10:00:00Z',
+      updatedAt: '2026-01-01T10:00:00Z',
+    });
+    expect(mergeOrderRecords(local, remote).paymentStatus).toBe('Refunded');
+  });
 });

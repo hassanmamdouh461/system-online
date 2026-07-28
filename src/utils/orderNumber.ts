@@ -214,6 +214,16 @@ export function mergeOrderRecords(local: OrderLike | undefined, remote: OrderLik
     local.paymentStatus === 'Refunded' ||
     remote.paymentStatus === 'Refunded';
 
+  // A settled payment is a one-way latch, same as Refunded. Once ANY side has
+  // genuinely recorded the order as Paid (status 'Paid' backed by a paidAt
+  // timestamp), the merged order must never revert to 'Unpaid' — the merge is
+  // otherwise decided by updatedAt from client device clocks, and a stale or
+  // fast clock on a second device could resurrect a real collected payment
+  // into 'Unpaid', silently re-counting settled revenue as a receivable.
+  const latchedPaid =
+    (local.paymentStatus === 'Paid' && !!local.paidAt) ||
+    (remote.paymentStatus === 'Paid' && !!remote.paidAt);
+
   return {
     // Note: the spread below layers remote on top of local. The explicit keys
     // after it override the spread so local identity (company/customer) is
@@ -254,14 +264,18 @@ export function mergeOrderRecords(local: OrderLike | undefined, remote: OrderLik
     // when remote is clearly newer (e.g. a refund landed in D1 first). A
     // resolved refund is terminal and overrides this (see isRefunded above),
     // so an order that was refunded on any device can never revert to 'Paid'
-    // and be re-counted as revenue.
+    // and be re-counted as revenue. Likewise a genuinely settled payment is
+    // latched (see latchedPaid): a real collection can never revert to
+    // 'Unpaid' on a stale/second-device clock. Refund outranks Paid.
     paymentStatus: isRefunded
       ? 'Refunded'
-      : localWinsPayment
-        ? (local.paymentStatus || remote.paymentStatus)
-        : remoteWinsState
-          ? (remote.paymentStatus || local.paymentStatus)
-          : (local.paymentStatus || remote.paymentStatus),
+      : latchedPaid
+        ? 'Paid'
+        : localWinsPayment
+          ? (local.paymentStatus || remote.paymentStatus)
+          : remoteWinsState
+            ? (remote.paymentStatus || local.paymentStatus)
+            : (local.paymentStatus || remote.paymentStatus),
     paymentMethod: localWinsPayment
       ? (local.paymentMethod || remote.paymentMethod)
       : remoteWinsState
