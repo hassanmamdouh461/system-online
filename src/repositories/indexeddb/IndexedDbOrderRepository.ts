@@ -457,13 +457,14 @@ export class IndexedDbOrderRepository implements IOrderRepository {
   }
 
   async delete(id: string): Promise<void> {
+    let tombstone: Order | undefined;
     await enqueueWrite(async () => {
       await withDB(async (db) => {
         const now = new Date().toISOString();
         // Soft-delete: write a tombstone row instead of hard-deleting.
         // This prevents cloud hydrate from resurrecting the order.
         const existing = await db.get('orders', id) as Order | undefined;
-        const tombstone: Order = {
+        tombstone = {
           ...(existing || {} as Order),
           id,
           deletedAt: now,
@@ -483,9 +484,26 @@ export class IndexedDbOrderRepository implements IOrderRepository {
         } catch {
           // ignore
         }
-        void syncService.syncPendingData();
       });
     });
+
+    // Push the tombstone to the cloud NOW so it persists in D1 and every other
+    // device learns the order was deleted. Previously this relied solely on
+    // syncPendingData() draining the queue: if the browser closed first, the
+    // tombstone never reached D1 and the "deleted" order reappeared on the
+    // next hydrate on every device (same fix as the customer repository).
+    if (!tombstone) return;
+    try {
+      const { cloudUpsert, ackSyncQueueForEntity } = await import('../../services/cloudConfig');
+      const ok = await cloudUpsert('orders', id, tombstone as unknown as Record<string, any>);
+      if (ok) {
+        await ackSyncQueueForEntity(id);
+      } else {
+        void syncService.syncPendingData();
+      }
+    } catch {
+      void syncService.syncPendingData();
+    }
   }
 
 
