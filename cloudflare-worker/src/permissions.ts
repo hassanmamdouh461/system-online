@@ -80,6 +80,7 @@ export const CASHIER_FORBIDDEN_SETTING_KEYS: readonly string[] = [
   "brewmaster_telegram_config",
   "brewmaster_telegram_bot_token",
   "brewmaster_telegram_chat_id",
+  "brewmaster_telegram_config_enc",
 ];
 
 /**
@@ -124,6 +125,7 @@ export const CASHIER_FORBIDDEN_READ_SETTING_KEYS: readonly string[] = [
   "brewmaster_telegram_config",
   "brewmaster_telegram_bot_token",
   "brewmaster_telegram_chat_id",
+  "brewmaster_telegram_config_enc",
 ];
 
 /**

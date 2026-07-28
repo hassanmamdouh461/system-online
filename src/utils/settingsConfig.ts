@@ -425,15 +425,14 @@ export function getTelegramConfig(): TelegramConfig {
 }
 
 export function setTelegramConfig(config: TelegramConfig): void {
-  // SECURITY: the Telegram bot token is a plaintext credential. It is stored
-  // DEVICE-LOCAL only and is deliberately NOT pushed to Cloudflare D1 — a synced
-  // token sat in a shared settings row that every authenticated device (incl. a
-  // cashier till) could read, and it was copied into every snapshot payload. The
-  // daily report is sent from the manager's own device, which reads these
-  // localStorage values directly, so keeping them local does not break sending.
-  // (These keys were also removed from DURABLE_SETTING_KEYS so persist/hydrate/
-  // snapshot never carry them to the cloud.) There is intentionally no cloudPersist
-  // here anymore.
+  // SECURITY: the Telegram bot token is a plaintext credential. The PLAINTEXT
+  // token stays DEVICE-LOCAL (localStorage only) and is never pushed to D1 in
+  // the clear. The config IS now also persisted to the cloud — but with the
+  // token ENCRYPTED under a key derived from the manager's own password (see
+  // services/telegramCloudService + utils/secretBox), so it survives a browser
+  // wipe and restores on any manager device, while a cashier / snapshot / D1
+  // reader sees only ciphertext it cannot open. The legacy plaintext mirror
+  // keys below remain local-only for telegramService.getStoredConfig().
   localStorage.setItem(LS_TELEGRAM_CONFIG_KEY, JSON.stringify(config));
   // Mirror the legacy flat keys read by telegramService.getStoredConfig().
   if (config.botToken) {
@@ -445,6 +444,15 @@ export function setTelegramConfig(config: TelegramConfig): void {
     localStorage.setItem('brewmaster_telegram_chat_id', config.chatId);
   } else {
     localStorage.removeItem('brewmaster_telegram_chat_id');
+  }
+  // Fire-and-forget encrypted cloud persist (manager sessions only; never
+  // blocks the UI, and pushes ciphertext — never the plaintext token).
+  try {
+    void import('../services/telegramCloudService').then((m) =>
+      m.persistTelegramConfigToCloud(config)
+    );
+  } catch {
+    // ignore
   }
 }
 

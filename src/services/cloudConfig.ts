@@ -131,6 +131,17 @@ export function getSessionRole(): 'manager' | 'cashier' | null {
 }
 
 /**
+ * The operator's raw password, held in memory only since login (never
+ * persisted). Used to derive the AES key that encrypts/decrypts cloud-stored
+ * secrets (e.g. the Telegram bot token) so only the manager can read them.
+ * Returns null when no live credential is held (e.g. after a reload where only
+ * the HttpOnly cookie survives).
+ */
+export function getSessionCredential(): string | null {
+  return sessionCredential;
+}
+
+/**
  * Resolve the session role from the Worker WITHOUT a password.
  *
  * After a page reload the in-memory credential and role are gone, but the 12h

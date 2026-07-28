@@ -163,6 +163,24 @@ export function useDailyTelegramReport(orders: readonly Order[]): void {
       // that finds a live lock skips its tick entirely.
       if (!tryAcquireReportLock()) return;
 
+      // Cross-DEVICE claim: the localStorage lock cannot coordinate two
+      // different manager devices, so claim the business day on D1 first. Only
+      // one manager device wins; the rest get claimed:false and skip (their
+      // local lock is released so a legitimately-due retry still works). This
+      // is fail-open — when offline/unconfigured it returns true and the local
+      // lock above remains the only layer.
+      const dayKey = localBusinessDayKey(now, getDayStartHour());
+      try {
+        const { claimDailyReportLock } = await import('../services/telegramCloudService');
+        const claimed = await claimDailyReportLock(dayKey);
+        if (!claimed) {
+          releaseReportLock();
+          return;
+        }
+      } catch {
+        // Fail open: a claim error must not silence a single device's report.
+      }
+
       const stats = computeDailyReportStats(ordersRef.current, getTaxRate(), now);
       const message = buildDailyReportMessage(stats, getBranchConfig().branchName, now);
 
@@ -173,7 +191,7 @@ export function useDailyTelegramReport(orders: readonly Order[]): void {
           return;
         }
         try {
-          localStorage.setItem(LS_LAST_AUTO_REPORT_KEY, localBusinessDayKey(now, getDayStartHour()));
+          localStorage.setItem(LS_LAST_AUTO_REPORT_KEY, dayKey);
         } catch {
           // Latch write failed — worst case a reload resends once today.
         }

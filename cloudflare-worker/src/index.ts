@@ -482,6 +482,51 @@ export default {
         }
       }
 
+      // 3b. Cross-device daily-report claim — POST /api/report/claim
+      // Only ONE manager device may send the automatic daily Telegram report per
+      // business day. localStorage (client-side lock) cannot coordinate across
+      // two DIFFERENT manager devices, so the first device to claim the day wins
+      // here; every other device gets 409 and skips its send. The claim is a
+      // unique settings row keyed by day — the INSERT is atomic, so two devices
+      // racing the same day cannot both win.
+      if (pathParts[0] === "api" && pathParts[1] === "report" && pathParts[2] === "claim" && request.method === "POST") {
+        if (role !== "manager") {
+          return new Response(JSON.stringify({ error: "Forbidden", message: "تقرير المبيعات اليومي متاح للمدير فقط.", code: "manager_only" }), {
+            status: 403, headers: { "Content-Type": "application/json", "X-Auth-Role": role, ...corsHeaders }
+          });
+        }
+        try {
+          const body: any = await request.json().catch(() => ({}));
+          const dayKey = String(body?.dayKey || "").trim();
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(dayKey)) {
+            return new Response(JSON.stringify({ error: "Bad Request", message: "dayKey must be YYYY-MM-DD" }), {
+              status: 400, headers: { "Content-Type": "application/json", ...corsHeaders }
+            });
+          }
+          const id = `report_claim::${dayKey}`;
+          const now = new Date().toISOString();
+          // Atomic first-writer-wins: the row id is the day lock. A second claim
+          // on the same day violates the PRIMARY KEY and we translate it to 409.
+          await env.DB.prepare(
+            `INSERT INTO settings (id, key, value, branch_id, updated_at) VALUES (?, ?, ?, ?, ?)`
+          ).bind(id, "brewmaster_daily_report_claim", now, MAIN_BRANCH_ID, now).run();
+          return new Response(JSON.stringify({ claimed: true, dayKey }), {
+            status: 200, headers: { "Content-Type": "application/json", ...corsHeaders }
+          });
+        } catch (e: any) {
+          const msg = String(e?.message || "");
+          if (/UNIQUE|PRIMARY KEY|constraint failed/i.test(msg)) {
+            return new Response(JSON.stringify({ claimed: false, reason: "already_claimed" }), {
+              status: 409, headers: { "Content-Type": "application/json", ...corsHeaders }
+            });
+          }
+          console.error('[Worker /api/report/claim Error]:', e);
+          return new Response(JSON.stringify({ error: "Claim Error", message: msg }), {
+            status: 500, headers: { "Content-Type": "application/json", ...corsHeaders }
+          });
+        }
+      }
+
       // 4. Handle /v1 REST routes
       if (pathParts[0] !== "v1") {
         return new Response(JSON.stringify({ error: "Not Found", message: "Route not supported" }), {

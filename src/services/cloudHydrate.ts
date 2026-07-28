@@ -265,6 +265,22 @@ export async function hydrateFromCloud(force = false): Promise<HydrateResult> {
       // for the bootstrap push below.
       const settingsCount = await hydrateSettingsFromCloud();
 
+      // Telegram config: restore the cloud copy (bot token encrypted). The
+      // non-sensitive fields (enabled/reportTime/chatId) always restore; the
+      // token decrypts only when a live manager credential is held. Only write
+      // localStorage when the cloud actually HAS a config — never clobber a
+      // good local config with an absent cloud one.
+      try {
+        const { hydrateTelegramConfigFromCloud } = await import('./telegramCloudService');
+        const tg = await hydrateTelegramConfigFromCloud();
+        if (tg) {
+          const { setTelegramConfig } = await import('../utils/settingsConfig');
+          setTelegramConfig(tg);
+        }
+      } catch (e) {
+        console.warn('[hydrate] telegram config restore failed:', e);
+      }
+
       // Housekeeping: a cashier till accumulates dead queue rows for manager-only
       // settings (server 403). Clear them so the "failed" sync badge reflects only
       // real failures. No-op for manager / not-yet-authenticated sessions.
