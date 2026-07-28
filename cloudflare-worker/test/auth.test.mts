@@ -91,8 +91,8 @@ async function main() {
   const managerCreds = await clientHashPassword(MANAGER_PASSWORD);
   const cashierCreds = await clientHashPassword(CASHIER_PASSWORD);
   const DB = makeStubDB({
-    brewmaster_manager_creds_v1: JSON.stringify({ username: "manager", ...managerCreds }),
-    brewmaster_admin_creds_v2: JSON.stringify({ username: "admin", ...cashierCreds }),
+    "global::brewmaster_manager_creds_v1": JSON.stringify({ username: "manager", ...managerCreds }),
+    "global::brewmaster_admin_creds_v2": JSON.stringify({ username: "admin", ...cashierCreds }),
   });
 
   const env: any = { DB, SESSION_SECRET: "unit-test-secret-do-not-ship" };

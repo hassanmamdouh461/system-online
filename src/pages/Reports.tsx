@@ -482,14 +482,14 @@ export default function Reports() {
                     <span className="font-semibold text-gray-800">{t('Takeaway')}</span>
                   </div>
                   <span className="font-bold text-mocha-700 tabular-nums">
-                    {orderModeStats.takeaway} {t('orders')} ({Math.round((orderModeStats.takeaway / orderModeStats.total) * 100)}%)
+                    {orderModeStats.takeaway} {t('orders')} ({orderModeStats.total ? Math.round((orderModeStats.takeaway / orderModeStats.total) * 100) : 0}%)
                   </span>
                 </div>
                 <div className="w-full h-3 bg-mocha-50 rounded-full overflow-hidden border border-mocha-100/50">
                   <motion.div
                     key={`takeaway-${dateRange}`}
                     initial={{ width: 0 }}
-                    animate={{ width: `${(orderModeStats.takeaway / orderModeStats.total) * 100}%` }}
+                    animate={{ width: `${orderModeStats.total ? (orderModeStats.takeaway / orderModeStats.total) * 100 : 0}%` }}
                     transition={{ duration: 0.8 }}
                     className="h-full bg-mocha-650 rounded-full"
                   />
@@ -503,14 +503,14 @@ export default function Reports() {
                     <span className="font-semibold text-gray-800">{t('Dine-in')}</span>
                   </div>
                   <span className="font-bold text-caramel-600 tabular-nums">
-                    {orderModeStats.dineIn} {t('orders')} ({Math.round((orderModeStats.dineIn / orderModeStats.total) * 100)}%)
+                    {orderModeStats.dineIn} {t('orders')} ({orderModeStats.total ? Math.round((orderModeStats.dineIn / orderModeStats.total) * 100) : 0}%)
                   </span>
                 </div>
                 <div className="w-full h-3 bg-caramel-50/50 rounded-full overflow-hidden border border-caramel-100/30">
                   <motion.div
                     key={`dinein-${dateRange}`}
                     initial={{ width: 0 }}
-                    animate={{ width: `${(orderModeStats.dineIn / orderModeStats.total) * 100}%` }}
+                    animate={{ width: `${orderModeStats.total ? (orderModeStats.dineIn / orderModeStats.total) * 100 : 0}%` }}
                     transition={{ duration: 0.8 }}
                     className="h-full bg-caramel rounded-full"
                   />
@@ -539,14 +539,14 @@ export default function Reports() {
                     <span className="font-semibold text-gray-800">{t('Paid Invoices')}</span>
                   </div>
                   <span className="font-bold text-green-700 tabular-nums">
-                    {invoiceStats.paidCount} ({Math.round((invoiceStats.paidCount / invoiceStats.totalCount) * 100)}%)
+                    {invoiceStats.paidCount} ({invoiceStats.totalCount ? Math.round((invoiceStats.paidCount / invoiceStats.totalCount) * 100) : 0}%)
                   </span>
                 </div>
                 <div className="w-full h-3 bg-green-50 rounded-full overflow-hidden border border-green-100/50">
                   <motion.div
                     key={`paid-invoices-${dateRange}`}
                     initial={{ width: 0 }}
-                    animate={{ width: `${(invoiceStats.paidCount / invoiceStats.totalCount) * 100}%` }}
+                    animate={{ width: `${invoiceStats.totalCount ? (invoiceStats.paidCount / invoiceStats.totalCount) * 100 : 0}%` }}
                     transition={{ duration: 0.8 }}
                     className="h-full bg-green-600 rounded-full"
                   />
@@ -563,14 +563,14 @@ export default function Reports() {
                     <span className="font-semibold text-gray-800">{t('Open Invoices')}</span>
                   </div>
                   <span className="font-bold text-amber-600 tabular-nums">
-                    {invoiceStats.openCount} ({Math.round((invoiceStats.openCount / invoiceStats.totalCount) * 100)}%)
+                    {invoiceStats.openCount} ({invoiceStats.totalCount ? Math.round((invoiceStats.openCount / invoiceStats.totalCount) * 100) : 0}%)
                   </span>
                 </div>
                 <div className="w-full h-3 bg-amber-50 rounded-full overflow-hidden border border-amber-100/30">
                   <motion.div
                     key={`open-invoices-${dateRange}`}
                     initial={{ width: 0 }}
-                    animate={{ width: `${(invoiceStats.openCount / invoiceStats.totalCount) * 100}%` }}
+                    animate={{ width: `${invoiceStats.totalCount ? (invoiceStats.openCount / invoiceStats.totalCount) * 100 : 0}%` }}
                     transition={{ duration: 0.8 }}
                     className="h-full bg-amber-500 rounded-full"
                   />

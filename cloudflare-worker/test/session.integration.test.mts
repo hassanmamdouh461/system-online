@@ -75,7 +75,7 @@ function makeStubDB(settings: Record<string, string>) {
 async function main() {
   const creds = await clientHashPassword(MANAGER_PASSWORD);
   const DB = makeStubDB({
-    brewmaster_manager_creds_v1: JSON.stringify({ username: "manager", ...creds }),
+    "global::brewmaster_manager_creds_v1": JSON.stringify({ username: "manager", ...creds }),
   });
   const env: any = {
     DB,

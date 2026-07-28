@@ -356,8 +356,36 @@ export function can(ctx: AuthzContext): Decision {
   if (table === "orders") return canWriteOrder(ctx);
   if (table === "inventory") return canWriteInventory(ctx);
 
-  // customers, companies, inventory_transactions: a cashier creates these
-  // during normal service. Deletion is already blocked above.
+  // customers / companies: a cashier may create and update during normal
+  // service, but must not soft-delete — a tombstone is DELETE by another name
+  // and removes the receivables ledger from every device.
+  if (table === "customers" || table === "companies") return canWriteCustomerOrCompany(ctx);
+
+  // inventory_transactions: append-only ledger, no soft-delete column.
+  return ALLOW;
+}
+
+/**
+ * A cashier may create or edit a customer/company row, but may never write or
+ * clear its `deleted_at` tombstone. That field is DELETE by another name; the
+ * manager-only DELETE guard above is meaningless if the same cashier can flip
+ * `deleted_at` via a POST/PATCH upsert.
+ */
+function canWriteCustomerOrCompany(ctx: AuthzContext): Decision {
+  const submitted = ctx.submitted || {};
+  const current = ctx.current || null;
+
+  // Creating a new row is fine — a cashier adds walk-in customers every shift.
+  if (!current) return ALLOW;
+
+  const changed = changedFields(submitted, current);
+  if (changed.includes("deleted_at")) {
+    return deny(
+      "cashier_soft_delete_forbidden",
+      "حذف العميل أو الشركة غير مسموح لصلاحية الكاشير — تحتاج صلاحية مدير."
+    );
+  }
+
   return ALLOW;
 }
 

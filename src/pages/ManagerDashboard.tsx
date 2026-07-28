@@ -1204,7 +1204,7 @@ export default function ManagerDashboard() {
                     <span className="font-extrabold text-gray-800">{t('Takeaway')}</span>
                   </div>
                   <span className="font-bold text-mocha-700 tabular-nums">
-                    {processedData.takeawayCount} {t('orders')} ({Math.round((processedData.takeawayCount / processedData.totalCount) * 100)}%)
+                    {processedData.takeawayCount} {t('orders')} ({processedData.totalCount ? Math.round((processedData.takeawayCount / processedData.totalCount) * 100) : 0}%)
                   </span>
                 </div>
                 <div className="w-full h-3 bg-mocha-50 rounded-full overflow-hidden border border-mocha-100/50">
@@ -1225,7 +1225,7 @@ export default function ManagerDashboard() {
                     <span className="font-extrabold text-gray-800">{t('Dine-in')}</span>
                   </div>
                   <span className="font-bold text-caramel-600 tabular-nums">
-                    {processedData.dineInCount} {t('orders')} ({Math.round((processedData.dineInCount / processedData.totalCount) * 100)}%)
+                    {processedData.dineInCount} {t('orders')} ({processedData.totalCount ? Math.round((processedData.dineInCount / processedData.totalCount) * 100) : 0}%)
                   </span>
                 </div>
                 <div className="w-full h-3 bg-caramel-50/50 rounded-full overflow-hidden border border-caramel-100/30">
@@ -1262,7 +1262,7 @@ export default function ManagerDashboard() {
               <div className="space-y-1.5">
                 <div className="flex justify-between text-xs md:text-sm font-bold text-gray-700">
                   <span className="flex items-center gap-1.5">{t('Paid Invoices')}</span>
-                  <span>{processedData.paidCount} ({Math.round((processedData.paidCount / processedData.totalCount) * 100)}%)</span>
+                  <span>{processedData.paidCount} ({processedData.totalCount ? Math.round((processedData.paidCount / processedData.totalCount) * 100) : 0}%)</span>
                 </div>
                 <div className="w-full h-2.5 bg-green-50 rounded-full overflow-hidden border border-green-100/50">
                   <motion.div
@@ -1281,7 +1281,7 @@ export default function ManagerDashboard() {
               <div className="space-y-1.5">
                 <div className="flex justify-between text-xs md:text-sm font-bold text-gray-700">
                   <span className="flex items-center gap-1.5">{t('Open Invoices')}</span>
-                  <span>{processedData.unpaidCount} ({Math.round((processedData.unpaidCount / processedData.totalCount) * 100)}%)</span>
+                  <span>{processedData.unpaidCount} ({processedData.totalCount ? Math.round((processedData.unpaidCount / processedData.totalCount) * 100) : 0}%)</span>
                 </div>
                 <div className="w-full h-2.5 bg-amber-50 rounded-full overflow-hidden border border-amber-100/30">
                   <motion.div

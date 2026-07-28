@@ -250,9 +250,14 @@ export async function setAdminCredentials(username: string, password: string): P
   const { hash, salt } = await hashPassword(password);
   const payload = JSON.stringify({ username, hash, salt });
   localStorage.setItem(LS_ADMIN_CREDS_KEY, payload);
-  cloudPersist(LS_ADMIN_CREDS_KEY, payload);
-  // Setting a real password dismisses the default-password warning.
-  if (password !== BOOTSTRAP_PASSWORD) clearMustChangePassword();
+  // NEVER push the bootstrap credential to the cloud: persisting hash('123')
+  // would overwrite the owner's real password hash in D1 and lock every other
+  // device out. The bootstrap door is local-only by design.
+  if (password !== BOOTSTRAP_PASSWORD) {
+    cloudPersist(LS_ADMIN_CREDS_KEY, payload);
+    // Setting a real password dismisses the default-password warning.
+    clearMustChangePassword();
+  }
 }
 
 export async function verifyAdminCredentials(_username: string, password: string): Promise<boolean> {
@@ -320,9 +325,14 @@ export async function setManagerCredentials(username: string, password: string):
   const { hash, salt } = await hashPassword(password);
   const payload = JSON.stringify({ username, hash, salt });
   localStorage.setItem(LS_MANAGER_CREDS_KEY, payload);
-  cloudPersist(LS_MANAGER_CREDS_KEY, payload);
-  // Setting a real password dismisses the default-password warning.
-  if (password !== BOOTSTRAP_PASSWORD) clearMustChangePassword();
+  // NEVER push the bootstrap credential to the cloud: persisting hash('123')
+  // would overwrite the owner's real password hash in D1 and lock every other
+  // device out. The bootstrap door is local-only by design.
+  if (password !== BOOTSTRAP_PASSWORD) {
+    cloudPersist(LS_MANAGER_CREDS_KEY, payload);
+    // Setting a real password dismisses the default-password warning.
+    clearMustChangePassword();
+  }
 }
 
 export async function verifyManagerCredentials(_username: string, password: string): Promise<boolean> {

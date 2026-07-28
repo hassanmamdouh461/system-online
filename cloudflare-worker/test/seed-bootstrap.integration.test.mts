@@ -77,8 +77,8 @@ async function main() {
 
   // Seed a stub D1 exactly as the SQL file would.
   const DB = makeStubDB({
-    [MANAGER_CREDS_KEY]: managerValue,
-    [CASHIER_CREDS_KEY]: cashierValue,
+    [`global::${MANAGER_CREDS_KEY}`]: managerValue,
+    [`global::${CASHIER_CREDS_KEY}`]: cashierValue,
   });
   const env: any = { DB, SESSION_SECRET: "seed-integration-secret", ALLOWED_ORIGINS: "https://pos.engaz.tech" };
   const ORIGIN = { Origin: "https://pos.engaz.tech" };

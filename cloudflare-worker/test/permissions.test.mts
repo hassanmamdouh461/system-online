@@ -96,6 +96,65 @@ function pureMatrix() {
   ok(canReadTable("cashier", "settings"), "cashier may read the settings table (filtered per-key)");
   ok(!canReadTable("cashier", "snapshots"), "cashier READ snapshots table → denied (bundles secrets)");
   ok(canReadTable("manager", "snapshots"), "manager may read snapshots");
+
+  // Soft-delete on customers/companies is manager-only. The sync queue sends
+  // `action: "update"` (→ method PATCH), so a cashier must not be able to flip
+  // `deleted_at` on an existing row via a POST/PATCH upsert.
+  ok(
+    !can({
+      role: "cashier",
+      table: "customers",
+      method: "PATCH",
+      docId: "c1",
+      submitted: { id: "c1", name: "x", deleted_at: "2026-01-01T00:00:00Z" },
+      current: { id: "c1", name: "x", deleted_at: null },
+    }).allowed,
+    "cashier soft-deleting a customer → denied"
+  );
+  ok(
+    !can({
+      role: "cashier",
+      table: "companies",
+      method: "PATCH",
+      docId: "co1",
+      submitted: { id: "co1", deleted_at: "2026-01-01T00:00:00Z" },
+      current: { id: "co1", deleted_at: null },
+    }).allowed,
+    "cashier soft-deleting a company → denied"
+  );
+  ok(
+    can({
+      role: "cashier",
+      table: "customers",
+      method: "PATCH",
+      docId: "c2",
+      submitted: { id: "c2", name: "new walk-in" },
+      current: null,
+    }).allowed,
+    "cashier creating a customer → allowed"
+  );
+  ok(
+    can({
+      role: "cashier",
+      table: "companies",
+      method: "PATCH",
+      docId: "co2",
+      submitted: { id: "co2", name: "Acme", notes: "updated" },
+      current: { id: "co2", name: "Acme", notes: null, deleted_at: null },
+    }).allowed,
+    "cashier updating a company without touching deleted_at → allowed"
+  );
+  ok(
+    can({
+      role: "manager",
+      table: "customers",
+      method: "PATCH",
+      docId: "c1",
+      submitted: { id: "c1", deleted_at: "2026-01-01T00:00:00Z" },
+      current: { id: "c1", deleted_at: null },
+    }).allowed,
+    "manager soft-deleting a customer → allowed"
+  );
 }
 
 // ─── Client-compatible PBKDF2 for minting real cookies ─────────────────────────

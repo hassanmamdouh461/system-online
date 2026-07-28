@@ -60,7 +60,7 @@ function makeStubDB(settings: Record<string, string>) {
 async function main() {
   const mgr = await clientHash("mgr-pw");
   const env: any = {
-    DB: makeStubDB({ brewmaster_manager_creds_v1: JSON.stringify({ username: "manager", ...mgr }) }),
+    DB: makeStubDB({ "global::brewmaster_manager_creds_v1": JSON.stringify({ username: "manager", ...mgr }) }),
     SESSION_SECRET: "csrf-secret",
     ALLOWED_ORIGINS: "https://pos.engaz.tech",
   };

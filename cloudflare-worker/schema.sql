@@ -1,4 +1,7 @@
 -- D1 Schema for system-online POS Central Database
+-- Union of all migrations (v2–v12). Provisioning from this file yields the
+-- post-migration table shapes and indexes; do NOT re-run the individual
+-- schema-migrate-v*.sql files against a database created from this file.
 
 CREATE TABLE IF NOT EXISTS menu_items (
   id TEXT PRIMARY KEY,
@@ -59,7 +62,9 @@ CREATE TABLE IF NOT EXISTS customers (
   notes TEXT,
   createdAt TEXT NOT NULL,
   updated_at TEXT,
-  branch_id TEXT DEFAULT 'default'
+  branch_id TEXT DEFAULT 'default',
+  -- Soft-delete tombstone. NULL = live; ISO string = deleted (hidden everywhere).
+  deleted_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS companies (
@@ -70,7 +75,9 @@ CREATE TABLE IF NOT EXISTS companies (
   notes TEXT,
   createdAt TEXT NOT NULL,
   updated_at TEXT,
-  branch_id TEXT DEFAULT 'default'
+  branch_id TEXT DEFAULT 'default',
+  -- Soft-delete tombstone. NULL = live; ISO string = deleted (hidden everywhere).
+  deleted_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS inventory (
@@ -82,7 +89,9 @@ CREATE TABLE IF NOT EXISTS inventory (
   costPerUnit REAL NOT NULL DEFAULT 0,
   branch_id TEXT DEFAULT NULL,
   created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
+  updated_at TEXT NOT NULL,
+  -- Soft-delete tombstone. NULL = live; ISO string = deleted (hidden everywhere).
+  deleted_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS settings (
@@ -124,8 +133,33 @@ CREATE TABLE IF NOT EXISTS snapshots (
   kind TEXT DEFAULT 'auto'
 );
 
-CREATE INDEX IF NOT EXISTS idx_settings_branch ON settings(branch_id);
-CREATE INDEX IF NOT EXISTS idx_settings_key ON settings(key);
-CREATE INDEX IF NOT EXISTS idx_recipes_menu ON recipes(menu_item_id);
-CREATE INDEX IF NOT EXISTS idx_inv_tx_item ON inventory_transactions(item_id);
-CREATE INDEX IF NOT EXISTS idx_snapshots_branch ON snapshots(branch_id);
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Indexes (v7 performance set + v10 customer rebuild)
+-- ─────────────────────────────────────────────────────────────────────────────
+
+CREATE INDEX IF NOT EXISTS idx_orders_created      ON orders(createdAt);
+CREATE INDEX IF NOT EXISTS idx_orders_paystatus    ON orders(paymentStatus);
+CREATE INDEX IF NOT EXISTS idx_orders_deleted      ON orders(deletedAt);
+CREATE INDEX IF NOT EXISTS idx_orders_customer     ON orders(customerId);
+CREATE INDEX IF NOT EXISTS idx_orders_customer_ph  ON orders(customerPhone);
+CREATE INDEX IF NOT EXISTS idx_orders_company      ON orders(companyId);
+CREATE INDEX IF NOT EXISTS idx_orders_status_date  ON orders(paymentStatus, createdAt);
+
+CREATE INDEX IF NOT EXISTS idx_menu_deleted        ON menu_items(deleted_at);
+
+CREATE INDEX IF NOT EXISTS idx_customers_phone     ON customers(phone);
+CREATE INDEX IF NOT EXISTS idx_customers_company   ON customers(company_id);
+CREATE INDEX IF NOT EXISTS idx_customers_updated   ON customers(updated_at);
+
+CREATE INDEX IF NOT EXISTS idx_recipes_inventory   ON recipes(inventory_item_id);
+
+CREATE INDEX IF NOT EXISTS idx_inv_tx_created      ON inventory_transactions(created_at);
+
+CREATE INDEX IF NOT EXISTS idx_orders_updated      ON orders(updatedAt);
+CREATE INDEX IF NOT EXISTS idx_menu_updated        ON menu_items(updated_at);
+
+CREATE INDEX IF NOT EXISTS idx_settings_branch     ON settings(branch_id);
+CREATE INDEX IF NOT EXISTS idx_settings_key        ON settings(key);
+CREATE INDEX IF NOT EXISTS idx_recipes_menu        ON recipes(menu_item_id);
+CREATE INDEX IF NOT EXISTS idx_inv_tx_item         ON inventory_transactions(item_id);
+CREATE INDEX IF NOT EXISTS idx_snapshots_branch    ON snapshots(branch_id);
