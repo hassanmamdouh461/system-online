@@ -15,7 +15,12 @@
  *     runs. No Worker cron change is required.
  *   • AT-MOST-ONCE PER DAY: a localStorage latch (brewmaster_telegram_last_auto_report)
  *     records the business-day key of the last successful send, so a page
- *     reload or a second dashboard tab never double-sends the same day.
+ *     reload or a second dashboard tab never double-sends the same day. An
+ *     OPTIMISTIC send lock (brewmaster_telegram_report_lock) is taken BEFORE
+ *     the await: the day-latch is only written after the send resolves, so
+ *     without the lock two tabs due in the same minute both pass the latch
+ *     check and both send. The lock expires after LOCK_TTL_MS so a crashed
+ *     sender never blocks the report forever.
  *   • SILENT: no alert()/toast spam on a timer. Success/failure is logged to
  *     the console; failures clear the latch so the next minute's tick retries.
  *   • ZERO-SALE DAYS still send: the manager asked for a daily report; a
@@ -31,6 +36,12 @@ import type { Order } from '../types/order';
 
 /** localStorage latch: business-day key ('YYYY-MM-DD') of the last auto-send. */
 const LS_LAST_AUTO_REPORT_KEY = 'brewmaster_telegram_last_auto_report';
+
+/** localStorage optimistic lock: epoch-ms timestamp of an in-flight send. */
+const LS_REPORT_LOCK_KEY = 'brewmaster_telegram_report_lock';
+
+/** A send lock older than this is considered abandoned (crashed tab) and may be reclaimed. */
+const LOCK_TTL_MS = 2 * 60_000;
 
 /** How often the scheduler wakes up to compare the clock with reportTime. */
 const TICK_MS = 60_000;
@@ -80,6 +91,37 @@ export function isReportDue(now: Date, reportTime: { h: number; m: number }, las
 }
 
 /**
+ * Try to take the cross-tab optimistic send lock. Returns true when this tab
+ * now holds the lock (or storage is unusable, in which case we fail open and
+ * rely on the post-send latch). A live lock younger than LOCK_TTL_MS means
+ * another tab is mid-send — the caller must skip this tick. localStorage is
+ * synchronous, so the read-check-write here is atomic against other tabs.
+ */
+export function tryAcquireReportLock(nowMs: number = Date.now()): boolean {
+  try {
+    const raw = localStorage.getItem(LS_REPORT_LOCK_KEY);
+    const ts = raw === null ? null : Number(raw);
+    if (ts !== null && Number.isFinite(ts) && nowMs - ts < LOCK_TTL_MS) {
+      return false; // another tab holds a live lock
+    }
+    localStorage.setItem(LS_REPORT_LOCK_KEY, String(nowMs));
+    return true;
+  } catch {
+    // Private-mode storage failures: fail open so the report still sends once.
+    return true;
+  }
+}
+
+/** Release the send lock so a later retry (after a failure) is not blocked. */
+export function releaseReportLock(): void {
+  try {
+    localStorage.removeItem(LS_REPORT_LOCK_KEY);
+  } catch {
+    // Ignore — a stale lock simply expires via LOCK_TTL_MS.
+  }
+}
+
+/**
  * Wire the scheduler. `orders` is the live order list already held by the
  * dashboard (DataContext), so the report reflects exactly what the manager
  * sees on screen — no second fetch, no drift.
@@ -115,20 +157,33 @@ export function useDailyTelegramReport(orders: readonly Order[]): void {
       const now = new Date();
       if (!isReportDue(now, reportTime, lastSentKey)) return;
 
+      // Take the cross-tab lock BEFORE the await below. The day-latch is only
+      // written after a successful send, so without this lock two due tabs both
+      // pass the latch check in the same minute and both send. A second tab
+      // that finds a live lock skips its tick entirely.
+      if (!tryAcquireReportLock()) return;
+
       const stats = computeDailyReportStats(ordersRef.current, getTaxRate(), now);
       const message = buildDailyReportMessage(stats, getBranchConfig().branchName, now);
 
       try {
         await telegramService.sendMessage(config.botToken, config.chatId, message, 'HTML');
-        if (cancelled) return;
+        if (cancelled) {
+          releaseReportLock();
+          return;
+        }
         try {
           localStorage.setItem(LS_LAST_AUTO_REPORT_KEY, localBusinessDayKey(now, getDayStartHour()));
         } catch {
           // Latch write failed — worst case a reload resends once today.
         }
+        // Success: release the lock; the day-latch now owns dedup for today.
+        releaseReportLock();
         console.info('[DailyTelegramReport] Automatic daily report sent.');
       } catch (err) {
-        // Leave the latch unset so the next minute retries; surface in console only.
+        // Release so the next minute's tick (or another tab) may retry; the
+        // day-latch was never written, so the report is still due.
+        releaseReportLock();
         console.warn('[DailyTelegramReport] Automatic send failed:', err);
       }
     };
