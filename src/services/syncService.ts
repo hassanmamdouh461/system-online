@@ -263,6 +263,19 @@ export class SyncService {
           record.action,
           msg
         );
+        // settled_order_immutable is NOT a true permission denial: it means the
+        // order was settled on ANOTHER device (e.g. paid at the cashier) while
+        // this device still holds an older pending edit. Killing the record here
+        // would silently drop the local change forever. Keep it retryable as a
+        // conflict instead — once hydration pulls the settled remote row,
+        // mergeOrderRecords latches the Paid/Refunded state and the stale write
+        // becomes a harmless no-op (or is legitimately re-pushable if the order
+        // is re-opened). Every other 403 stays a deterministic per-record denial.
+        const code = this.extractServerCode(errBody);
+        if (code === 'settled_order_immutable') {
+          await this.scheduleRetry(record, msg);
+          return;
+        }
         await this.retirePermanently(record, msg);
         return;
       }
@@ -287,6 +300,17 @@ export class SyncService {
       const parsed = JSON.parse(body);
       const msg = parsed?.message;
       return typeof msg === 'string' && msg.trim() ? msg.trim() : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Pull the worker's machine-readable `code` out of a JSON error body. */
+  private extractServerCode(body: string): string | null {
+    try {
+      const parsed = JSON.parse(body);
+      const code = parsed?.code;
+      return typeof code === 'string' && code.trim() ? code.trim() : null;
     } catch {
       return null;
     }
