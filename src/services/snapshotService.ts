@@ -36,6 +36,11 @@ function collectLocalSettings(): Record<string, string> {
   const out: Record<string, string> = {};
   if (typeof localStorage === 'undefined') return out;
   for (const key of DURABLE_SETTING_KEYS) {
+    // Exclude the telegram config from snapshots: it embeds the bot token in
+    // plaintext and snapshots are never used to restore it (hydration pulls
+    // the live settings row directly). Keeping it out shrinks the token's
+    // footprint to a single D1 row instead of every snapshot payload.
+    if (key === 'brewmaster_telegram_config') continue;
     try {
       const v = localStorage.getItem(key);
       if (v !== null) out[key] = v;

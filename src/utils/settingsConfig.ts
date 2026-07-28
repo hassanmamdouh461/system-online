@@ -425,15 +425,17 @@ export function getTelegramConfig(): TelegramConfig {
 }
 
 export function setTelegramConfig(config: TelegramConfig): void {
-  // SECURITY: the Telegram bot token is a plaintext credential. The PLAINTEXT
-  // token stays DEVICE-LOCAL (localStorage only) and is never pushed to D1 in
-  // the clear. The config IS now also persisted to the cloud — but with the
-  // token ENCRYPTED under a key derived from the manager's own password (see
-  // services/telegramCloudService + utils/secretBox), so it survives a browser
-  // wipe and restores on any manager device, while a cashier / snapshot / D1
-  // reader sees only ciphertext it cannot open. The legacy plaintext mirror
-  // keys below remain local-only for telegramService.getStoredConfig().
-  localStorage.setItem(LS_TELEGRAM_CONFIG_KEY, JSON.stringify(config));
+  // The config object (embedding the bot token) is synced to Cloudflare D1 so a
+  // cache wipe on the manager device no longer loses the daily-report setup.
+  // This is safe ONLY because the Worker already blocks cashier reads of this
+  // key server-side (CASHIER_FORBIDDEN_READ_SETTING_KEYS in permissions.ts) and
+  // rejects cashier writes with a hard 403 — the token is in a shared D1 row,
+  // but only a manager session can read or write it. The legacy flat keys stay
+  // device-local mirrors for telegramService.getStoredConfig(); the config
+  // object is the single cloud source of truth and is re-mirrored on hydrate.
+  const payload = JSON.stringify(config);
+  localStorage.setItem(LS_TELEGRAM_CONFIG_KEY, payload);
+  cloudPersist(LS_TELEGRAM_CONFIG_KEY, payload);
   // Mirror the legacy flat keys read by telegramService.getStoredConfig().
   if (config.botToken) {
     localStorage.setItem('brewmaster_telegram_bot_token', config.botToken);
@@ -444,15 +446,6 @@ export function setTelegramConfig(config: TelegramConfig): void {
     localStorage.setItem('brewmaster_telegram_chat_id', config.chatId);
   } else {
     localStorage.removeItem('brewmaster_telegram_chat_id');
-  }
-  // Fire-and-forget encrypted cloud persist (manager sessions only; never
-  // blocks the UI, and pushes ciphertext — never the plaintext token).
-  try {
-    void import('../services/telegramCloudService').then((m) =>
-      m.persistTelegramConfigToCloud(config)
-    );
-  } catch {
-    // ignore
   }
 }
 

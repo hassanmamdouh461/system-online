@@ -16,18 +16,19 @@ import { syncService } from './syncService';
 /**
  * Settings that must survive browser wipe (synced to Cloudflare D1).
  *
- * SECURITY: the Telegram keys (brewmaster_telegram_config / _bot_token /
- * _chat_id) are intentionally NOT here. The bot token is a plaintext credential;
- * syncing it put it in a shared D1 row that every authenticated device could read
- * and that got copied verbatim into every snapshot payload. It now lives only in
- * localStorage on the device that configured it (the manager's), which is where
- * the daily report is sent from anyway. Long term it belongs in a Worker
- * `wrangler secret` with server-side sending.
+ * TELEGRAM KEYS: `brewmaster_telegram_config` (which embeds the bot token in
+ * plaintext) is synced to D1 so a cache wipe on the manager device no longer
+ * loses the daily-report setup. This is safe ONLY because the Worker already
+ * blocks cashier reads of it (`CASHIER_FORBIDDEN_READ_SETTING_KEYS` in
+ * permissions.ts): the token sits in a shared D1 row, but a cashier session's
+ * GET is filtered server-side and a cashier's WRITE is rejected 403. The
+ * legacy flat keys (_bot_token / _chat_id) stay device-local mirrors — only
+ * the single config object is the cloud source of truth, re-mirrored on hydrate.
  *
- * The credential HASHES (admin/manager creds, admin PIN) DO stay here: the Worker
- * needs them in D1 to verify passwords server-side (auth.ts resolvePasswordRole)
- * and other devices hydrate them to log in. They are PBKDF2-100k hashes, and the
- * Worker now blocks cashier reads of them (permissions.ts read filter).
+ * The credential HASHES (admin/manager creds, admin PIN) stay here for the
+ * same reason: the Worker needs them in D1 to verify passwords server-side
+ * (auth.ts resolvePasswordRole). They are PBKDF2-100k hashes, and the Worker
+ * blocks cashier reads of them (permissions.ts read filter).
  */
 export const DURABLE_SETTING_KEYS = [
   'brewmaster_tax_rate',
@@ -40,6 +41,7 @@ export const DURABLE_SETTING_KEYS = [
   'pos_tables_list',
   'removed_menu_categories',
   'custom_menu_categories',
+  'brewmaster_telegram_config',
 ] as const;
 
 
@@ -66,7 +68,6 @@ export const MANAGER_ONLY_SETTING_KEYS: readonly string[] = [
   'brewmaster_telegram_config',
   'brewmaster_telegram_bot_token',
   'brewmaster_telegram_chat_id',
-  'brewmaster_telegram_config_enc',
 ];
 
 /**
@@ -251,6 +252,26 @@ export async function hydrateSettingsFromCloud(): Promise<number> {
         // ignore
       }
     }
+
+    // After hydrating the telegram config object, re-mirror the legacy flat
+    // keys (bot_token / chat_id) that telegramService.getStoredConfig() reads.
+    // Without this a fresh device (or a wiped browser) restores the config but
+    // the daily-report service sees empty credentials and silently never sends.
+    try {
+      const rawConfig = localStorage.getItem('brewmaster_telegram_config');
+      if (rawConfig) {
+        const cfg = JSON.parse(rawConfig);
+        if (cfg && typeof cfg.botToken === 'string' && cfg.botToken) {
+          localStorage.setItem('brewmaster_telegram_bot_token', cfg.botToken);
+        }
+        if (cfg && typeof cfg.chatId === 'string' && cfg.chatId) {
+          localStorage.setItem('brewmaster_telegram_chat_id', cfg.chatId);
+        }
+      }
+    } catch {
+      // ignore — malformed config just leaves the mirrors unset
+    }
+
     console.info('[settingsCloud] hydrated', n, 'durable setting keys');
     return n;
   } catch (err) {
