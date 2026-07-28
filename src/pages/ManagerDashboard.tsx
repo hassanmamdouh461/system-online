@@ -23,6 +23,7 @@ import { LoadingScreen } from '../components/ui/LoadingScreen';
 import { getIngredientBaseQty } from '../utils/units';
 import { useToast } from '../components/ui/Toast';
 import { useOrders } from '../hooks/useOrders';
+import { useDailyTelegramReport } from '../hooks/useDailyTelegramReport';
 import { useAuth } from '../context/AuthContext';
 import { printCustomerReceipt } from '../utils/printReceipts';
 import { companiesService } from '../services/companiesService';
@@ -165,6 +166,9 @@ export default function ManagerDashboard() {
   // Unified Analytics & Inventory State
   const analytics = useAnalytics(dateRange);
   const { orders: allRealOrders, refundOrder, deleteOrder } = useOrders();
+  // Automatic daily Telegram report: consumes the reportTime/enabled fields
+  // saved by TelegramConfigModal (previously written but never read anywhere).
+  useDailyTelegramReport(allRealOrders);
   const { user } = useAuth();
   const [refundTarget, setRefundTarget] = useState<any | null>(null);
   const [refundReason, setRefundReason] = useState('');
