@@ -1,27 +1,27 @@
 /**
- * Regression tests for syncing the Telegram config to the cloud.
+ * Regression tests for the cloud-synced Telegram config.
  *
- * The config used to be device-local only, so wiping the browser on the
- * manager device silently lost the daily-report setup. These tests pin the
- * new behavior: the config object is a durable (cloud-synced) setting, and
- * hydration re-mirrors the flat keys the sender service reads.
+ * Security invariant: the bot token must NEVER reach D1 (or a snapshot) as
+ * plaintext. It flows through a dedicated encrypted channel
+ * (telegramCloudService + secretBox): setTelegramConfig encrypts-then-pushes,
+ * cloudHydrate pulls-then-decrypts. These tests pin that the generic
+ * plaintext settings path does NOT carry the config, and that the encrypted
+ * channel is wired at both the save and hydrate ends.
  */
 import { describe, it, expect, beforeEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-// NOTE: importing settingsCloudService.ts constructs a SyncService singleton
-// that requires a browser window (addEventListener), which the Node test env
-// lacks. These tests therefore (a) assert the durable-keys list by reading
-// the module source (keeps the guard without the browser-only import), and
-// (b) exercise the real save/mirror logic through settingsConfig, which is
-// import-safe here.
-const cloudServiceSrc = readFileSync(
-  join(__dirname, 'settingsCloudService.ts'),
+import { getTelegramConfig, setTelegramConfig } from '../utils/settingsConfig';
+
+const read = (f: string) => readFileSync(join(__dirname, f), 'utf-8');
+const cloudServiceSrc = read('settingsCloudService.ts');
+const snapshotSrc = read('snapshotService.ts');
+const settingsConfigSrc = readFileSync(
+  join(__dirname, '../utils/settingsConfig.ts'),
   'utf-8',
 );
-
-import { getTelegramConfig, setTelegramConfig } from '../utils/settingsConfig';
+const cloudHydrateSrc = read('cloudHydrate.ts');
 
 // ─── Minimal in-memory localStorage for the Node test environment ────────────
 const store = new Map<string, string>();
@@ -39,33 +39,45 @@ beforeEach(() => {
   store.clear();
 });
 
-describe('telegram config cloud sync', () => {
-  it('brewmaster_telegram_config is a durable (cloud-synced) setting', () => {
-    // Guard the DURABLE_SETTING_KEYS list in the module source: the key must
-    // appear inside the array, and the flat legacy keys must NOT.
+describe('telegram config — no plaintext in the generic cloud path', () => {
+  it('brewmaster_telegram_config is NOT a durable (verbatim-synced) setting', () => {
     const arrMatch = /DURABLE_SETTING_KEYS\s*=\s*\[([\s\S]*?)\] as const/.exec(cloudServiceSrc);
     expect(arrMatch).toBeTruthy();
     const keysBlock = arrMatch![1];
-    expect(keysBlock).toContain("'brewmaster_telegram_config'");
+    // The config (and its embedded plaintext token) must NOT ride the generic
+    // persist/hydrate path — that would store it verbatim in D1.
+    expect(keysBlock).not.toContain("'brewmaster_telegram_config'");
     expect(keysBlock).not.toContain("'brewmaster_telegram_bot_token'");
     expect(keysBlock).not.toContain("'brewmaster_telegram_chat_id'");
   });
 
-  it('snapshot settings collector excludes the telegram config (token footprint)', () => {
-    const snapshotSrc = readFileSync(join(__dirname, 'snapshotService.ts'), 'utf-8');
-    expect(snapshotSrc).toContain("key === 'brewmaster_telegram_config'");
+  it('snapshot collector only iterates DURABLE keys (so no plaintext token in snapshots)', () => {
+    // The snapshot collector loops DURABLE_SETTING_KEYS only; with the config
+    // excluded from that list, no plaintext token can land in a snapshot.
+    expect(snapshotSrc).toContain('for (const key of DURABLE_SETTING_KEYS)');
+    // And it must not special-case the telegram key back in.
+    expect(snapshotSrc).not.toMatch(/out\[['"]brewmaster_telegram/);
+  });
+});
+
+describe('telegram config — encrypted channel is wired', () => {
+  it('setTelegramConfig persists via the encrypted cloud service', () => {
+    expect(settingsConfigSrc).toContain("import('../services/telegramCloudService')");
+    expect(settingsConfigSrc).toContain('persistTelegramConfigToCloud');
+    // …and must NOT push the raw config through the generic cloudPersist path.
+    expect(settingsConfigSrc).not.toContain("cloudPersist(LS_TELEGRAM_CONFIG_KEY");
   });
 
-  it('hydration re-mirrors flat keys from the hydrated config object', () => {
-    // Guard the re-mirror block in hydrateSettingsFromCloud by source.
-    expect(cloudServiceSrc).toContain("localStorage.setItem('brewmaster_telegram_bot_token', cfg.botToken)");
-    expect(cloudServiceSrc).toContain("localStorage.setItem('brewmaster_telegram_chat_id', cfg.chatId)");
+  it('cloudHydrate restores via the encrypted hydrate service', () => {
+    expect(cloudHydrateSrc).toContain('hydrateTelegramConfigFromCloud');
   });
+});
 
+describe('telegram config — local save + flat mirrors', () => {
   it('setTelegramConfig keeps localStorage + flat mirrors in one write', () => {
     setTelegramConfig({ botToken: 'tok123', chatId: '555', enabled: true, reportTime: '22:00' });
 
-    // The config object (what gets synced to D1)…
+    // The config object (local cache)…
     const config = getTelegramConfig();
     expect(config.botToken).toBe('tok123');
     expect(config.chatId).toBe('555');
@@ -74,27 +86,9 @@ describe('telegram config cloud sync', () => {
     expect(localStorage.getItem('brewmaster_telegram_chat_id')).toBe('555');
   });
 
-  it('hydration mirror logic restores flat keys from the config object', () => {
-    // Simulate the state after a cache wipe + cloud hydrate: only the config
-    // object came back from D1, the flat mirrors are gone.
-    store.clear();
-    localStorage.setItem(
-      'brewmaster_telegram_config',
-      JSON.stringify({ botToken: 'restoredTok', chatId: '999', enabled: true, reportTime: '21:30' }),
-    );
-
-    // This mirrors the re-mirror block in hydrateSettingsFromCloud.
-    const rawConfig = localStorage.getItem('brewmaster_telegram_config');
-    expect(rawConfig).toBeTruthy();
-    const cfg = JSON.parse(rawConfig!);
-    if (cfg && typeof cfg.botToken === 'string' && cfg.botToken) {
-      localStorage.setItem('brewmaster_telegram_bot_token', cfg.botToken);
-    }
-    if (cfg && typeof cfg.chatId === 'string' && cfg.chatId) {
-      localStorage.setItem('brewmaster_telegram_chat_id', cfg.chatId);
-    }
-
-    expect(localStorage.getItem('brewmaster_telegram_bot_token')).toBe('restoredTok');
-    expect(localStorage.getItem('brewmaster_telegram_chat_id')).toBe('999');
+  it('clearing the token removes the flat mirror too', () => {
+    setTelegramConfig({ botToken: '', chatId: '', enabled: false, reportTime: '23:00' });
+    expect(localStorage.getItem('brewmaster_telegram_bot_token')).toBeNull();
+    expect(localStorage.getItem('brewmaster_telegram_chat_id')).toBeNull();
   });
 });
