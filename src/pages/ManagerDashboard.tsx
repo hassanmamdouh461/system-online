@@ -353,7 +353,10 @@ export default function ManagerDashboard() {
 
       message += `💰 <b>الملخص المالي للفترة:</b>\n`;
       message += `• إجمالي المبيعات (المحصلة): <b>${formatMoney(processedData.totalRevenue)}</b> ج.م\n`;
-      message += `• عدد الطلبات الكلي: <b>${processedData.totalCount}</b> طلب\n`;
+      // Use the true order volume (all non-Cancelled orders incl. Unpaid /
+      // OnAccount), matching the automatic report's totalOrdersCount — not
+      // totalCount, which is the paid-only completedPeriod count.
+      message += `• عدد الطلبات الكلي: <b>${processedData.totalOrdersCount}</b> طلب\n`;
       message += `• إجمالي الآجل: <b>${formatMoney(processedData.unpaidAmount)}</b> ج.م\n\n`;
 
       message += `💳 <b>تفاصيل طرق الدفع (المحصلة):</b>\n`;
