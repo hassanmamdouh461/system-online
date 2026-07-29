@@ -370,13 +370,31 @@ async function readCredsRecord(
 
 /** Does a presented password match a stored credential record? */
 async function passwordMatches(
+  env: AuthEnv,
   password: string,
-  creds: { hash?: string; salt?: string; password?: string } | null
+  creds: { hash?: string; salt?: string; password?: string } | null,
+  settingsKey: string
 ): Promise<boolean> {
   if (!creds) return false;
   if (creds.hash && creds.salt) {
     const computed = await derivePasswordHashHex(password, creds.salt);
-    return timingSafeEqual(computed, creds.hash);
+    const ok = timingSafeEqual(computed, creds.hash);
+    // Self-healing: if the row still carries a legacy plaintext `password` field,
+    // strip it now so the downgrade path cannot be re-armed by a stale client.
+    if (ok && creds.password) {
+      try {
+        const { password: _drop, ...cleaned } = creds;
+        await env.DB.prepare(
+          "UPDATE settings SET value = ? WHERE id = ?"
+        )
+          .bind(JSON.stringify(cleaned), `${GLOBAL_SETTING_ID_PREFIX}${settingsKey}`)
+          .run();
+        console.warn(`[worker] stripped legacy plaintext password from ${settingsKey}`);
+      } catch (e) {
+        console.warn(`[worker] failed to strip legacy plaintext password from ${settingsKey}:`, e);
+      }
+    }
+    return ok;
   }
   // Legacy plaintext credential (pre-hashing installs).
   if (creds.password) return timingSafeEqual(password, creds.password);
@@ -391,9 +409,9 @@ async function passwordMatches(
 export async function resolvePasswordRole(env: AuthEnv, password: string): Promise<Role | null> {
   if (!password) return null;
   const managerCreds = await readCredsRecord(env, MANAGER_CREDS_KEY);
-  if (await passwordMatches(password, managerCreds)) return "manager";
+  if (await passwordMatches(env, password, managerCreds, MANAGER_CREDS_KEY)) return "manager";
   const cashierCreds = await readCredsRecord(env, CASHIER_CREDS_KEY);
-  if (await passwordMatches(password, cashierCreds)) return "cashier";
+  if (await passwordMatches(env, password, cashierCreds, CASHIER_CREDS_KEY)) return "cashier";
   return null;
 }
 
@@ -418,7 +436,15 @@ export async function authenticate(
   if (env.API_KEY) {
     const key = presentedKey(request);
     const resolved = resolveKeyRole(key, env);
-    if (resolved) return { role: resolved.role, sid: null, viaCookie: false };
+    if (resolved) {
+      if (resolved.viaLegacyKey) {
+        console.warn(
+          "[worker] SECURITY: legacy API_KEY used to authenticate as manager. " +
+          "Delete it from Worker secrets once all tills have re-minted cookies: npx wrangler secret delete API_KEY"
+        );
+      }
+      return { role: resolved.role, sid: null, viaCookie: false };
+    }
   }
 
   return null;
@@ -441,6 +467,58 @@ export async function verifyCsrf(request: Request, env: AuthEnv): Promise<boolea
   const presented = (request.headers.get(CSRF_HEADER) || "").trim();
   if (!presented) return false;
   return timingSafeEqual(presented, expected);
+}
+
+// ─── Rate limiting ────────────────────────────────────────────────────────────
+/**
+ * D1-backed sliding-window rate limiter. Stores attempt timestamps in the
+ * `settings` table under `rate_limit::<key>` so no new table is needed.
+ *
+ * Not as precise as a dedicated rate-limiting service (timestamps are second-
+ * resolution, and the read-modify-write is not atomic), but it is sufficient to
+ * stop naive online brute-force against the POS password.
+ */
+export async function checkRateLimit(
+  env: AuthEnv,
+  key: string,
+  maxAttempts: number,
+  windowSeconds: number
+): Promise<boolean> {
+  const now = Math.floor(Date.now() / 1000);
+  const id = `global::rate_limit::${key}`;
+  try {
+    const row = (await env.DB.prepare("SELECT value FROM settings WHERE id = ?")
+      .bind(id)
+      .first()) as { value?: string } | null;
+
+    let attempts: number[] = [];
+    if (row?.value) {
+      try {
+        const parsed = JSON.parse(row.value);
+        if (Array.isArray(parsed)) attempts = parsed;
+      } catch {
+        attempts = [];
+      }
+    }
+
+    const cutoff = now - windowSeconds;
+    attempts = attempts.filter((t) => t > cutoff);
+
+    if (attempts.length >= maxAttempts) return false;
+
+    attempts.push(now);
+    await env.DB.prepare(
+      "INSERT INTO settings (id, key, value, branch_id, updated_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at"
+    )
+      .bind(id, `rate_limit::${key}`, JSON.stringify(attempts), "main_branch", new Date().toISOString())
+      .run();
+
+    return true;
+  } catch (e) {
+    // Fail-open on D1 error: a broken rate limiter must not take down auth.
+    console.warn("[worker] rate limit check failed, allowing request:", e);
+    return true;
+  }
 }
 
 // ─── Session endpoints ───────────────────────────────────────────────────────
@@ -474,6 +552,20 @@ export async function handleSessionRoutes(
       return new Response(
         JSON.stringify({ error: "Service Unavailable", message: "Server is not configured for authenticated access." }),
         { status: 503, headers: jsonHeaders }
+      );
+    }
+
+    // Rate limit: 5 password-mint attempts per IP per minute. The endpoint does a
+    // real PBKDF2-100k verify per attempt; without a cap an attacker can brute-
+    // force the POS password online. Keyed by CF-Connecting-IP, falling back to a
+    // shared bucket when the header is absent (local dev).
+    const clientIp = request.headers.get("CF-Connecting-IP") || "unknown";
+    const allowed = await checkRateLimit(env, `session_mint:${clientIp}`, 5, 60);
+    if (!allowed) {
+      console.warn(`[worker] rate limit exceeded for session mint from ${clientIp}`);
+      return new Response(
+        JSON.stringify({ error: "Too Many Requests", message: "Too many attempts. Try again later." }),
+        { status: 429, headers: jsonHeaders }
       );
     }
 
