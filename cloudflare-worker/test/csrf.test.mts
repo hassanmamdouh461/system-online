@@ -134,6 +134,50 @@ async function main() {
   ok(a1 && a1 === a2, "same sid → same token");
   ok(a1 !== b1, "different sid → different token");
 
+  // ── REGRESSION: the retry signal must be READABLE by the browser ───────────
+  // Setting X-CSRF-Failed is only half the contract. The POS runs on
+  // pos.engaz.tech and calls api.engaz.tech, so every response is cross-origin,
+  // and JS can only read non-safelisted headers that are named in
+  // Access-Control-Expose-Headers. Without it, cloudFetch/syncService read null
+  // for X-CSRF-Failed, misclassified a stale-token 403 as a permanent permission
+  // denial, and syncService RETIRED the queued write (dropped data).
+  // Assert the header is exposed on both the 403 itself and the OPTIONS preflight.
+  console.log("\n5) CSRF retry signal is exposed to cross-origin JS");
+  const exposed = (res: Response) =>
+    (res.headers.get("Access-Control-Expose-Headers") || "")
+      .split(",")
+      .map((s) => s.trim().toLowerCase());
+
+  ok(
+    exposed(noToken).includes("x-csrf-failed"),
+    "403 response exposes X-CSRF-Failed via Access-Control-Expose-Headers"
+  );
+
+  const preflight = await worker.fetch(
+    new Request(WRITE, {
+      method: "OPTIONS",
+      headers: { Origin: "https://pos.engaz.tech", "Access-Control-Request-Method": "POST" },
+    }),
+    env
+  );
+  ok(exposed(preflight).includes("x-csrf-failed"), "preflight exposes X-CSRF-Failed");
+
+  // A cashier's role-denial 403 carries X-Auth-Role; the client logs it to explain
+  // WHY a write was refused, so it must be readable too.
+  ok(exposed(noToken).includes("x-auth-role"), "X-Auth-Role is exposed for role-denial diagnostics");
+
+  // The exposure must not silently vanish when ALLOWED_ORIGINS is unset (the
+  // fail-closed branch returns a different header object — both must carry it).
+  const noOriginsEnv: any = { ...env, ALLOWED_ORIGINS: "" };
+  const failClosed = await worker.fetch(
+    new Request(WRITE, { method: "DELETE", headers: { Cookie: cookie } }),
+    noOriginsEnv
+  );
+  ok(
+    exposed(failClosed).includes("x-csrf-failed"),
+    "fail-closed CORS branch still exposes X-CSRF-Failed"
+  );
+
   console.log(`\n✅ csrf.test: ${passed} assertions passed\n`);
 }
 

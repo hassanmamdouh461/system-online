@@ -99,9 +99,29 @@ function storeCsrf(token: string | null): void {
   }
 }
 
-/** The CSRF token to send with writes, or '' when none is established. */
+/**
+ * The CSRF token to send with writes, or '' when none is established.
+ *
+ * MUST re-read localStorage on every call — do NOT trust the module-level
+ * `csrfToken` alone. The POS is routinely open in more than one tab, and the
+ * snapshot scheduler in each tab writes independently. Tabs share localStorage
+ * and the session cookie, but NOT this module's memory:
+ *
+ *   tab A boots ─ mints ─ cookie sid=1, stores token1 (memory + localStorage)
+ *   tab B boots ─ mints ─ cookie sid=2, stores token2 (its memory + localStorage)
+ *   tab A still holds token1 in memory  ⇒ every write it makes 403s forever
+ *
+ * The cookie is whatever was minted LAST, so the only token that can still match
+ * server-side is the one in localStorage. Reading it fresh lets tab A pick up
+ * tab B's mint. `ensureCloudSession(true)` cannot rescue this case: the mint
+ * credential is memory-only, so after a reload tab A has no password to re-mint
+ * with and the forced mint just returns false.
+ *
+ * Falls back to the in-memory value when localStorage is unreadable (private
+ * mode, SSR, tests).
+ */
 export function getCsrfToken(): string {
-  return csrfToken || '';
+  return readStoredCsrf() || csrfToken || '';
 }
 
 /**
@@ -379,6 +399,34 @@ function notifySessionExpired(): void {
   }
 }
 
+/**
+ * Was this 403 a stale/absent CSRF token (⇒ re-mint and retry), or a real role
+ * denial from permissions.ts (⇒ permanent, never retry)?
+ *
+ * Checks the header FIRST, then falls back to the JSON body. The header is only
+ * readable cross-origin when the Worker sends `Access-Control-Expose-Headers`,
+ * and pos.engaz.tech → api.engaz.tech IS cross-origin. When that header was
+ * missing, `headers.get('X-CSRF-Failed')` read null and every CSRF-failed write
+ * was misclassified as a permanent denial — the bug this fixes. The response
+ * BODY is always readable cross-origin, so `code` is the reliable signal.
+ *
+ * Clones before reading: the caller still owns the original body stream.
+ *
+ * Only `csrf_token` is retryable. `csrf_origin` deliberately is NOT — re-minting
+ * cannot make a disallowed Origin allowed, so retrying would just double the
+ * failed requests.
+ */
+async function isRetryableCsrfFailure(res: Response): Promise<boolean> {
+  if (res.status !== 403) return false;
+  if (res.headers.get('X-CSRF-Failed') === '1') return true;
+  try {
+    const body: any = await res.clone().json();
+    return body?.code === 'csrf_token';
+  } catch {
+    return false;
+  }
+}
+
 export async function cloudFetch(
   path: string,
   init?: RequestInit & { timeoutMs?: number; skipSession?: boolean }
@@ -397,9 +445,18 @@ export async function cloudFetch(
   // HttpOnly session cookie rides along on every cloud request. Writes also
   // carry the CSRF double-submit token (read fresh each attempt so a re-mint
   // between attempts is picked up).
+  // The CSRF token actually put on the wire by the last attempt. Used below to
+  // decide whether a retry could plausibly succeed.
+  let sentCsrf = '';
+
   const attempt = async (): Promise<Response | null> => {
     const headers = cloudHeaders(init?.headers as Record<string, string> | undefined);
-    if (isWrite && csrfToken) headers['X-CSRF-Token'] = csrfToken;
+    // getCsrfToken() re-reads localStorage, so a mint by ANOTHER TAB is picked up
+    // here. Using the module-level `csrfToken` instead pinned this tab to the
+    // token it loaded with and 403'd every write once another tab re-minted.
+    const csrf = isWrite ? getCsrfToken() : '';
+    sentCsrf = csrf;
+    if (csrf) headers['X-CSRF-Token'] = csrf;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
@@ -425,13 +482,19 @@ export async function cloudFetch(
   let res = await attempt();
 
   // Re-mint + retry once when the session lapsed (401) or the CSRF token was
-  // stale/absent on a write (403 flagged X-CSRF-Failed). A plain 403 (role
-  // denied by permissions.ts) is a real, permanent decision — never retried.
-  const csrfFailed = !!res && res.status === 403 && res.headers.get('X-CSRF-Failed') === '1';
-  if (!skipSession && res && (res.status === 401 || (isWrite && csrfFailed))) {
+  // stale/absent on a write (403 flagged X-CSRF-Failed / code csrf_token). A
+  // plain 403 (role denied by permissions.ts) is a real, permanent decision —
+  // never retried.
+  const csrfFailed = isWrite && !!res && (await isRetryableCsrfFailure(res));
+  if (!skipSession && res && (res.status === 401 || csrfFailed)) {
     resetCloudSession();
     const ok = await ensureCloudSession(true);
-    if (ok) res = await attempt();
+    // A forced mint needs the operator's password, which is memory-only and is
+    // gone after a reload — so `ok` is false on exactly the devices that are
+    // stuck. That case is still recoverable: ANOTHER TAB may hold a live session,
+    // and getCsrfToken() re-reads localStorage. Retry when the mint succeeded, or
+    // when the token on disk is no longer the one we just sent.
+    if (ok || (csrfFailed && getCsrfToken() !== sentCsrf)) res = await attempt();
   }
 
   // Still 401 after a re-mint attempt on an authenticated path ⇒ the session is

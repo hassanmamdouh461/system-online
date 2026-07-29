@@ -8,6 +8,35 @@ import {
   isCloudConfigured,
 } from './cloudConfig';
 
+/**
+ * Was this 403 a stale/absent CSRF token (⇒ re-mint and retry this record) or a
+ * real role denial from permissions.ts (⇒ retire it, retrying can only fail)?
+ *
+ * Reads the header first, then falls back to the JSON body. `X-CSRF-Failed` is
+ * only visible to JS cross-origin when the Worker sends
+ * Access-Control-Expose-Headers — and the POS (pos.engaz.tech) always calls the
+ * API cross-origin (api.engaz.tech). While that was missing, this signal was
+ * permanently invisible and stale-CSRF writes were retired as if the cashier
+ * lacked permission. The body is always readable, so `code` is dependable.
+ *
+ * Clones the response: the caller still reads the original body as text.
+ *
+ * Only `csrf_token` is retryable here — re-minting cannot fix a disallowed
+ * Origin, so `csrf_origin` must not trigger an immediate retry (it is still
+ * excluded from retirement below, since it is a deployment problem, not a
+ * per-record one, and the write must survive to be replayed after a fix).
+ */
+async function isCsrfFailureResponse(response: Response): Promise<boolean> {
+  if (response.status !== 403) return false;
+  if (response.headers.get('X-CSRF-Failed') === '1') return true;
+  try {
+    const parsed: any = await response.clone().json();
+    return parsed?.code === 'csrf_token';
+  } catch {
+    return false;
+  }
+}
+
 const BASE_RETRY_MS = 30_000;
 const MAX_RETRY_MS = 30 * 60_000;
 const MAX_ATTEMPTS = 15;
@@ -205,6 +234,9 @@ export class SyncService {
       // header anymore. Writes also carry the CSRF double-submit token. Establish
       // the session first, and if it lapsed (401) or the CSRF token was stale
       // (403 X-CSRF-Failed) re-mint once and retry this record before backing off.
+      // The CSRF token actually sent by the last attempt (getCsrfToken() re-reads
+      // localStorage, so another tab's re-mint is picked up between attempts).
+      let sentCsrf = '';
       const post = async () => {
         await ensureCloudSession();
         const headers: Record<string, string> = {
@@ -212,6 +244,7 @@ export class SyncService {
           'X-Branch-ID': getBranchIdHeader(),
         };
         const csrf = getCsrfToken();
+        sentCsrf = csrf;
         if (csrf) headers['X-CSRF-Token'] = csrf;
         return fetch(`${workerUrl}/api/sync`, {
           method: 'POST',
@@ -222,10 +255,15 @@ export class SyncService {
       };
 
       let response = await post();
-      const csrfStale = response.status === 403 && response.headers.get('X-CSRF-Failed') === '1';
+      const csrfStale = await isCsrfFailureResponse(response);
       if (response.status === 401 || csrfStale) {
         resetCloudSession();
-        if (await ensureCloudSession(true)) {
+        const minted = await ensureCloudSession(true);
+        // The forced mint needs the operator's password, which is memory-only and
+        // gone after a reload — so it fails on exactly the devices that are stuck.
+        // Still recoverable when another tab minted a newer session: the token on
+        // disk then differs from the one we just sent.
+        if (minted || (csrfStale && getCsrfToken() !== sentCsrf)) {
           response = await post();
         }
       }
@@ -252,7 +290,17 @@ export class SyncService {
       // with an operator-readable reason instead of burning retries and stalling
       // every legitimate record queued behind it. (CSRF-failed 403s were already
       // re-minted + retried above and fall through to normal backoff here.)
-      const csrfFailed = response.headers.get('X-CSRF-Failed') === '1';
+      // Header FIRST, then the body `code`. The header is only readable
+      // cross-origin when the Worker sends Access-Control-Expose-Headers, and
+      // pos.engaz.tech → api.engaz.tech IS cross-origin. While that header was
+      // missing this read was always null, so a stale-CSRF 403 looked like a
+      // permission denial and retirePermanently() DROPPED the queued write. The
+      // body is always readable, so `code` is the dependable signal.
+      const bodyCode = this.extractServerCode(errBody);
+      const csrfFailed =
+        response.headers.get('X-CSRF-Failed') === '1' ||
+        bodyCode === 'csrf_token' ||
+        bodyCode === 'csrf_origin';
       if (response.status === 403 && !csrfFailed) {
         const reason = this.extractServerMessage(errBody);
         const msg = reason || 'العملية غير مسموحة بصلاحيتك الحالية (403)';
@@ -271,8 +319,7 @@ export class SyncService {
         // mergeOrderRecords latches the Paid/Refunded state and the stale write
         // becomes a harmless no-op (or is legitimately re-pushable if the order
         // is re-opened). Every other 403 stays a deterministic per-record denial.
-        const code = this.extractServerCode(errBody);
-        if (code === 'settled_order_immutable') {
+        if (bodyCode === 'settled_order_immutable') {
           await this.scheduleRetry(record, msg);
           return;
         }
