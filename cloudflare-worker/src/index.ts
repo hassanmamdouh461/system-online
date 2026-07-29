@@ -155,57 +155,17 @@ export default {
         }
 
         try {
-          // A real round-trip to D1. `SELECT 1` proves the binding answers (the
-          // liveness signal). The cross-table probe is the freshness signal:
-          // orders is the continuously-written table, but menu items, settings,
-          // inventory and snapshots also receive writes during normal operation,
-          // so the newest timestamp across ALL of them is the honest answer to
-          // "when did a real write last land in the cloud". Reading only orders
-          // made the badge cry stale while snapshots and settings were syncing.
+          // A real round-trip to D1. `SELECT 1` proves the binding answers — that
+          // is the whole liveness signal. Business telemetry (row counts, last-
+          // write timestamps) was previously returned here and leaked operational
+          // detail to anyone who could reach the endpoint; it is now gathered
+          // nowhere and returned nowhere.
           await env.DB.prepare("SELECT 1").first();
-
-          let lastWriteAt: string | null = null;
-          let orderCount: number | null = null;
-          try {
-            const row: any = await env.DB
-              .prepare(
-                `SELECT COUNT(*) AS n, MAX(COALESCE(updatedAt, createdAt)) AS last FROM orders`
-              )
-              .first();
-            orderCount = typeof row?.n === "number" ? row.n : null;
-            lastWriteAt = row?.last || null;
-          } catch {
-            // Liveness already proved. A missing/renamed orders table must not
-            // turn a healthy database into a red badge, so report freshness as
-            // unknown (null) rather than failing the whole probe.
-          }
-
-          // Fold in the freshest write from every other live table so a
-          // menu-only or settings-only sync still counts as "backup is working".
-          const freshnessProbes: Array<{ sql: string; key: string }> = [
-            { sql: "SELECT MAX(updated_at) AS m FROM menu_items", key: "m" },
-            { sql: "SELECT MAX(updated_at) AS m FROM settings", key: "m" },
-            { sql: "SELECT MAX(updated_at) AS m FROM customers", key: "m" },
-            { sql: "SELECT MAX(updated_at) AS m FROM companies", key: "m" },
-            { sql: "SELECT MAX(updated_at) AS m FROM inventory", key: "m" },
-            { sql: "SELECT MAX(created_at) AS m FROM snapshots", key: "m" },
-          ];
-          for (const probe of freshnessProbes) {
-            try {
-              const r: any = await env.DB.prepare(probe.sql).first();
-              const m = r?.[probe.key];
-              if (m && (!lastWriteAt || m > lastWriteAt)) lastWriteAt = m;
-            } catch {
-              // Table missing or column renamed — skip, orders probe already ran.
-            }
-          }
 
           return new Response(
             JSON.stringify({
               ok: true,
               db: "ok",
-              lastWriteAt,
-              orderCount,
               checkedAt: new Date().toISOString()
             }),
             { status: 200, headers: base }
@@ -264,7 +224,7 @@ export default {
         try {
           const { results } = await env.DB
             .prepare(
-              "SELECT * FROM menu_items WHERE (deleted_at IS NULL OR deleted_at = '') AND available = 1"
+              "SELECT id, name, price, category, description, image FROM menu_items WHERE (deleted_at IS NULL OR deleted_at = '') AND available = 1"
             )
             .all();
           const documents = (results || []).map((row) => denormalizeData("menu_items", row));
@@ -462,10 +422,27 @@ export default {
             `;
 
             const values = keys.map(k => normalized[k]);
-            await env.DB.prepare(sql).bind(...values).run();
+            const upsertResult: any = await env.DB.prepare(sql).bind(...values).run();
 
             if (table === "snapshots") {
               await pruneSnapshots(env.DB, MAIN_BRANCH_ID);
+            }
+
+            // Freshness-guard loss detection. When the ON CONFLICT WHERE clause
+            // rejects the update (incoming updated_at is not strictly newer), D1
+            // reports meta.changes === 0. The client thinks it synced but its
+            // write was silently discarded — tell it so it can rebase.
+            const changes = upsertResult?.meta?.changes;
+            if (changes === 0) {
+              const current = await env.DB
+                .prepare(`SELECT * FROM ${table} WHERE id = ?`)
+                .bind(docId)
+                .first();
+              console.warn(`[worker] stale write discarded on ${table}/${docId} (freshness guard)`);
+              return new Response(
+                JSON.stringify({ success: true, stale: true, current, message: "Write discarded: a newer row already exists" }),
+                { status: 200, headers: { "Content-Type": "application/json", ...corsHeaders } }
+              );
             }
           }
 
@@ -474,8 +451,10 @@ export default {
             headers: { "Content-Type": "application/json", ...corsHeaders }
           });
         } catch (syncErr: any) {
+          // Log the detailed D1 error server-side, but never echo it to the
+          // client — raw SQLite messages disclose table names and constraints.
           console.error('[Worker /api/sync Error]:', syncErr);
-          return new Response(JSON.stringify({ error: "Sync Error", message: syncErr.message }), {
+          return new Response(JSON.stringify({ error: "Sync Error", message: "Sync failed" }), {
             status: 500,
             headers: { "Content-Type": "application/json", ...corsHeaders }
           });
@@ -679,13 +658,27 @@ export default {
         `;
 
         const values = keys.map(k => data[k]);
-        await env.DB.prepare(sql).bind(...values).run();
+        const upsertResult: any = await env.DB.prepare(sql).bind(...values).run();
 
         if (table === "snapshots") {
           await pruneSnapshots(env.DB, MAIN_BRANCH_ID);
         }
 
         const row = await env.DB.prepare(`SELECT * FROM ${table} WHERE id = ?`).bind(documentId).first();
+
+        // Freshness-guard loss detection — see /api/sync above. When the ON
+        // CONFLICT WHERE clause rejected the update, meta.changes === 0 and the
+        // stored row was NOT touched. Return the CURRENT row with 200 + stale
+        // so the client knows to rebase instead of believing its write landed.
+        const changes = upsertResult?.meta?.changes;
+        if (changes === 0) {
+          console.warn(`[worker] stale write discarded on ${table}/${documentId} (freshness guard)`);
+          return new Response(
+            JSON.stringify({ ...denormalizeData(table, row), stale: true }),
+            { status: 200, headers: { "Content-Type": "application/json", ...corsHeaders } }
+          );
+        }
+
         return new Response(JSON.stringify(denormalizeData(table, row)), {
           status: 201,
           headers: { "Content-Type": "application/json", ...corsHeaders }

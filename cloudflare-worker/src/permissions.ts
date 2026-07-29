@@ -144,7 +144,7 @@ export const CASHIER_UNREADABLE_TABLES: readonly string[] = ["snapshots"];
 /** May this role read a given settings key? Managers read everything. */
 export function canReadSettingKey(role: Role, key: string | null | undefined): boolean {
   if (role === "manager") return true;
-  if (!key) return true; // rows with no resolvable key are non-sensitive by construction
+  if (!key) return role === "manager"; // fail-closed: an unresolvable key is treated as sensitive for cashiers
   return !CASHIER_FORBIDDEN_READ_SETTING_KEYS.includes(String(key).trim());
 }
 
