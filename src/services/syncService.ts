@@ -7,6 +7,7 @@ import {
   resetCloudSession,
   isCloudConfigured,
 } from './cloudConfig';
+import { getRefundPin } from '../utils/refundPin';
 
 const BASE_RETRY_MS = 30_000;
 const MAX_RETRY_MS = 30 * 60_000;
@@ -213,6 +214,12 @@ export class SyncService {
         };
         const csrf = getCsrfToken();
         if (csrf) headers['X-CSRF-Token'] = csrf;
+        // Refund escalation: an order record carries the held PIN so the Worker
+        // permits refundedAt / refundReason changes (refund_requires_escalation).
+        if (normalizeSyncType(record.type) === 'order') {
+          const pin = (getRefundPin() || '').trim();
+          if (pin) headers['X-Refund-PIN'] = pin;
+        }
         return fetch(`${workerUrl}/api/sync`, {
           method: 'POST',
           credentials: 'include',

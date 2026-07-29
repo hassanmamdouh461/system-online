@@ -3,6 +3,8 @@
  * Never fall back to the SPA origin (pos.engaz.tech) — that is not the D1 worker.
  */
 
+import { getRefundPin } from '../utils/refundPin';
+
 const PLACEHOLDER_MARKERS = [
   'YOUR_SUBDOMAIN',
   'your-username',
@@ -181,6 +183,7 @@ export async function refreshCloudSessionRole(): Promise<'manager' | 'cashier' |
 // — tens of rapid POST /v1/session per second visible in the F12 console.
 const MINT_COOLDOWN_BASE_MS = 5_000; // 5s initial cooldown
 const MINT_COOLDOWN_MAX_MS = 120_000; // 2min cap
+const MINT_RATE_LIMIT_COOLDOWN_MS = 60_000; // 1min after an explicit 429
 let mintConsecutiveFailures = 0;
 let mintCooldownUntil = 0;
 
@@ -198,6 +201,62 @@ function advanceMintCooldown(): void {
     MINT_COOLDOWN_MAX_MS
   );
   mintCooldownUntil = Date.now() + delay;
+}
+
+/** The Worker rate-limits POST /v1/session per IP (429). Back off a full
+ *  window — the exponential failure cooldown above (5s → …) would otherwise
+ *  retry inside the same rate-limit window and stay blocked. */
+function advanceMintCooldownForRateLimit(): void {
+  mintConsecutiveFailures++;
+  mintCooldownUntil = Date.now() + MINT_RATE_LIMIT_COOLDOWN_MS;
+}
+
+// ─── Cross-tab session-mint coordination ────────────────────────────────────
+// Every open tab shares the same per-IP rate limit on POST /v1/session. When
+// several tabs re-mint at once (reload storm, iOS tab restore), they race the
+// limiter and all get 429s — the console shows exactly that burst. A single
+// leader (Web Locks API, with a localStorage fallback) performs the mint; the
+// other tabs wait for its outcome instead of firing their own requests.
+const MINT_LOCK_NAME = 'pos_session_mint';
+const MINT_RESULT_KEY = 'pos_session_mint_result';
+
+interface MintResult {
+  ok: boolean;
+  at: number;
+  status?: number;
+}
+
+function readMintResult(): MintResult | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = localStorage.getItem(MINT_RESULT_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as MintResult;
+    return typeof parsed?.at === 'number' ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeMintResult(result: MintResult): void {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(MINT_RESULT_KEY, JSON.stringify(result));
+  } catch {
+    // ignore
+  }
+}
+
+/** Wait for another tab's in-flight mint to settle (poll the shared result). */
+async function waitForPeerMint(timeoutMs = 15_000): Promise<MintResult | null> {
+  const started = Date.now();
+  const priorAt = readMintResult()?.at ?? 0;
+  while (Date.now() - started < timeoutMs) {
+    const result = readMintResult();
+    if (result && result.at > priorAt) return result;
+    await new Promise((r) => setTimeout(r, 300));
+  }
+  return null;
 }
 
 /**
@@ -227,35 +286,81 @@ export function ensureCloudSession(force = false): Promise<boolean> {
     if (typeof navigator !== 'undefined' && !navigator.onLine) return false;
     // No credential ⇒ cannot mint (no anonymous sessions). Ride any existing cookie.
     if (!sessionCredential) return false;
-    try {
-      const res = await fetch(`${base}${SESSION_PATH}`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password: sessionCredential }),
-      });
-      if (!res.ok) {
+
+    // One leader tab performs the actual mint; every other tab waits for its
+    // result instead of firing a competing POST /v1/session (the burst that
+    // trips the per-IP 429 rate limit when several tabs are open).
+    const doMint = async (): Promise<boolean> => {
+      try {
+        const res = await fetch(`${base}${SESSION_PATH}`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password: sessionCredential }),
+        });
+        if (!res.ok) {
+          if (res.status === 429) advanceMintCooldownForRateLimit();
+          else advanceMintCooldown();
+          writeMintResult({ ok: false, at: Date.now(), status: res.status });
+          return false;
+        }
+        try {
+          const json = await res.json();
+          if (json && (json.role === 'manager' || json.role === 'cashier')) {
+            sessionRole = json.role;
+          }
+          if (json && typeof json.csrfToken === 'string') {
+            storeCsrf(json.csrfToken);
+          }
+        } catch {
+          // role/csrf are best-effort; cookie is what actually authenticates
+        }
+        resetMintCooldown();
+        writeMintResult({ ok: true, at: Date.now(), status: res.status });
+        return true;
+      } catch (err) {
+        console.warn('[cloud] session mint failed:', err);
         advanceMintCooldown();
+        writeMintResult({ ok: false, at: Date.now() });
         return false;
       }
+    };
+
+    const navLocks = (typeof navigator !== 'undefined' ? (navigator as any).locks : undefined);
+    if (navLocks && typeof navLocks.request === 'function') {
+      let becameLeader = false;
       try {
-        const json = await res.json();
-        if (json && (json.role === 'manager' || json.role === 'cashier')) {
-          sessionRole = json.role;
-        }
-        if (json && typeof json.csrfToken === 'string') {
-          storeCsrf(json.csrfToken);
-        }
-      } catch {
-        // role/csrf are best-effort; cookie is what actually authenticates
+        return await navLocks.request(
+          MINT_LOCK_NAME,
+          { ifAvailable: true },
+          async (lock: any) => {
+            if (!lock) {
+              // Another tab holds the mint lock: wait for its published result.
+              const peer = await waitForPeerMint();
+              if (peer) {
+                if (peer.ok) {
+                  // The peer minted the SHARED cookie — verify it actually landed
+                  // for this tab before declaring the session established.
+                  const role = await refreshCloudSessionRole();
+                  return role !== null;
+                }
+                if (peer.status === 429) advanceMintCooldownForRateLimit();
+                return false;
+              }
+              return false;
+            }
+            becameLeader = true;
+            return await doMint();
+          }
+        );
+      } catch (err) {
+        // Lock API rejected (unsupported edge case) — fall through to a plain mint.
+        if (becameLeader) throw err;
+        return doMint();
       }
-      resetMintCooldown();
-      return true;
-    } catch (err) {
-      console.warn('[cloud] session mint failed:', err);
-      advanceMintCooldown();
-      return false;
     }
+
+    return doMint();
   })();
 
   sessionPromise = p;
@@ -357,6 +462,19 @@ export function optionalNumber(value: unknown): number | undefined {
  * browser hitting a 401 must NOT see a spurious "expired" prompt.
  */
 export const SESSION_EXPIRED_EVENT = 'pos:session-expired';
+
+// ─── Refund escalation (X-Refund-PIN) ───────────────────────────────────────
+// utils/refundPin has no service-side imports, so there is no cycle. When a
+// manager (or a cashier who was handed the PIN) holds a valid PIN, order
+// writes carry it: the Worker treats it as proven refund authority and permits
+// refundedAt / refundReason changes.
+function getRefundPinHeader(): string {
+  try {
+    return (getRefundPin() || '').trim();
+  } catch {
+    return '';
+  }
+}
 let lastExpiryNotifyAt = 0;
 
 function hadEstablishedSession(): boolean {
@@ -400,6 +518,11 @@ export async function cloudFetch(
   const attempt = async (): Promise<Response | null> => {
     const headers = cloudHeaders(init?.headers as Record<string, string> | undefined);
     if (isWrite && csrfToken) headers['X-CSRF-Token'] = csrfToken;
+    // Refund escalation: a held PIN authorizes refund-field writes server-side.
+    if (isWrite && path.includes('/orders')) {
+      const pin = getRefundPinHeader();
+      if (pin) headers['X-Refund-PIN'] = pin;
+    }
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {

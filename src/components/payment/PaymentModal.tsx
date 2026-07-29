@@ -21,6 +21,7 @@ import {
   getStoreConfig,
 } from '../../utils/settingsConfig';
 import { getSessionRole, ensureCloudSession, refreshCloudSessionRole } from '../../services/cloudConfig';
+import { setRefundPin } from '../../utils/refundPin';
 import { printCustomerReceipt } from '../../utils/printReceipts';
 import { CustomerLookupStep, CustomerLookupResult } from './CustomerLookupStep';
 import { customersService } from '../../services/customersService';
@@ -70,6 +71,7 @@ export function PaymentModal({
   const [refundAuthRole, setRefundAuthRole] = useState<'manager' | 'cashier' | null>(getSessionRole());
   const [refundError, setRefundError] = useState('');
   const [isRefunding, setIsRefunding] = useState(false);
+  const [refundPinInput, setRefundPinInput] = useState('');
   const { t, language } = useLanguage();
   const paymentFiredRef = useRef(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -365,14 +367,21 @@ export function PaymentModal({
       let role = getSessionRole();
       if (role == null) role = await refreshCloudSessionRole();
       setRefundAuthRole(role);
+      // A held refund PIN escalates ANY authenticated session (the Worker treats
+      // a valid X-Refund-PIN as proven refund authority), so a cashier who was
+      // handed the PIN can complete a refund without the manager password.
       if (role !== 'manager') {
-        setRefundError(
-          language === 'ar'
-            ? 'الاسترجاع يتطلب صلاحية مدير. سجّل الدخول بحساب مدير.'
-            : 'Refund requires manager authorization. Please sign in as a manager.'
-        );
-        setIsRefunding(false);
-        return;
+        const pin = refundPinInput.trim();
+        if (!pin) {
+          setRefundError(
+            language === 'ar'
+              ? 'الاسترجاع يتطلب صلاحية مدير أو رمز التصعيد (PIN).'
+              : 'Refund requires a manager session or the escalation PIN.'
+          );
+          setIsRefunding(false);
+          return;
+        }
+        setRefundPin(pin);
       }
 
       if (onRefund) {
@@ -383,6 +392,9 @@ export function PaymentModal({
       setRefundError(err.message || 'Refund failed');
     } finally {
       setIsRefunding(false);
+      // Never leave the typed PIN sitting in the form — a till is a shared
+      // device. The PIN itself stays held in session storage until logout.
+      setRefundPinInput('');
     }
   };
 
@@ -463,13 +475,28 @@ export function PaymentModal({
                   />
                 </div>
                 {refundAuthRole !== 'manager' && (
-                  <div className="flex items-start gap-2 text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
-                    <Lock size={14} className="mt-0.5 shrink-0" />
-                    <span>
-                      {language === 'ar'
-                        ? 'الاسترجاع متاح لحساب المدير فقط. سجّل الدخول بحساب مدير لتأكيد الاسترجاع.'
-                        : 'Refunds are manager-only. Sign in as a manager to confirm this refund.'}
-                    </span>
+                  <div className="space-y-2">
+                    <div className="flex items-start gap-2 text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
+                      <Lock size={14} className="mt-0.5 shrink-0" />
+                      <span>
+                        {language === 'ar'
+                          ? 'الاسترجاع يحتاج صلاحية مدير أو رمز التصعيد (PIN) المعتمد من الإدارة.'
+                          : 'Refund needs a manager session or the escalation PIN provided by management.'}
+                      </span>
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold text-gray-500 block mb-1">
+                        {language === 'ar' ? 'رمز التصعيد (PIN)' : 'Escalation PIN'}
+                      </label>
+                      <input
+                        type="password"
+                        inputMode="numeric"
+                        value={refundPinInput}
+                        onChange={e => setRefundPinInput(e.target.value)}
+                        className="w-full border border-gray-200 rounded-xl p-3 text-sm focus:ring-2 focus:ring-red-400 outline-none"
+                        placeholder={language === 'ar' ? 'أدخل رمز الاسترجاع' : 'Enter the refund PIN'}
+                      />
+                    </div>
                   </div>
                 )}
                 {refundError && (
@@ -485,7 +512,11 @@ export function PaymentModal({
                   </button>
                   <button
                     type="submit"
-                    disabled={isRefunding || refundAuthRole !== 'manager' || (!refundReason.trim() && order.paymentStatus === 'Paid')}
+                    disabled={
+                      isRefunding ||
+                      (refundAuthRole !== 'manager' && !refundPinInput.trim()) ||
+                      (!refundReason.trim() && order.paymentStatus === 'Paid')
+                    }
                     className="flex-1 py-3 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700 disabled:opacity-60"
                   >
                     {isRefunding

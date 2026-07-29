@@ -7,6 +7,7 @@ import {
   getSessionRole,
   isCloudConfigured,
 } from '../services/cloudConfig';
+import { clearRefundPin } from '../utils/refundPin';
 
 const LS_SESSION_KEY = 'auth_session_system_online';
 
@@ -154,6 +155,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setSession(null);
     localStorage.removeItem(LS_SESSION_KEY);
     sessionStorage.removeItem(LS_SESSION_KEY);
+    // Drop any held refund escalation PIN — a till is a shared device, and the
+    // next operator must not inherit this operator's refund authority.
+    clearRefundPin();
     // Drop the server session cookie + in-memory credential.
     void clearCloudSession();
   };
