@@ -227,7 +227,19 @@ export default {
               "SELECT id, name, price, category, description, image FROM menu_items WHERE (deleted_at IS NULL OR deleted_at = '') AND available = 1"
             )
             .all();
-          const documents = (results || []).map((row) => denormalizeData("menu_items", row));
+          const documents = (results || []).map((row) => {
+            const doc = denormalizeData("menu_items", row);
+            // The SELECT deliberately omits `available` (guest-safe minimal
+            // columns — see public-menu-minimal.test), so denormalizeData sees no
+            // column and defaults doc.available to Boolean(undefined) === false.
+            // But the WHERE clause already restricts this query to available = 1,
+            // so EVERY row returned here is available. The QR-menu page filters
+            // items on this flag (PublicMenu.tsx: items.filter(i => i.available
+            // !== false)); leaving it false hid every live product and made the
+            // public menu look empty. Reflect the truth the WHERE clause enforces.
+            doc.available = true;
+            return doc;
+          });
           return new Response(JSON.stringify({ documents }), {
             status: 200,
             headers: {
