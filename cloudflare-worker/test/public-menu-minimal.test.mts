@@ -37,8 +37,13 @@ function makeStubDB(captured: { sql: string | null }) {
         },
         async all() {
           if (/FROM menu_items/i.test(sql)) {
-            // Even though the SELECT lists explicit columns, return a full-fat
-            // row here: denormalizeData must have nothing extra to pass through.
+            // Model the REAL projection: the handler selects only the six public
+            // columns, so a live D1 returns exactly those — crucially it does NOT
+            // return `available` (nor branch_id/timestamps/deleted_at). Returning
+            // a full-fat row here would hide the real bug: denormalizeData reads
+            // row.available, and with the column absent it defaults to
+            // Boolean(undefined) === false. The handler must correct that to true,
+            // and this stub is what makes that assertion meaningful.
             return {
               results: [
                 {
@@ -48,11 +53,6 @@ function makeStubDB(captured: { sql: string | null }) {
                   category: "Coffee",
                   description: "Double shot",
                   image: "https://img.example/latte.png",
-                  available: 1,
-                  branch_id: "main_branch",
-                  created_at: "2026-01-01T00:00:00Z",
-                  updated_at: "2026-05-01T00:00:00Z",
-                  deleted_at: null,
                 },
               ],
             };
@@ -95,10 +95,15 @@ async function main() {
   ok(doc.category === "Coffee", "category present");
   ok(doc.description === "Double shot", "description present");
   ok(doc.image === "https://img.example/latte.png", "image present");
-  // available is stripped by design — but note denormalizeData sets it from the
-  // row, and the row came from our stub. The SELECT no longer fetches it, so a
-  // real D1 would return undefined. Assert the query guarantees absence.
+  // `available` is still NOT fetched by the SELECT (kept minimal for guest safety).
   ok(!/SELECT[^)]*\bavailable\b/i.test(captured.sql!.split("FROM")[0]), "query does NOT select available");
+  // ...but the RESPONSE must still mark the item available. The WHERE clause
+  // restricts the query to available = 1, and the QR-menu page filters on this
+  // flag, so denormalizeData's Boolean(undefined) === false default has to be
+  // corrected to true in the handler. Without this, the public menu renders
+  // empty even though every returned row is a live product. (Regression from the
+  // SELECT-* → explicit-columns change; caught here.)
+  ok(doc.available === true, "returned document is marked available:true");
 
   console.log(`\n✅ public-menu-minimal.test: ${passed} assertions passed\n`);
 }

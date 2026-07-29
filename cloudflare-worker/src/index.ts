@@ -227,7 +227,19 @@ export default {
               "SELECT id, name, price, category, description, image FROM menu_items WHERE (deleted_at IS NULL OR deleted_at = '') AND available = 1"
             )
             .all();
-          const documents = (results || []).map((row) => denormalizeData("menu_items", row));
+          const documents = (results || []).map((row) => {
+            const doc = denormalizeData("menu_items", row);
+            // The SELECT deliberately omits `available` (guest-safe minimal
+            // columns — see public-menu-minimal.test), so denormalizeData sees no
+            // column and defaults doc.available to Boolean(undefined) === false.
+            // But the WHERE clause already restricts this query to available = 1,
+            // so EVERY row returned here is available. The QR-menu page filters
+            // items on this flag (PublicMenu.tsx: items.filter(i => i.available
+            // !== false)); leaving it false hid every live product and made the
+            // public menu look empty. Reflect the truth the WHERE clause enforces.
+            doc.available = true;
+            return doc;
+          });
           return new Response(JSON.stringify({ documents }), {
             status: 200,
             headers: {
@@ -790,6 +802,30 @@ function isOriginAllowed(originHeader: string | null, env: Env): boolean {
   return allowedRaw.split(",").map(s => s.trim()).filter(Boolean).includes(originHeader);
 }
 
+/**
+ * Response headers the BROWSER is allowed to read cross-origin.
+ *
+ * WHY THIS EXISTS — this was a real, silent production bug.
+ * The POS is served from pos.engaz.tech and talks to api.engaz.tech, so every
+ * call is cross-origin. On a cross-origin response JS can only read the seven
+ * CORS-safelisted headers unless the server names the extras here. Without this
+ * list `res.headers.get('X-CSRF-Failed')` returned null in the browser even
+ * though the Worker had set the header.
+ *
+ * That broke the client's self-healing path: cloudConfig.cloudFetch and
+ * syncService both decide "was this 403 a stale CSRF token (retry) or a real
+ * role denial (don't retry)" from X-CSRF-Failed. Reading null meant every
+ * CSRF-failed write was misclassified as a permanent permission denial — the
+ * snapshot upsert 403'd forever, and worse, syncService retired queued records
+ * permanently (retirePermanently ⇒ dropped writes).
+ *
+ * Exposing these two leaks nothing: X-CSRF-Failed is a boolean retry hint and
+ * X-Auth-Role is the caller's OWN role, both already present in the readable
+ * JSON body of the same response. Nothing here grants access — the strict
+ * Origin allowlist and the credential requirement are untouched.
+ */
+const EXPOSED_HEADERS = "X-CSRF-Failed, X-Auth-Role";
+
 function getCorsHeaders(request: Request, env: Env) {
   // Fail-closed: if ALLOWED_ORIGINS is unset, return NO permissive CORS headers.
   // Browsers will block cross-origin requests, which is safer than reflecting "*".
@@ -803,6 +839,7 @@ function getCorsHeaders(request: Request, env: Env) {
       "Access-Control-Allow-Credentials": "true",
       "Access-Control-Allow-Methods": "GET, POST, PATCH, PUT, DELETE, OPTIONS",
       "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Branch-ID, X-Device-ID, X-API-Key, X-CSRF-Token, X-Refund-PIN",
+      "Access-Control-Expose-Headers": EXPOSED_HEADERS,
       "Access-Control-Max-Age": "86400",
       "Vary": "Origin"
     };
@@ -819,6 +856,7 @@ function getCorsHeaders(request: Request, env: Env) {
     "Access-Control-Allow-Credentials": "true",
     "Access-Control-Allow-Methods": "GET, POST, PATCH, PUT, DELETE, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Branch-ID, X-Device-ID, X-API-Key, X-CSRF-Token, X-Refund-PIN",
+    "Access-Control-Expose-Headers": EXPOSED_HEADERS,
     "Access-Control-Max-Age": "86400",
     "Vary": "Origin"
   };
