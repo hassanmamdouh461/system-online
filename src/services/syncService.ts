@@ -238,6 +238,21 @@ export class SyncService {
       }
 
       if (response.ok) {
+        // A 200 does NOT always mean "written". The Worker's last-writer-wins
+        // freshness guard answers 200 { success: true, stale: true, current }
+        // when it DISCARDED this write because the stored row is newer. Marking
+        // the record synced here (what this code used to do, reading only
+        // response.ok) acked a write that never landed and then purged it 24h
+        // later — a silent, permanent loss. A manager's refund vanished exactly
+        // this way: it survived in IndexedDB until the cache was cleared, then
+        // hydration pulled the untouched Paid row back out of D1.
+        const okBody = await response.text().catch(() => '');
+        if (this.extractStaleFlag(okBody)) {
+          await this.handleStaleWrite(record, this.extractCurrentRow(okBody));
+          this.enableWorker();
+          return;
+        }
+
         await withDB(async (db) => {
           record.synced = 1;
           record.syncedAt = new Date().toISOString();
@@ -310,6 +325,79 @@ export class SyncService {
     } catch {
       return null;
     }
+  }
+
+  /** True when a 200 body says the freshness guard discarded this write. */
+  private extractStaleFlag(body: string): boolean {
+    try {
+      return JSON.parse(body)?.stale === true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * The server's current row out of a stale response. /api/sync returns it as
+   * `current`; the REST upsert returns the row itself alongside `stale: true`.
+   */
+  private extractCurrentRow(body: string): Record<string, any> | null {
+    try {
+      const parsed = JSON.parse(body);
+      if (parsed?.current && typeof parsed.current === 'object') return parsed.current;
+      if (parsed?.id) return parsed;
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * A write the server discarded as stale is a CONFLICT, not a success and not a
+   * failure: the payload can never land as-is, because a retry loses the same
+   * `updatedAt` comparison again. Rebase it against the server's row and retry
+   * immediately with a strictly-newer stamp.
+   *
+   * `attempts` still increments, so a payload that somehow keeps losing the race
+   * eventually goes dead and shows up in getHealth().failed instead of spinning
+   * forever. Non-order records have no merge function, so they take a plain
+   * retry and surface the reason to the operator.
+   */
+  private async handleStaleWrite(
+    record: SyncRecord,
+    current: Record<string, any> | null
+  ): Promise<void> {
+    const msg =
+      'تم رفض الكتابة: يوجد إصدار أحدث على السيرفر — تمت إعادة الدمج وإعادة المحاولة';
+    this.lastError = msg;
+    console.warn('[SyncService] Stale write discarded by server:', record.type, record.id);
+
+    if (normalizeSyncType(record.type) === 'order' && record.data) {
+      try {
+        const { rebaseOrderAgainstRemote } = await import('./orderRebase');
+        const rebased = await rebaseOrderAgainstRemote(record.data, current);
+        if (rebased) {
+          await withDB(async (db) => {
+            record.data = rebased;
+            record.attempts = (record.attempts || 0) + 1;
+            record.lastError = msg;
+            if (record.attempts >= MAX_ATTEMPTS) {
+              record.nextRetryAt = undefined;
+              record.dead = true;
+            } else {
+              // Retry on the next cycle, not after a backoff: the rebased
+              // payload is now the newest version and should land right away.
+              record.nextRetryAt = new Date().toISOString();
+            }
+            await db.put('sync_queue', record);
+          });
+          return;
+        }
+      } catch (err) {
+        console.warn('[SyncService] Order rebase failed, falling back to retry:', err);
+      }
+    }
+
+    await this.scheduleRetry(record, msg);
   }
 
   /** Pull the worker's machine-readable `code` out of a JSON error body. */

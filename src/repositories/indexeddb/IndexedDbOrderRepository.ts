@@ -345,6 +345,14 @@ export class IndexedDbOrderRepository implements IOrderRepository {
           taxAmount: typeof orderData.taxAmount === 'number' ? orderData.taxAmount : undefined,
           grandTotal: typeof orderData.grandTotal === 'number' ? orderData.grandTotal : undefined,
           createdAt: orderData.createdAt || now,
+          // Stamp updatedAt at birth. Without it the row reached D1 with
+          // `updatedAt = NULL` (the column is nullable, no default), and the
+          // Worker's last-writer-wins guard compares `excluded.updatedAt >
+          // orders.updatedAt` — any comparison against NULL is NULL, never
+          // true. So every later write to this order (payment, refund, delete
+          // tombstone) was silently discarded by D1 for the row's whole life,
+          // and the refund only survived in IndexedDB until a cache clear.
+          updatedAt: now,
           paidAt: orderData.paidAt,
           customerPhone: orderData.customerPhone,
           customerId: orderData.customerId,
