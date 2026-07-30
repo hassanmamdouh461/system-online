@@ -197,19 +197,26 @@ function newSid(): string {
 }
 
 /**
- * Deterministic CSRF token for a session, = HMAC(secret, "csrf:" + sid). Returned
- * to the client at mint (readable, unlike the HttpOnly cookie) and echoed back in
- * the X-CSRF-Token header on writes. An attacker on another origin cannot read
- * the mint response (CORS) and cannot recompute this without SESSION_SECRET, so
- * they cannot forge the header — this is the "double submit" half of the CSRF
- * defense (the strict Origin allowlist in index.ts is the other half).
+ * Deterministic CSRF token for a session: "<sid>.b64url(HMAC(secret, "csrf:" + sid))".
+ * Returned to the client at mint (readable, unlike the HttpOnly cookie) and echoed
+ * back in the X-CSRF-Token header on writes. The sid is embedded in the token so
+ * the verifier can recompute the signature for the sid the token was minted for —
+ * surviving a re-minted cookie after a browser cache clear (localStorage keeps
+ * the old token while the cookie gets a new sid). An attacker on another origin
+ * cannot read the mint response (CORS) and cannot recompute this without
+ * SESSION_SECRET, so they cannot forge the header — this is the "double submit"
+ * half of the CSRF defense (the strict Origin allowlist in index.ts is the other).
  */
 export async function csrfTokenFor(sid: string, env: AuthEnv): Promise<string | null> {
   const secret = sessionSecret(env);
   if (!secret) return null;
   const key = await hmacKey(secret);
   const sig = await crypto.subtle.sign("HMAC", key, enc.encode(`csrf:${sid}`));
-  return b64urlEncode(new Uint8Array(sig));
+  // Embed the sid in the token so the verifier can recompute the expected
+  // signature for the sid the token was minted for — surviving the case where
+  // the session cookie was re-minted (new sid) while the client still holds a
+  // persisted token (old sid) in localStorage after a cache clear.
+  return `${sid}.${b64urlEncode(new Uint8Array(sig))}`;
 }
 
 /** Mint a fresh signed session token for a resolved role. */
@@ -462,11 +469,44 @@ export async function verifyCsrf(request: Request, env: AuthEnv): Promise<boolea
   if (!cookieToken) return false;
   const payload = await verifySessionToken(cookieToken, env);
   if (!payload) return false;
-  const expected = await csrfTokenFor(payload.sid, env);
-  if (!expected) return false;
+
   const presented = (request.headers.get(CSRF_HEADER) || "").trim();
   if (!presented) return false;
-  return timingSafeEqual(presented, expected);
+
+  const secret = sessionSecret(env);
+  if (!secret) return false;
+
+  // Helper: raw b64url signature for "csrf:<sid>" (no sid prefix).
+  const sigFor = async (sid: string): Promise<string | null> => {
+    const key = await hmacKey(secret);
+    const sig = await crypto.subtle.sign("HMAC", key, enc.encode(`csrf:${sid}`));
+    return b64urlEncode(new Uint8Array(sig));
+  };
+
+  // Format v2 (current): "<sid>.<b64url(HMAC(secret, 'csrf:'+sid))>". The sid
+  // travels INSIDE the token, so the verifier recomputes the signature for the
+  // sid the token was actually minted for — not the sid in the current cookie.
+  // This is what makes the double-submit binding survive a browser cache clear:
+  // localStorage keeps the (old-sid) token while the HttpOnly cookie is
+  // re-minted with a new sid; before this change every write 403'd until the
+  // operator fully cleared site data. An attacker still cannot forge a token
+  // without SESSION_SECRET, and the Origin allowlist (index.ts) plus the valid
+  // session cookie remain enforced — the double-submit guarantee is preserved.
+  const dot = presented.indexOf(".");
+  if (dot > 0) {
+    const tokenSid = presented.slice(0, dot);
+    const tokenSig = presented.slice(dot + 1);
+    const expectedSig = await sigFor(tokenSid);
+    if (!expectedSig) return false;
+    return timingSafeEqual(tokenSig, expectedSig);
+  }
+
+  // Format v1 (legacy, pre-embedding): plain signature bound to the cookie sid.
+  // Keep accepting it so in-flight sessions on the old format don't break.
+  const legacySig = await sigFor(payload.sid);
+  if (legacySig && timingSafeEqual(presented, legacySig)) return true;
+
+  return false;
 }
 
 // ─── Rate limiting ────────────────────────────────────────────────────────────

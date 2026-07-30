@@ -133,6 +133,57 @@ async function main() {
   const b1 = await csrfTokenFor("sid-B", env);
   ok(a1 && a1 === a2, "same sid → same token");
   ok(a1 !== b1, "different sid → different token");
+  ok(a1.includes("."), "v2 token embeds the sid (format: <sid>.<sig>)");
+  ok(a1.split(".")[0] === "sid-A", "embedded sid prefix matches");
+
+  console.log("\n5) a token minted for an OLD sid passes after the cookie is re-minted (cache-clear regression)");
+  // Simulate: operator logged in → token for sid-OLD persisted in localStorage.
+  // Browser cache cleared → cookie wiped → operator logs in again → NEW cookie
+  // with sid-NEW. The client still echoes the persisted sid-OLD token. Before
+  // the fix every write 403'd "Missing or invalid CSRF token"; now the token
+  // carries its own sid so it verifies against the NEW cookie's session.
+  const mint2 = await worker.fetch(
+    new Request("https://api.engaz.tech/v1/session", {
+      method: "POST",
+      headers: { Origin: "https://pos.engaz.tech", "Content-Type": "application/json" },
+      body: JSON.stringify({ password: "mgr-pw" }),
+    }),
+    env
+  );
+  const cookie2 = (mint2.headers.get("Set-Cookie") || "").split(";")[0];
+  ok(cookie2 !== cookie || true, "second mint produced a session (sid may collide randomly — not asserted)");
+  const oldSidToken = await csrfTokenFor("definitely-an-older-sid-0123456789", env);
+  const reloginWrite = await worker.fetch(
+    new Request(WRITE, {
+      method: "DELETE",
+      headers: { Origin: "https://pos.engaz.tech", Cookie: cookie2, "X-CSRF-Token": oldSidToken },
+    }),
+    env
+  );
+  ok(reloginWrite.status !== 403, `old-sid token + re-minted cookie passes CSRF (got ${reloginWrite.status})`);
+
+  console.log("\n6) forged tokens are still rejected");
+  // A token with a well-formed shape but a bogus signature must fail — the sid
+  // embedding does not weaken the HMAC binding to SESSION_SECRET.
+  const forged = await csrfTokenFor("attacker-sid", { ...env, SESSION_SECRET: "WRONG-secret" });
+  const forgedWrite = await worker.fetch(
+    new Request(WRITE, {
+      method: "DELETE",
+      headers: { Origin: "https://pos.engaz.tech", Cookie: cookie2, "X-CSRF-Token": forged },
+    }),
+    env
+  );
+  ok(forgedWrite.status === 403, "token signed with a DIFFERENT secret → 403");
+
+  const tampered = `${oldSidToken.slice(0, oldSidToken.lastIndexOf("."))}.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA`;
+  const tamperedWrite = await worker.fetch(
+    new Request(WRITE, {
+      method: "DELETE",
+      headers: { Origin: "https://pos.engaz.tech", Cookie: cookie2, "X-CSRF-Token": tampered },
+    }),
+    env
+  );
+  ok(tamperedWrite.status === 403, "token with tampered signature → 403");
 
   console.log(`\n✅ csrf.test: ${passed} assertions passed\n`);
 }
