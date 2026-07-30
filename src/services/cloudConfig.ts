@@ -703,6 +703,27 @@ export async function cloudGetPublicMenu(): Promise<any[] | null> {
  * Immediate upsert to D1 (Cloud-first path).
  * Returns true on success, false on offline/failure (caller should queue).
  */
+/**
+ * Did the Worker accept this write, or quietly discard it?
+ *
+ * The last-writer-wins freshness guard rejects a conflict update whose incoming
+ * `updatedAt` is not strictly newer than the stored row, and reports that as
+ * HTTP 200 with `stale: true` (plus the current row) — see
+ * cloudflare-worker/src/index.ts. Treating that as success is how a write gets
+ * lost, so every caller must check the body, not just the status.
+ *
+ * The response is cloned before reading so callers can still consume the body.
+ * A body that is not JSON is treated as a normal success (unchanged behaviour).
+ */
+async function responseWasDiscardedAsStale(res: Response): Promise<boolean> {
+  try {
+    const body: any = await res.clone().json();
+    return body?.stale === true;
+  } catch {
+    return false;
+  }
+}
+
 export async function cloudUpsert(
   collection: string,
   id: string,
@@ -725,6 +746,20 @@ export async function cloudUpsert(
     if (!res) return false;
     if (!res.ok) {
       console.warn(`[cloud] UPSERT ${collection}/${id} failed: HTTP ${res.status}`);
+      return false;
+    }
+    // A 200/201 is not proof the row changed. The Worker's last-writer-wins
+    // freshness guard answers 200 { ...row, stale: true } when it DISCARDED this
+    // write because the stored row is newer. Acking the queue on that response
+    // (what this used to do, reading only res.ok) threw the change away: the
+    // queue row was marked synced, purged 24h later, and the write never landed
+    // in D1 — the bug that made a manager's refund reappear after a cache clear.
+    // Report failure instead and leave the queue row for syncService, which
+    // rebases the payload against the server row and retries.
+    if (await responseWasDiscardedAsStale(res)) {
+      console.warn(
+        `[cloud] UPSERT ${collection}/${id} discarded as stale (server row is newer) — leaving it queued for rebase`
+      );
       return false;
     }
     // Best-effort: clear pending queue rows for this entity so SyncStatus stays honest
@@ -813,7 +848,10 @@ export async function cloudSyncNow(payload: {
       }),
     });
     if (!res) return false;
-    return res.ok;
+    if (!res.ok) return false;
+    // Same trap as cloudUpsert: a stale-discarded write answers 200. Report it as
+    // a failure so the caller falls back to the sync queue (which rebases).
+    return !(await responseWasDiscardedAsStale(res));
   } catch (err) {
     console.warn('[cloud] syncNow error:', err);
     return false;

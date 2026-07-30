@@ -67,6 +67,46 @@ const ALLOWED_COLUMNS: Record<string, Set<string>> = {
 
 const MAX_SNAPSHOTS_PER_BRANCH = 10;
 
+/**
+ * Last-writer-wins freshness guard for the two conflict-update upsert sites
+ * (/api/sync and the REST POST).
+ *
+ * Two devices can race an upsert on the same row (inventory stock moves are the
+ * classic case); without a freshness check the LATER HTTP arrival silently
+ * overwrites a NEWER row. So the conflict update only applies when the incoming
+ * row is strictly newer than the stored one. The INSERT path (genuinely new id)
+ * is unaffected.
+ *
+ * WHY COALESCE — the NULL trap that silently ate every refund
+ * -----------------------------------------------------------
+ * This clause used to read `excluded.updatedAt > orders.updatedAt` with no NULL
+ * handling, and `orders.updatedAt` is NULLABLE with no default (schema.sql).
+ * IndexedDbOrderRepository.create() never stamped `updatedAt`, so EVERY order
+ * landed in D1 with `updatedAt = NULL` — and in SQL any comparison against NULL
+ * yields NULL, not true. So the guard rejected the conflict update on every
+ * subsequent write to that row: refunds, payment settlement and delete
+ * tombstones all reported `meta.changes === 0` and never mutated D1.
+ *
+ * The client then made it invisible: a discarded write answers HTTP 200 (with
+ * `stale: true`), so cloudUpsert/syncService counted it as a success and acked
+ * the queue row. The refund lived only in IndexedDB — mergeOrderRecords latched
+ * it locally so the UI looked right — until the browser cache was cleared, at
+ * which point hydration pulled the untouched `Paid` row back out of D1 and the
+ * "refunded" invoice reappeared with its revenue.
+ *
+ * Treating a missing timestamp as the empty string keeps last-writer-wins for
+ * two real timestamps while making the NULL cases behave sanely:
+ *   • real incoming vs NULL stored  → `'2026-…' > ''` = TRUE  → update applies
+ *     (this is what repairs the rows already sitting in production D1)
+ *   • NULL incoming vs real stored  → `'' > '2026-…'` = FALSE → still rejected,
+ *     so a legacy payload with no timestamp can never clobber a newer row
+ *   • NULL vs NULL                  → `'' > ''`       = FALSE → no-op, harmless
+ */
+function buildFreshnessClause(table: string, updatedAtCol: string | undefined): string {
+  if (!updatedAtCol) return "";
+  return ` WHERE COALESCE(excluded.${updatedAtCol}, '') > COALESCE(${table}.${updatedAtCol}, '')`;
+}
+
 /* ─────────────────────────────────────────────────────────────────────────────
  * Money precision guard (mirror of src/utils/money.ts on the client)
  *
@@ -403,16 +443,9 @@ export default {
                                 .map(k => `${k} = excluded.${k}`)
                                 .join(", ");
 
-            // Last-writer-wins freshness guard. Two devices can race an upsert on
-            // the same row (inventory stock moves are the classic case); without a
-            // freshness check the LATER arrival silently overwrites a NEWER row.
-            // For tables with an updated-at column, only apply the conflict update
-            // when the incoming row is strictly newer than the stored one. The
-            // INSERT path (genuinely new id) is unaffected.
+            // Last-writer-wins freshness guard — see buildFreshnessClause.
             const updatedAtCol = UPDATED_AT_COLUMN[table];
-            const freshness = updatedAtCol
-              ? ` WHERE excluded.${updatedAtCol} > ${table}.${updatedAtCol}`
-              : "";
+            const freshness = buildFreshnessClause(table, updatedAtCol);
 
             const sql = `
               INSERT INTO ${table} (${columns})
@@ -646,9 +679,7 @@ export default {
 
         // Last-writer-wins freshness guard — see the /api/sync upsert above.
         const updatedAtCol = UPDATED_AT_COLUMN[table];
-        const freshness = updatedAtCol
-          ? ` WHERE excluded.${updatedAtCol} > ${table}.${updatedAtCol}`
-          : "";
+        const freshness = buildFreshnessClause(table, updatedAtCol);
 
         const sql = `
           INSERT INTO ${table} (${columns})
@@ -857,6 +888,22 @@ function normalizeData(table: string, data: any) {
     if ('updated_at' in normalized) normalized.updatedAt = normalized.updated_at;
     if ('items' in normalized && typeof normalized.items !== 'string') {
       normalized.items = JSON.stringify(normalized.items);
+    }
+
+    // Never let an order row land with a NULL updatedAt. `orders.updatedAt` is
+    // nullable and older client bundles (IndexedDbOrderRepository.create before
+    // the updatedAt stamp) omit it entirely, which used to poison the freshness
+    // guard for the whole lifetime of the row — see buildFreshnessClause.
+    //
+    // The fallback is deliberately the record's OWN age (paidAt/createdAt) and
+    // never server-now: stamping arrival time would make a replayed `create`
+    // payload look like the newest write in the system and let it overwrite a
+    // later refund or payment. When the payload carries no timestamp at all the
+    // key is left absent rather than set to undefined, which D1 cannot bind.
+    if (!normalized.updatedAt) {
+      const ownTimestamp = normalized.paidAt || normalized.createdAt;
+      if (ownTimestamp) normalized.updatedAt = ownTimestamp;
+      else delete normalized.updatedAt;
     }
 
     delete normalized.total_amount;
