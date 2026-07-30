@@ -114,6 +114,63 @@ function roundMoneyFields(row: any, fields: string[], nullableFields: string[] =
   return row;
 }
 
+/* ─────────────────────────────────────────────────────────────────────────────
+ * Refund is TERMINAL — one-way latch at the D1 write boundary.
+ *
+ * The client merge (src/utils/orderNumber.ts → mergeOrderRecords) already treats
+ * Refunded as terminal, but that only protects the LOCAL merge. The Worker is the
+ * shared write boundary for every device, and none of its three write paths had
+ * an equivalent guard:
+ *
+ *   1. /api/sync + REST upserts rely on a freshness clause
+ *      (`WHERE excluded.updatedAt > orders.updatedAt`). An incoming row whose
+ *      updatedAt is NULL/missing — e.g. a stale copy uploaded by a device that
+ *      hydrated before the refund landed, or whose payload dropped the key
+ *      through JSON.stringify — makes the comparison NULL (not false), so the
+ *      stale Unpaid copy OVERWRITES the Refunded row. From then on every device
+ *      (including the manager's, after he clears his browser cache and
+ *      re-hydrates) sees the order as "not paid" again.
+ *   2. The REST PATCH path has no freshness guard at all — any stale tab
+ *      PATCHing an old copy regressed the row unconditionally.
+ *
+ * `applyRefundLatch` rewrites an incoming orders payload against the row stored
+ * in D1 BEFORE it reaches SQL: when the stored row is refunded (paymentStatus
+ * 'Refunded' or a refundedAt marker), any write that does not itself carry a
+ * refund marker is forced to keep the Refunded state (status, refundedAt,
+ * refundReason). Legit new data in the same write (customer name, notes…) still
+ * lands. There is no un-refund flow in this POS, so refund always outranks.
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+/** True when a stored row / payload carries a resolved refund. */
+function hasRefundMarker(row: any): boolean {
+  if (!row) return false;
+  const status = row.paymentStatus ?? row.payment_status;
+  const refundedAt = row.refundedAt ?? row.refunded_at;
+  return status === "Refunded" || (refundedAt !== null && refundedAt !== undefined && refundedAt !== "");
+}
+
+/**
+ * Rewrite `incoming` so it can never resurrect a refunded order. No-op for any
+ * other case (including when the incoming write IS the refund itself).
+ * Column names here are the D1/canonical camelCase ones (post-normalizeData).
+ */
+export function applyRefundLatch(incoming: any, current: any): any {
+  if (!current || !incoming) return incoming;
+  if (!hasRefundMarker(current)) return incoming; // nothing to protect
+  if (hasRefundMarker(incoming)) return incoming; // refund re-send / richer refund data
+
+  const latched = { ...incoming };
+  latched.paymentStatus = "Refunded";
+  // Keep the ORIGINAL refund timestamp/reason — the story of WHEN and WHY the
+  // order was refunded must never be rewritten by a stale writer.
+  latched.refundedAt = current.refundedAt ?? current.refunded_at;
+  latched.refundReason = current.refundReason ?? current.refund_reason;
+  // A refunded order is voided on the client too (status 'Cancelled'); never
+  // let a stale writer resurrect it onto the kitchen board as New/Completed.
+  if (current.status === "Cancelled") latched.status = "Cancelled";
+  return latched;
+}
+
 
 
 export default {
@@ -384,10 +441,22 @@ export default {
           if (action === "delete") {
             await env.DB.prepare(`DELETE FROM ${table} WHERE id = ?`).bind(docId).run();
           } else {
-            const normalized = sanitizeAndNormalize(table, data);
+            let normalized = sanitizeAndNormalize(table, data);
             normalized.id = docId;
             // Single-branch system: always stamp the one branch id.
             normalized.branch_id = MAIN_BRANCH_ID;
+
+            if (table === "orders") {
+              // Refund is terminal: never let a stale device copy (Uploaded with
+              // an old paymentStatus / without refund markers) overwrite the
+              // refunded row in D1. The freshness guard alone cannot stop this —
+              // a NULL incoming updatedAt skips it entirely (NULL comparison).
+              const currentRow = await env.DB
+                .prepare(`SELECT paymentStatus, refundedAt, refundReason, status FROM orders WHERE id = ?`)
+                .bind(docId)
+                .first();
+              normalized = applyRefundLatch(normalized, currentRow);
+            }
 
             const keys = Object.keys(normalized);
             if (keys.length === 0) {
@@ -622,13 +691,23 @@ export default {
         const documentId = body.documentId;
         const rawData = body.data || {};
 
-        const data = sanitizeAndNormalize(table, rawData);
+        let data = sanitizeAndNormalize(table, rawData);
         data.id = documentId;
         // Single-branch system: always stamp the one branch id.
         data.branch_id = MAIN_BRANCH_ID;
 
         const deniedPost = await authorize({ table, method: "POST", docId: documentId, submitted: data });
         if (deniedPost) return deniedPost;
+
+        if (table === "orders") {
+          // Refund is terminal: a stale whole-row upsert (cloudUpsert sends the
+          // entire order) must never overwrite a refunded row's payment state.
+          const currentRow = await env.DB
+            .prepare(`SELECT paymentStatus, refundedAt, refundReason, status FROM orders WHERE id = ?`)
+            .bind(documentId)
+            .first();
+          data = applyRefundLatch(data, currentRow);
+        }
 
         const keys = Object.keys(data);
         if (keys.length === 0) {
@@ -695,10 +774,21 @@ export default {
 
         const body: any = await request.json();
         const rawData = body.data || {};
-        const data = sanitizeAndNormalize(table, rawData);
+        let data = sanitizeAndNormalize(table, rawData);
 
         const deniedPatch = await authorize({ table, method: "PATCH", docId, submitted: data });
         if (deniedPatch) return deniedPatch;
+
+        if (table === "orders") {
+          // Refund is terminal: this path has no freshness guard, so a stale
+          // tab PATCHing an old copy would otherwise resurrect a refunded order
+          // to Paid/Unpaid unconditionally.
+          const currentRow = await env.DB
+            .prepare(`SELECT paymentStatus, refundedAt, refundReason, status FROM orders WHERE id = ?`)
+            .bind(docId)
+            .first();
+          data = applyRefundLatch(data, currentRow);
+        }
 
         const keys = Object.keys(data);
         if (keys.length === 0) {
