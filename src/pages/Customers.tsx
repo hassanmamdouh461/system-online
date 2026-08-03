@@ -10,6 +10,7 @@ import {
 import { customersService } from '../services/customersService';
 import { companiesService } from '../services/companiesService';
 import { getSessionRole, ensureCloudSession, refreshCloudSessionRole } from '../services/cloudConfig';
+import { hasRefundPin } from '../utils/refundPin';
 import { Customer } from '../types/customer';
 import { Company } from '../types/company';
 import { Order, getOrderGrandTotal } from '../types/order';
@@ -1306,20 +1307,22 @@ function CustomerProfileDetail({
                 </button>
                 <button
                   type="button"
-                  disabled={refundBusy || refundAuthRole !== 'manager'}
+                  disabled={refundBusy || (refundAuthRole !== 'manager' && !hasRefundPin())}
                   onClick={async () => {
                     setRefundBusy(true);
                     try {
-                      // Fail-closed: only an authenticated manager may refund.
-                      // The Worker enforces the same rule (cashier → 403).
+                      // Fail-closed, but the escalation PIN counts: a cashier who
+                      // was handed it may refund (the Worker validates it via
+                      // X-Refund-PIN). Ask the SERVER for the role rather than
+                      // trusting this tab's cached one — the session cookie is
+                      // shared by every tab, so another tab can have downgraded it.
                       await ensureCloudSession();
-                      let role = getSessionRole();
-                      if (role == null) role = await refreshCloudSessionRole();
+                      const role = await refreshCloudSessionRole();
                       setRefundAuthRole(role);
-                      if (role !== 'manager') {
+                      if (role !== 'manager' && !hasRefundPin()) {
                         alert(language === 'ar'
-                          ? 'الاسترجاع يتطلب صلاحية مدير. سجّل الدخول بحساب مدير.'
-                          : 'Refund requires manager authorization. Please sign in as a manager.');
+                          ? 'الاسترجاع يتطلب صلاحية مدير أو رمز تصعيد (PIN).'
+                          : 'Refund requires a manager session or the escalation PIN.');
                         setRefundBusy(false);
                         return;
                       }
