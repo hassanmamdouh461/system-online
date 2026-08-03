@@ -597,19 +597,23 @@ export default {
           }
           const id = `order_seq::${dayKey}`;
           const now = new Date().toISOString();
-          // Atomic claim-then-increment: both statements land in ONE D1 batch, so
-          // a concurrent device either sees the row before our INSERT (and writes
-          // seq+1 itself) or after — never the same value twice.
-          const row: any = await env.DB
-            .prepare(`SELECT value FROM settings WHERE id = ?`)
-            .bind(id)
+          // Truly atomic claim-and-increment: the read, increment and write are
+          // ONE SQL statement (INSERT ... ON CONFLICT ... DO UPDATE ... RETURNING),
+          // so two devices racing the same day can never receive the same seq —
+          // the previous SELECT-then-UPDATE pair left a window where both racers
+          // read the same value and returned the same invoice number (Blocker 2).
+          const result: any = await env.DB
+            .prepare(
+              `INSERT INTO settings (id, key, value, branch_id, updated_at) VALUES (?1, ?2, '1', ?3, ?4)
+               ON CONFLICT(id) DO UPDATE SET value = CAST(settings.value AS INTEGER) + 1, updated_at = ?4
+               RETURNING value`
+            )
+            .bind(id, "brewmaster_order_seq", MAIN_BRANCH_ID, now)
             .first();
-          const current = row ? parseInt(String(row.value), 10) : 0;
-          const next = (Number.isFinite(current) ? current : 0) + 1;
-          const stmt = row
-            ? env.DB.prepare(`UPDATE settings SET value = ?, updated_at = ? WHERE id = ?`).bind(String(next), now, id)
-            : env.DB.prepare(`INSERT INTO settings (id, key, value, branch_id, updated_at) VALUES (?, ?, ?, ?, ?)`).bind(id, "brewmaster_order_seq", String(next), MAIN_BRANCH_ID, now);
-          await stmt.run();
+          const next = parseInt(String(result?.value ?? ""), 10);
+          if (!Number.isFinite(next) || next <= 0) {
+            throw new Error("order-sequence counter returned no value");
+          }
           return new Response(JSON.stringify({ seq: next, dayKey }), {
             status: 200, headers: { "Content-Type": "application/json", ...corsHeaders }
           });
