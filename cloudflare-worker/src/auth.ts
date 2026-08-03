@@ -524,6 +524,38 @@ export async function verifyCsrf(request: Request, env: AuthEnv): Promise<boolea
  * resolution, and the read-modify-write is not atomic), but it is sufficient to
  * stop naive online brute-force against the POS password.
  */
+/**
+ * In-isolate fallback window, used ONLY when D1 is unreachable.
+ *
+ * The D1 limiter fails open so a database outage cannot lock every operator out
+ * of the till — that trade-off is deliberate and stays. But failing FULLY open
+ * removed the only brute-force protection at exactly the moment an attacker
+ * would most like it gone. This memory window keeps a coarse limit alive during
+ * the outage. It is per-isolate and therefore weaker than the D1 counter (an
+ * attacker spread across isolates gets more attempts), which is precisely why
+ * it is a fallback and not the primary mechanism.
+ */
+const memoryRateLimit = new Map<string, number[]>();
+
+function checkMemoryRateLimit(key: string, maxAttempts: number, windowSeconds: number): boolean {
+  const now = Math.floor(Date.now() / 1000);
+  const cutoff = now - windowSeconds;
+  const attempts = (memoryRateLimit.get(key) || []).filter((t) => t > cutoff);
+
+  // Bound the map so a long-lived isolate cannot grow it without limit.
+  if (memoryRateLimit.size > 1000 && !memoryRateLimit.has(key)) {
+    memoryRateLimit.clear();
+  }
+
+  if (attempts.length >= maxAttempts) {
+    memoryRateLimit.set(key, attempts);
+    return false;
+  }
+  attempts.push(now);
+  memoryRateLimit.set(key, attempts);
+  return true;
+}
+
 export async function checkRateLimit(
   env: AuthEnv,
   key: string,
@@ -561,10 +593,17 @@ export async function checkRateLimit(
 
     return true;
   } catch (e) {
-    // Fail-open on D1 error: a broken rate limiter must not take down auth.
-    console.warn("[worker] rate limit check failed, allowing request:", e);
-    return true;
+    // D1 is unreachable. A broken rate limiter must not take down auth, so we
+    // do not fail closed — but we do not hand out unlimited attempts either.
+    // Fall back to the in-isolate window (see checkMemoryRateLimit).
+    console.warn("[worker] rate limit check failed, falling back to in-memory window:", e);
+    return checkMemoryRateLimit(key, maxAttempts, windowSeconds);
   }
+}
+
+/** Test-only: reset the in-memory fallback window between cases. */
+export function __resetMemoryRateLimit(): void {
+  memoryRateLimit.clear();
 }
 
 // ─── Session endpoints ───────────────────────────────────────────────────────

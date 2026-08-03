@@ -253,11 +253,30 @@ export async function applySnapshotPayload(payload: SnapshotPayload): Promise<Re
       const tx = db.transaction(store, 'readwrite');
       for (const row of rows) {
         const existing = (await tx.store.get(row.id)) as any;
-        // Latest-writer-wins on updatedAt; an incoming row with no timestamp
-        // only fills a gap (never overwrites a row that already exists).
-        const existingT = Date.parse(existing?.updatedAt ?? '') || 0;
-        const incomingT = Date.parse(row?.updatedAt ?? row?.updated_at ?? '') || 0;
-        if (!existing || incomingT >= existingT) {
+
+        // A brand-new id always lands.
+        if (!existing) {
+          await tx.store.put(row);
+          continue;
+        }
+
+        // The comment above this code used to promise that an incoming row with
+        // no timestamp "only fills a gap", but the arithmetic did not deliver
+        // it: an unparseable/missing updatedAt collapsed to 0 on BOTH sides, so
+        // `0 >= 0` was true and a timestamp-less snapshot row overwrote a live
+        // local row (the local row's own updatedAt is also 0 whenever it is
+        // missing or corrupt). Make the promise real — no timestamp means no
+        // authority to overwrite anything that already exists.
+        const incomingT = Date.parse(row?.updatedAt ?? row?.updated_at ?? '');
+        if (!Number.isFinite(incomingT)) continue;
+
+        const existingT = Date.parse(existing?.updatedAt ?? '');
+        // A local row with no usable timestamp cannot be proven older, so it
+        // is left alone too. Restore is a recovery path, not a merge conflict
+        // resolver — when in doubt it must not destroy current work.
+        if (!Number.isFinite(existingT)) continue;
+
+        if (incomingT >= existingT) {
           await tx.store.put(row);
         }
       }
