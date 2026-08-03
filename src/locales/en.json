@@ -510,5 +510,12 @@
   "Failed to update order status": "Failed to update order status",
   "Process customer payments and view daily revenue.": "Process customer payments and view daily revenue.",
   "Order Cancelled": "Order Cancelled",
-  "Refund / Void": "Refund / Void"
+  "Refund / Void": "Refund / Void",
+  "Item Details": "Item Details",
+  "Item added successfully": "Item added successfully",
+  "No stock items found": "No stock items found",
+  "Search stock items...": "Search stock items...",
+  "Search history logs...": "Search history logs...",
+  "Refresh": "Refresh",
+  "Recipe materials cost": "Recipe materials cost"
 }

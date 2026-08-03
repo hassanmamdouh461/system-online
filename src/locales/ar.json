@@ -510,5 +510,12 @@
   "Failed to update order status": "فشل تحديث حالة الطلب",
   "Process customer payments and view daily revenue.": "معالجة مدفوعات العملاء وعرض إيراد اليوم.",
   "Order Cancelled": "تم إلغاء الطلب",
-  "Refund / Void": "استرجاع / إلغاء مالي"
+  "Refund / Void": "استرجاع / إلغاء مالي",
+  "Item Details": "تفاصيل الصنف",
+  "Item added successfully": "تم إضافة الصنف بنجاح",
+  "No stock items found": "لا توجد أصناف في المخزون",
+  "Search stock items...": "ابحث في أصناف المخزون...",
+  "Search history logs...": "ابحث في سجل الحركات...",
+  "Refresh": "تحديث",
+  "Recipe materials cost": "تكلفة الخامات الملازمة للوجبات المباعة"
 }
