@@ -14,6 +14,7 @@ import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
 import { ProfileSettingsModal } from '../components/settings/ProfileSettingsModal';
 import { StoreConfigModal } from '../components/settings/StoreConfigModal';
+import { BackupRestoreCard } from '../components/settings/BackupRestoreCard';
 
 import { QrMenuModal } from '../components/settings/QrMenuModal';
 import { TelegramConfigModal } from '../components/settings/TelegramConfigModal';

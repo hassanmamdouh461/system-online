@@ -1,4 +1,5 @@
 import { MAIN_BRANCH_ID } from '../services/cloudConfig';
+import type { PersistOutcome } from '../services/settingsCloudService';
 
 // Keys for localStorage
 const LS_TAX_RATE_KEY = 'brewmaster_tax_rate';
@@ -26,6 +27,25 @@ function cloudPersist(key: string, value: string) {
     );
   } catch {
     // ignore
+  }
+}
+
+/**
+ * Durable cloud persist whose OUTCOME the caller can inspect.
+ *
+ * Used by settings the operator explicitly saves from a form (tax rate, store
+ * config). Those screens previously called the fire-and-forget helper above and
+ * unconditionally rendered "تم الحفظ بنجاح", so a rejected or skipped cloud write
+ * looked identical to a successful one — and the value silently reverted on the
+ * next hydrate. Returning the real outcome lets the UI say what actually
+ * happened.
+ */
+async function cloudPersistAwait(key: string, value: string): Promise<PersistOutcome> {
+  try {
+    const m = await import('../services/settingsCloudService');
+    return await m.persistSetting(key, value);
+  } catch {
+    return 'queued';
   }
 }
 
@@ -190,10 +210,11 @@ export function getTaxRate(): number {
   return 0.1; // Default to 10%
 }
 
-export function setTaxRate(rate: number): void {
+/** Persist the tax rate. Await the result to learn whether it reached the cloud. */
+export function setTaxRate(rate: number): Promise<PersistOutcome> {
   const v = rate.toString();
   localStorage.setItem(LS_TAX_RATE_KEY, v);
-  cloudPersist(LS_TAX_RATE_KEY, v);
+  return cloudPersistAwait(LS_TAX_RATE_KEY, v);
 }
 
 /**
@@ -235,11 +256,14 @@ export function getAdminCredentials() {
  *   without altering localStorage.
  */
 export async function setAdminCredentials(username: string, password: string): Promise<void> {
-  const { canPushSettingKey } = await import('../services/settingsCloudService');
+  const { ensureCanPushSettingKey } = await import('../services/settingsCloudService');
   const { isCloudConfigured } = await import('../services/cloudConfig');
   // Only gate on role when cloud sync is live — a purely offline install has no
-  // D1 divergence risk and must remain self-service.
-  if (isCloudConfigured() && !canPushSettingKey(LS_ADMIN_CREDS_KEY)) {
+  // D1 divergence risk and must remain self-service. The role check is the ASYNC
+  // one: after a page reload the in-memory role is null even for a manager whose
+  // session cookie is still valid, and denying on that would block a legitimate
+  // password change.
+  if (isCloudConfigured() && !(await ensureCanPushSettingKey(LS_ADMIN_CREDS_KEY))) {
     const err = new Error(
       'credential_sync_denied: تغيير كلمة المرور يحتاج صلاحية مدير. ' +
       '/ Changing login passwords requires manager access.'
@@ -312,9 +336,9 @@ export function getManagerCredentials() {
  *   role cannot push this key to D1.
  */
 export async function setManagerCredentials(username: string, password: string): Promise<void> {
-  const { canPushSettingKey } = await import('../services/settingsCloudService');
+  const { ensureCanPushSettingKey } = await import('../services/settingsCloudService');
   const { isCloudConfigured } = await import('../services/cloudConfig');
-  if (isCloudConfigured() && !canPushSettingKey(LS_MANAGER_CREDS_KEY)) {
+  if (isCloudConfigured() && !(await ensureCanPushSettingKey(LS_MANAGER_CREDS_KEY))) {
     const err = new Error(
       'credential_sync_denied: تغيير كلمة المرور يحتاج صلاحية مدير. ' +
       '/ Changing login passwords requires manager access.'
@@ -408,10 +432,11 @@ export function getStoreConfig(): StoreConfig {
   return DEFAULT_STORE_CONFIG;
 }
 
-export function setStoreConfig(config: StoreConfig): void {
+/** Persist the store config. Await the result to learn whether it reached the cloud. */
+export function setStoreConfig(config: StoreConfig): Promise<PersistOutcome> {
   const payload = JSON.stringify(config);
   localStorage.setItem(LS_STORE_CONFIG_KEY, payload);
-  cloudPersist(LS_STORE_CONFIG_KEY, payload);
+  return cloudPersistAwait(LS_STORE_CONFIG_KEY, payload);
 }
 
 export function getTelegramConfig(): TelegramConfig {

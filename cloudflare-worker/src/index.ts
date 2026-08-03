@@ -1,5 +1,5 @@
 import { authenticate, handleSessionRoutes, verifyCsrf, timingSafeEqual } from "./auth.ts";
-import { can, canReadSettingKey, canReadTable } from "./permissions.ts";
+import { can, canReadSettingKey, canReadTable, settingKeyFrom } from "./permissions.ts";
 import type { HttpMethod } from "./permissions.ts";
 
 interface Env {
@@ -445,6 +445,9 @@ export default {
             normalized.id = docId;
             // Single-branch system: always stamp the one branch id.
             normalized.branch_id = MAIN_BRANCH_ID;
+            // settings.key is NOT NULL and was stripped as untrusted input —
+            // re-derive it from the document id (see stampSettingKey).
+            stampSettingKey(table, normalized, docId);
 
             if (table === "orders") {
               // Refund is terminal: never let a stale device copy (Uploaded with
@@ -745,6 +748,9 @@ export default {
         data.id = documentId;
         // Single-branch system: always stamp the one branch id.
         data.branch_id = MAIN_BRANCH_ID;
+        // settings.key is NOT NULL and was stripped as untrusted input —
+        // re-derive it from the document id (see stampSettingKey).
+        stampSettingKey(table, data, documentId);
 
         const deniedPost = await authorize({ table, method: "POST", docId: documentId, submitted: data });
         if (deniedPost) return deniedPost;
@@ -825,6 +831,9 @@ export default {
         const body: any = await request.json();
         const rawData = body.data || {};
         let data = sanitizeAndNormalize(table, rawData);
+        // Harmless on an UPDATE (the value can only equal the id-derived key),
+        // and it heals a legacy settings row whose key column is NULL.
+        stampSettingKey(table, data, docId);
 
         const deniedPatch = await authorize({ table, method: "PATCH", docId, submitted: data });
         if (deniedPatch) return deniedPatch;
@@ -984,6 +993,32 @@ function sanitizeAndNormalize(table: string, data: any) {
     delete sanitized.key;
   }
   return sanitized;
+}
+
+/**
+ * Re-attach a settings row's `key` column, derived SERVER-SIDE from the document id.
+ *
+ * WHY THIS EXISTS — the "settings never save" outage.
+ * sanitizeAndNormalize() strips a client-supplied `key` (correct: the key
+ * authorizes the write, so it must never come from the client). But `settings.key`
+ * is `TEXT NOT NULL` in the schema, and SQLite validates NOT NULL on the candidate
+ * row BEFORE `ON CONFLICT(id) DO UPDATE` resolves the conflict. So an upsert built
+ * without `key` fails with `NOT NULL constraint failed: settings.key` for BOTH new
+ * rows AND updates to existing rows — every settings write (tax rate, store config,
+ * credential hashes, tables/staff lists) died with a generic 500 "Sync failed",
+ * while the POS kept the value in localStorage and showed "saved". The next
+ * hydrate then pulled the stale D1 copy back over it, so the operator saw the
+ * value silently revert (e.g. tax rate snapping back to 0).
+ *
+ * Stripping and then re-deriving the key keeps the security property intact —
+ * the stored key can only ever be the one encoded in the id the row is written
+ * to, never a client-chosen one — while satisfying the NOT NULL constraint. It
+ * also heals any legacy row whose key column is NULL.
+ */
+function stampSettingKey(table: string, data: any, docId: string | null | undefined): void {
+  if (table !== "settings") return;
+  const key = settingKeyFrom(null, docId, null);
+  if (key) data.key = key;
 }
 
 function normalizeData(table: string, data: any) {

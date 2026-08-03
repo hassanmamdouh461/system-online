@@ -757,6 +757,25 @@ export async function cloudUpsert(
       console.warn(`[cloud] UPSERT ${collection}/${id} failed: HTTP ${res.status}`);
       return false;
     }
+    // A 200 does NOT always mean the row was written. When the Worker's
+    // last-writer-wins freshness guard rejects the conflict update it answers
+    // `200 { success: true, stale: true }` and the stored row is NOT touched.
+    // Treating that as success (and acking the queue row below) silently
+    // DISCARDED the write: the value lived on in localStorage while D1 kept the
+    // older copy, and the next hydrate pulled that older copy back over it.
+    // Report failure instead, so the caller falls back to the retrying queue.
+    try {
+      const body: any = await res.clone().json();
+      if (body && body.stale === true) {
+        console.warn(
+          `[cloud] UPSERT ${collection}/${id} discarded by the server freshness guard ` +
+            `(a newer row already exists) — queue row NOT acked.`
+        );
+        return false;
+      }
+    } catch {
+      // Non-JSON / empty body — nothing to inspect; treat the 200 as success.
+    }
     // Best-effort: clear pending queue rows for this entity so SyncStatus stays honest
     void ackSyncQueueForEntity(id);
     return true;
@@ -843,7 +862,23 @@ export async function cloudSyncNow(payload: {
       }),
     });
     if (!res) return false;
-    return res.ok;
+    if (!res.ok) return false;
+    // `200 { success: true, stale: true }` means the freshness guard discarded
+    // the write — the row in D1 was NOT changed. Reporting success here would
+    // retire the queue row for a write that never landed (see cloudUpsert).
+    try {
+      const body: any = await res.clone().json();
+      if (body && body.stale === true) {
+        console.warn(
+          `[cloud] syncNow ${payload.type}/${payload.data?.id} discarded by the server ` +
+            `freshness guard (a newer row already exists).`
+        );
+        return false;
+      }
+    } catch {
+      // Non-JSON body — treat the 200 as success.
+    }
+    return true;
   } catch (err) {
     console.warn('[cloud] syncNow error:', err);
     return false;

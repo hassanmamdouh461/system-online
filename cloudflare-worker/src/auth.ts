@@ -440,7 +440,13 @@ export async function authenticate(
     if (payload) return { role: payload.role, sid: payload.sid, viaCookie: true };
   }
 
-  if (env.API_KEY) {
+  // Header-key callers (headless scripts, monitoring, migrations). The gate must
+  // consider EVERY configured key: it previously read `if (env.API_KEY)` only, so
+  // on a deployment that had correctly retired the legacy shared key but kept the
+  // role-scoped ones, MANAGER_API_KEY / CASHIER_API_KEY were silently ignored on
+  // every data endpoint and those callers got a blanket 401 — they could only
+  // mint a cookie at POST /v1/session (which does consult resolveKeyRole).
+  if (env.API_KEY || env.MANAGER_API_KEY || env.CASHIER_API_KEY) {
     const key = presentedKey(request);
     const resolved = resolveKeyRole(key, env);
     if (resolved) {
