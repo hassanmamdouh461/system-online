@@ -171,6 +171,75 @@ export function applyRefundLatch(incoming: any, current: any): any {
   return latched;
 }
 
+/* ─────────────────────────────────────────────────────────────────────────────
+ * DELETE LATCH — deletion is TERMINAL, exactly like refund.
+ *
+ * The bug this closes: refund an order, delete it, clear the browser cache →
+ * the order comes back. Deleting is a SOFT delete: the client writes a
+ * `deletedAt` tombstone (a full-row upsert, action 'update') and pushes it. Two
+ * holes let that tombstone die silently:
+ *   1. The freshness guard (`excluded.updatedAt > orders.updatedAt`) discards
+ *      the write whenever the tombstone's updatedAt is not strictly newer than
+ *      the row written milliseconds earlier by the refund — clock skew, or a
+ *      refund and delete landing in the same millisecond, is enough. D1 keeps
+ *      the pre-delete row and answers 200 { stale: true }.
+ *   2. Any LATER stale write (another tab replaying its pre-delete copy) would
+ *      clear `deletedAt` again even if the tombstone HAD landed.
+ * Local IndexedDB still shows it deleted, so nobody notices — until the cache
+ * is cleared and hydrate faithfully restores whatever D1 actually holds.
+ *
+ * Fix, mirroring the refund latch: once a row carries `deletedAt`, no write may
+ * clear it, and a tombstone always beats the freshness guard (see
+ * tombstoneOverride below). There is no un-delete flow in this POS.
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+/** Soft-delete column per table (orders uses camelCase in D1, the rest snake). */
+const DELETED_AT_COLUMN: Record<string, string> = {
+  menu_items: "deleted_at",
+  orders: "deletedAt",
+  customers: "deleted_at",
+  companies: "deleted_at",
+  inventory: "deleted_at",
+};
+
+/** Read a soft-delete marker off either row shape. */
+function readDeletedAt(row: any): string | null {
+  if (!row) return null;
+  const v = row.deletedAt ?? row.deleted_at;
+  return v === null || v === undefined || v === "" ? null : v;
+}
+
+/**
+ * Rewrite `incoming` so it can never resurrect a soft-deleted row. No-op when
+ * the stored row is not deleted, or when the incoming write IS the tombstone.
+ */
+export function applyDeleteLatch(incoming: any, current: any, table = "orders"): any {
+  if (!current || !incoming) return incoming;
+  const storedDeletedAt = readDeletedAt(current);
+  if (!storedDeletedAt) return incoming;      // nothing to protect
+  if (readDeletedAt(incoming)) return incoming; // tombstone re-send
+
+  const col = DELETED_AT_COLUMN[table] || "deletedAt";
+  // Keep the ORIGINAL deletion timestamp — a later writer must not rewrite WHEN
+  // the row was deleted, only fail to undo it.
+  return { ...incoming, [col]: storedDeletedAt };
+}
+
+/**
+ * SQL fragment that lets a tombstone win the ON CONFLICT freshness race.
+ *
+ * A delete must land even when its updatedAt ties (or trails) the stored row's:
+ * losing a deletion is unrecoverable — the sync queue retires the record as
+ * "synced" and the row silently lives on in D1 forever. Losing a stale ordinary
+ * write is harmless by comparison, so only the deleting transition is exempted:
+ * stored row NOT deleted → incoming IS deleted.
+ */
+function tombstoneOverride(table: string): string {
+  const col = DELETED_AT_COLUMN[table];
+  if (!col) return "";
+  return ` OR (excluded.${col} IS NOT NULL AND excluded.${col} != '' AND (${table}.${col} IS NULL OR ${table}.${col} = ''))`;
+}
+
 
 
 export default {
@@ -517,10 +586,13 @@ export default {
               // refunded row in D1. The freshness guard alone cannot stop this —
               // a NULL incoming updatedAt skips it entirely (NULL comparison).
               const currentRow = await env.DB
-                .prepare(`SELECT paymentStatus, refundedAt, refundReason, status FROM orders WHERE id = ?`)
+                .prepare(`SELECT paymentStatus, refundedAt, refundReason, status, deletedAt FROM orders WHERE id = ?`)
                 .bind(docId)
                 .first();
               normalized = applyRefundLatch(normalized, currentRow);
+              // Delete is terminal too: never let a write clear an existing
+              // tombstone (see applyDeleteLatch).
+              normalized = applyDeleteLatch(normalized, currentRow, "orders");
             }
 
             const keys = Object.keys(normalized);
@@ -544,8 +616,9 @@ export default {
             // when the incoming row is strictly newer than the stored one. The
             // INSERT path (genuinely new id) is unaffected.
             const updatedAtCol = UPDATED_AT_COLUMN[table];
+            // A delete tombstone must never lose this race — see tombstoneOverride.
             const freshness = updatedAtCol
-              ? ` WHERE excluded.${updatedAtCol} > ${table}.${updatedAtCol}`
+              ? ` WHERE excluded.${updatedAtCol} > ${table}.${updatedAtCol}${tombstoneOverride(table)}`
               : "";
 
             const sql = `
@@ -823,10 +896,13 @@ export default {
           // Refund is terminal: a stale whole-row upsert (cloudUpsert sends the
           // entire order) must never overwrite a refunded row's payment state.
           const currentRow = await env.DB
-            .prepare(`SELECT paymentStatus, refundedAt, refundReason, status FROM orders WHERE id = ?`)
+            .prepare(`SELECT paymentStatus, refundedAt, refundReason, status, deletedAt FROM orders WHERE id = ?`)
             .bind(documentId)
             .first();
           data = applyRefundLatch(data, currentRow);
+          // Delete is terminal too: never let a whole-row upsert clear an
+          // existing tombstone (see applyDeleteLatch).
+          data = applyDeleteLatch(data, currentRow, "orders");
         }
 
         const keys = Object.keys(data);
@@ -845,8 +921,9 @@ export default {
 
         // Last-writer-wins freshness guard — see the /api/sync upsert above.
         const updatedAtCol = UPDATED_AT_COLUMN[table];
+        // A delete tombstone must never lose this race — see tombstoneOverride.
         const freshness = updatedAtCol
-          ? ` WHERE excluded.${updatedAtCol} > ${table}.${updatedAtCol}`
+          ? ` WHERE excluded.${updatedAtCol} > ${table}.${updatedAtCol}${tombstoneOverride(table)}`
           : "";
 
         const sql = `
@@ -907,10 +984,13 @@ export default {
           // tab PATCHing an old copy would otherwise resurrect a refunded order
           // to Paid/Unpaid unconditionally.
           const currentRow = await env.DB
-            .prepare(`SELECT paymentStatus, refundedAt, refundReason, status FROM orders WHERE id = ?`)
+            .prepare(`SELECT paymentStatus, refundedAt, refundReason, status, deletedAt FROM orders WHERE id = ?`)
             .bind(docId)
             .first();
           data = applyRefundLatch(data, currentRow);
+          // Delete is terminal too. This path has NO freshness guard at all, so
+          // a stale PATCH would otherwise silently un-delete the order.
+          data = applyDeleteLatch(data, currentRow, "orders");
         }
 
         const keys = Object.keys(data);

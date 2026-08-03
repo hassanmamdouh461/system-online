@@ -322,10 +322,18 @@ export async function hydrateFromCloud(force = false): Promise<HydrateResult> {
           result.orders = await withDB(async (db) => {
             const existing = await db.getAll('orders');
             const syncQueue = await db.getAll('sync_queue');
+            // A soft delete is queued as action 'update' carrying a deletedAt
+            // tombstone (see IndexedDbOrderRepository.delete) — matching only
+            // action === 'delete' missed every one of them, so hydrate happily
+            // overwrote a not-yet-synced tombstone with the live remote row.
             const pendingDeletions = new Set(
               syncQueue
-                .filter((r) => ((r.type as string) === 'order' || (r.type as string) === 'orders') && r.action === 'delete')
-
+                .filter((r) => {
+                  const t = r.type as string;
+                  if (t !== 'order' && t !== 'orders') return false;
+                  if (r.synced === 1) return false;
+                  return r.action === 'delete' || !!(r.data?.deletedAt || r.data?.deleted_at);
+                })
                 .map((r) => r.data?.id || r.data?.documentId)
                 .filter(Boolean)
             );

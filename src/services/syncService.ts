@@ -238,6 +238,28 @@ export class SyncService {
       }
 
       if (response.ok) {
+        // A 200 does NOT always mean the row landed. When D1's freshness guard
+        // discards the write the worker answers 200 { stale: true } — we used to
+        // mark the queue record synced regardless and retire it forever. For a
+        // delete tombstone that is data loss: the order stays alive in D1 and
+        // walks back in on the next hydrate after a cache clear. Rebase the
+        // record onto the server's row and retry instead of declaring success.
+        const stalePayload = await this.readStalePayload(response);
+        if (stalePayload && this.isTombstone(record)) {
+          const serverUpdated = Date.parse(
+            stalePayload.current?.updatedAt || stalePayload.current?.updated_at || ''
+          );
+          const bumped = new Date(
+            (Number.isFinite(serverUpdated) ? serverUpdated : Date.now()) + 1000
+          ).toISOString();
+          record.data = { ...(record.data as any), updatedAt: bumped };
+          await withDB(async (db) => {
+            await db.put('sync_queue', record);
+          });
+          await this.scheduleRetry(record, 'تم رفض الحذف كتحديث قديم — إعادة المحاولة بختم أحدث');
+          return;
+        }
+
         await withDB(async (db) => {
           record.synced = 1;
           record.syncedAt = new Date().toISOString();
@@ -299,6 +321,28 @@ export class SyncService {
       this.lastError = msg;
       await this.scheduleRetry(record, msg);
     }
+  }
+
+  /**
+   * Read a 200 response that actually reports a DISCARDED write.
+   * `/api/sync` answers `{ success: true, stale: true, current }` when the D1
+   * freshness guard rejected the upsert. Returns null for a genuine success.
+   */
+  private async readStalePayload(response: Response): Promise<{ current?: any } | null> {
+    try {
+      const body = await response.clone().json();
+      return body && body.stale === true ? body : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** A soft-delete tombstone: an 'update' whose payload carries deletedAt. */
+  private isTombstone(record: SyncRecord): boolean {
+    const data: any = record.data;
+    if (record.action === 'delete') return true;
+    const marker = data?.deletedAt ?? data?.deleted_at;
+    return !!marker;
   }
 
   /** Pull the worker's Arabic `message` out of a JSON error body. */
