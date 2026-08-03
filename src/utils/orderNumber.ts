@@ -244,6 +244,7 @@ export function mergeOrderRecords(local: OrderLike | undefined, remote: OrderLik
     companyId: pick(remote.companyId, local.companyId),
     companyName: pick(remote.companyName, local.companyName),
     billedToType: pick(remote.billedToType, local.billedToType) as any,
+    cashierName: pick(remote.cashierName, local.cashierName),
     taxRate: remote.taxRate ?? local.taxRate,
     taxAmount: remote.taxAmount ?? local.taxAmount,
     grandTotal: remote.grandTotal ?? local.grandTotal,
@@ -299,6 +300,7 @@ type OrderLike = {
   companyId?: string;
   companyName?: string;
   billedToType?: string;
+  cashierName?: string;
   taxRate?: number;
   taxAmount?: number;
   grandTotal?: number;

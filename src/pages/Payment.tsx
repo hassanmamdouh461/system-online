@@ -653,6 +653,12 @@ export default function Payment() {
           <span className="inline-block mt-1 text-xs font-black text-mocha-800 bg-mocha-50 px-2.5 py-0.5 rounded-lg border border-mocha-200">
             {language === 'ar' ? 'طلب' : 'Order'} #{formatOrderNumber(order)}
           </span>
+          {order.cashierName && (
+            <span className="inline-flex items-center gap-1 mt-1 ms-1 text-xs font-bold text-teal-800 bg-teal-50 px-2.5 py-0.5 rounded-lg border border-teal-200">
+              <User size={11} />
+              {order.cashierName}
+            </span>
+          )}
           {(() => {
             const { name: cName, phone, company: coName } = orderDisplayLabel(order);
             const coId = resolveCompanyId(order);

@@ -90,6 +90,7 @@ export const CASHIER_FORBIDDEN_SETTING_KEYS: readonly string[] = [
 export const CASHIER_ALLOWED_SETTING_KEYS: readonly string[] = [
   "brewmaster_language",
   "pos_tables_list",
+  "pos_staff_list",
   "removed_menu_categories",
   "custom_menu_categories",
 ];
@@ -401,6 +402,13 @@ function canWriteSetting(ctx: AuthzContext): Decision {
     );
   }
 
+  if (WORKER_OWNED_SETTING_KEYS.includes(key)) {
+    return deny(
+      "worker_owned_setting",
+      "هذا الإعداد تديره المنظومة داخلياً ولا يمكن تعديله من الأجهزة."
+    );
+  }
+
   if (CASHIER_FORBIDDEN_SETTING_KEYS.includes(key)) {
     return deny(
       "cashier_sensitive_setting",
@@ -488,6 +496,15 @@ function canWriteInventory(ctx: AuthzContext): Decision {
   if (frozen.length > 0) {
     return deny(
       "cashier_inventory_field_forbidden",
+      "تعديل تكلفة أو بيانات صنف المخزون يحتاج صلاحية مدير."
+    );
+  }
+
+  // `stock` moves in both directions: deductStock on sale, restoreStock on
+  // order cancel. Both are legitimate cashier actions.
+  return ALLOW;
+}
+en",
       "تعديل تكلفة أو بيانات صنف المخزون يحتاج صلاحية مدير."
     );
   }

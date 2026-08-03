@@ -63,6 +63,9 @@ export interface Order {
   /** Set when a paid order is voided/refunded */
   refundedAt?: string;
   refundReason?: string;
+  /** Name of the staff member (cashier/waiter) who took this order — printed on
+   *  the receipt so management can attribute sales to the right person. */
+  cashierName?: string;
   /** Soft-delete tombstone — set when order is "deleted" via DataContext. */
   deletedAt?: string;
   /** Multi-branch sync fields */

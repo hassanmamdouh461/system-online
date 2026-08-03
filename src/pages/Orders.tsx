@@ -42,6 +42,7 @@ export default function Orders({ type = 'all' }: OrdersProps) {
       companyId?: string;
       companyName?: string;
       billedToType?: 'customer' | 'company';
+      cashierName?: string;
     }
   ) => {
     // Money math goes through utils/money — never raw `*` / `+` (see money.ts).
@@ -69,6 +70,7 @@ export default function Orders({ type = 'all' }: OrdersProps) {
       companyId: accountMeta?.companyId,
       companyName: accountMeta?.companyName,
       billedToType: accountMeta?.billedToType,
+      cashierName: accountMeta?.cashierName,
     });
     if (!newOrder) {
       throw new Error(language === 'ar' ? 'فشل حفظ الطلب' : 'Failed to save order');

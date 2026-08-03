@@ -54,7 +54,7 @@ const ALLOWED_COLUMNS: Record<string, Set<string>> = {
     "id", "orderNumber", "tableId", "items", "status", "paymentStatus", "paymentMethod",
     "totalAmount", "taxRate", "taxAmount", "grandTotal", "createdAt", "updatedAt", "paidAt",
     "customerPhone", "customerId", "customerName", "companyId", "companyName", "billedToType",
-    "refundedAt", "refundReason", "deletedAt", "branch_id"
+    "refundedAt", "refundReason", "cashierName", "deletedAt", "branch_id"
   ]),
   customers: new Set(["id", "name", "phone", "company_id", "tags", "notes", "createdAt", "updated_at", "branch_id", "deleted_at"]),
   companies: new Set(["id", "name", "tags", "phone", "notes", "createdAt", "updated_at", "branch_id", "deleted_at"]),
@@ -570,6 +570,52 @@ export default {
           }
           console.error('[Worker /api/report/claim Error]:', e);
           return new Response(JSON.stringify({ error: "Claim Error", message: msg }), {
+            status: 500, headers: { "Content-Type": "application/json", ...corsHeaders }
+          });
+        }
+      }
+
+      // 3c. Cross-device daily order-sequence reservation — POST /api/orders/next-seq
+      // Two tills running at the same time used to each compute "max local ticket
+      // + 1" and hand out the SAME invoice number for the day. Here the counter is
+      // a single D1 row per day; the read-then-increment happens inside one
+      // D1 batch (atomic), so two devices racing can never receive the same seq.
+      // The device falls back to its local heuristic when the Worker is offline.
+      if (pathParts[0] === "api" && pathParts[1] === "orders" && pathParts[2] === "next-seq" && request.method === "POST") {
+        if (role !== "manager" && role !== "cashier") {
+          return new Response(JSON.stringify({ error: "Forbidden" }), {
+            status: 403, headers: { "Content-Type": "application/json", ...corsHeaders }
+          });
+        }
+        try {
+          const body: any = await request.json().catch(() => ({}));
+          const dayKey = String(body?.dayKey || "").trim();
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(dayKey)) {
+            return new Response(JSON.stringify({ error: "Bad Request", message: "dayKey must be YYYY-MM-DD" }), {
+              status: 400, headers: { "Content-Type": "application/json", ...corsHeaders }
+            });
+          }
+          const id = `order_seq::${dayKey}`;
+          const now = new Date().toISOString();
+          // Atomic claim-then-increment: both statements land in ONE D1 batch, so
+          // a concurrent device either sees the row before our INSERT (and writes
+          // seq+1 itself) or after — never the same value twice.
+          const row: any = await env.DB
+            .prepare(`SELECT value FROM settings WHERE id = ?`)
+            .bind(id)
+            .first();
+          const current = row ? parseInt(String(row.value), 10) : 0;
+          const next = (Number.isFinite(current) ? current : 0) + 1;
+          const stmt = row
+            ? env.DB.prepare(`UPDATE settings SET value = ?, updated_at = ? WHERE id = ?`).bind(String(next), now, id)
+            : env.DB.prepare(`INSERT INTO settings (id, key, value, branch_id, updated_at) VALUES (?, ?, ?, ?, ?)`).bind(id, "brewmaster_order_seq", String(next), MAIN_BRANCH_ID, now);
+          await stmt.run();
+          return new Response(JSON.stringify({ seq: next, dayKey }), {
+            status: 200, headers: { "Content-Type": "application/json", ...corsHeaders }
+          });
+        } catch (e: any) {
+          console.error('[Worker /api/orders/next-seq Error]:', e);
+          return new Response(JSON.stringify({ error: "Sequence Error", message: "Failed to reserve order sequence" }), {
             status: 500, headers: { "Content-Type": "application/json", ...corsHeaders }
           });
         }

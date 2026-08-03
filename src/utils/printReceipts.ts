@@ -283,6 +283,11 @@ export function printCustomerReceipt(order: Order, lang: 'en' | 'ar' = 'ar') {
           <strong>${dateLabel}:</strong>
           <span>${new Date(order.createdAt).toLocaleString(isRtl ? 'ar-EG' : 'en-US')}</span>
         </div>
+        ${order.cashierName ? `
+        <div class="info-row">
+          <strong>${isRtl ? 'الموظف / الكاشير' : 'Staff / Cashier'}:</strong>
+          <span>${escapeHtml(order.cashierName)}</span>
+        </div>` : ''}
       </div>
 
       <div class="items">

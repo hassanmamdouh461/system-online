@@ -39,6 +39,7 @@ export const DURABLE_SETTING_KEYS = [
   'brewmaster_store_config',
   'brewmaster_language',
   'pos_tables_list',
+  'pos_staff_list',
   'removed_menu_categories',
   'custom_menu_categories',
 ] as const;
