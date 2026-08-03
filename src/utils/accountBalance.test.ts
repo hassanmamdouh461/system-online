@@ -4,6 +4,7 @@ import {
   isCompanyBilledOrder,
   getCustomerAccountBalance,
   getCompanyAccountBalance,
+  getCustomerOpenInvoices,
 } from './accountBalance';
 import type { Order } from '../types/order';
 
@@ -71,5 +72,38 @@ describe('getCompanyAccountBalance', () => {
       order({ id: 'c', paymentStatus: 'Paid', billedToType: 'company', companyId: 'co1', grandTotal: 999 }), // settled
     ];
     expect(getCompanyAccountBalance(orders, 'co1')).toBe(50);
+  });
+});
+
+// AB-005 — suffix phone matching leaked one customer's invoices into another's
+// balance and statement. Matching by suffix is only legitimate for the same
+// number written with and without a country code.
+describe('customer phone matching (AB-005)', () => {
+  const invoice = (phone: string) =>
+    order({ id: `o-${phone}`, paymentStatus: 'OnAccount', customerPhone: phone, totalAmount: 100 });
+
+  it('does not attach a stranger\'s invoice to a short/partial phone record', () => {
+    const orders = [invoice('01012345678')];
+    const partial = { id: 'c1', phone: '8' } as any;
+    expect(getCustomerOpenInvoices(orders, partial)).toHaveLength(0);
+    expect(getCustomerAccountBalance(orders, partial)).toBe(0);
+  });
+
+  it('still matches the exact same number', () => {
+    const orders = [invoice('01012345678')];
+    const cust = { id: 'c1', phone: '01012345678' } as any;
+    expect(getCustomerOpenInvoices(orders, cust)).toHaveLength(1);
+  });
+
+  it('still reconciles the same number with and without a country code', () => {
+    const orders = [invoice('+201012345678')];
+    const cust = { id: 'c1', phone: '01012345678' } as any;
+    expect(getCustomerOpenInvoices(orders, cust)).toHaveLength(1);
+  });
+
+  it('ignores formatting differences (spaces, dashes, parentheses)', () => {
+    const orders = [invoice('010-1234 5678')];
+    const cust = { id: 'c1', phone: '01012345678' } as any;
+    expect(getCustomerOpenInvoices(orders, cust)).toHaveLength(1);
   });
 });

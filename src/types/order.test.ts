@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { getOrderGrandTotal } from './order';
+import { describe, it, expect, vi } from 'vitest';
+import { getOrderGrandTotal, getOrderMoney } from './order';
 
 // Revenue recognition is the single most important number in the system, and it
 // has a real history of bugs (a null grandTotal coming back from D1 as 0 used to
@@ -33,5 +33,38 @@ describe('getOrderGrandTotal', () => {
 
   it('never returns a negative total', () => {
     expect(getOrderGrandTotal({ totalAmount: -50 }, 0)).toBe(0);
+  });
+});
+
+// OT-007 — a stored grandTotal below its own subtotal is corruption, not a
+// discount. Trusting it silently understated the day's revenue.
+describe('getOrderGrandTotal corrupt snapshot guard (OT-007)', () => {
+  it('recomputes when the stored total is below the subtotal', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    expect(
+      getOrderGrandTotal({ totalAmount: 100, taxAmount: 14, grandTotal: 50 } as any)
+    ).toBe(114);
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it('still trusts a consistent stored total', () => {
+    expect(
+      getOrderGrandTotal({ totalAmount: 100, taxAmount: 14, grandTotal: 114 } as any)
+    ).toBe(114);
+  });
+
+  it('tolerates piaster-level float drift', () => {
+    expect(
+      getOrderGrandTotal({ totalAmount: 100, taxAmount: 0, grandTotal: 99.999999 } as any)
+    ).toBe(100);
+  });
+
+  it('getOrderMoney applies the same guard', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    expect(
+      getOrderMoney({ totalAmount: 100, taxAmount: 14, grandTotal: 50 } as any).grandTotal
+    ).toBe(114);
+    warn.mockRestore();
   });
 });

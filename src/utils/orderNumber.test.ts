@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import {
   parseOrderSeq,
   orderSeqSortValue,
@@ -173,5 +173,64 @@ describe('mergeOrderRecords', () => {
       updatedAt: '2026-01-01T10:00:00Z',
     });
     expect(mergeOrderRecords(local, remote).paymentStatus).toBe('Refunded');
+  });
+});
+
+// BD-015 — ticket numbering and revenue reporting must share ONE definition of
+// "day". With dayStartHour = 6, a 01:00 order belongs to the previous business
+// day, so the counter must NOT have reset yet.
+describe('nextOrderSeq business-day alignment (BD-015)', () => {
+  const LS_KEY = 'brewmaster_store_config';
+  const store = new Map<string, string>();
+
+  const installLocalStorage = (dayStartHour: number) => {
+    store.set(LS_KEY, JSON.stringify({ dayStartHour }));
+    (globalThis as any).localStorage = {
+      getItem: (k: string) => (store.has(k) ? store.get(k)! : null),
+      setItem: (k: string, v: string) => void store.set(k, v),
+      removeItem: (k: string) => void store.delete(k),
+      clear: () => store.clear(),
+    };
+  };
+
+  afterEach(() => {
+    store.clear();
+    delete (globalThis as any).localStorage;
+  });
+
+  it('keeps counting into the small hours when the business day starts at 6am', () => {
+    installLocalStorage(6);
+    // Orders from the evening of Aug 2 and 01:00 on Aug 3 are the SAME business
+    // day (2026-08-02), so the next ticket continues the sequence.
+    const orders = [
+      { orderNumber: '17', createdAt: '2026-08-02T22:00:00' },
+      { orderNumber: '18', createdAt: '2026-08-03T01:00:00' },
+    ];
+    expect(nextOrderSeq(orders, new Date('2026-08-03T01:30:00'))).toBe(19);
+  });
+
+  it('resets at the configured start hour, not at calendar midnight', () => {
+    installLocalStorage(6);
+    const orders = [{ orderNumber: '18', createdAt: '2026-08-03T01:00:00' }];
+    // 07:00 is a NEW business day → counter restarts.
+    expect(nextOrderSeq(orders, new Date('2026-08-03T07:00:00'))).toBe(1);
+  });
+
+  it('is unchanged at the default dayStartHour = 0', () => {
+    const orders = [
+      { orderNumber: '4', createdAt: '2026-08-03T10:00:00' },
+      { orderNumber: '9', createdAt: '2026-08-02T10:00:00' },
+    ];
+    expect(nextOrderSeq(orders, new Date('2026-08-03T12:00:00'))).toBe(5);
+  });
+});
+
+// ON-005 — the counter must never emit a number parseOrderSeq refuses to read.
+describe('nextOrderSeq ceiling (ON-005)', () => {
+  it('wraps explicitly instead of emitting an unreadable 100000', () => {
+    const now = new Date('2026-08-03T12:00:00');
+    const next = nextOrderSeq([{ orderNumber: '99999', createdAt: now.toISOString() }], now);
+    expect(next).toBe(1);
+    expect(parseOrderSeq(String(next))).not.toBeNull();
   });
 });

@@ -71,6 +71,42 @@ async function main() {
   ok(typeof body503.checkedAt === "string", "checkedAt present");
   ok(!("orderCount" in body503), "orderCount NOT in 503 response");
 
+  // D-02 — a failing D1 must not echo its raw error to an UNAUTHENTICATED caller.
+  console.log("\n3) failing DB → 503 without the raw D1 message (D-02)");
+  const brokenEnv: any = {
+    ALLOWED_ORIGINS: "https://pos.engaz.tech",
+    DB: {
+      prepare(_sql: string) {
+        return {
+          bind() { return this; },
+          async first() { throw new Error("no such table: main.orders__internal_probe"); },
+          async all() { throw new Error("no such table: main.orders__internal_probe"); },
+          async run() { throw new Error("no such table: main.orders__internal_probe"); },
+        };
+      },
+    },
+  };
+  const resErr = await worker.fetch(
+    new Request("https://api.engaz.tech/api/health", { headers: { Origin: "https://pos.engaz.tech" } }),
+    brokenEnv
+  );
+  ok(resErr.status === 503, `status 503 (got ${resErr.status})`);
+  const bodyErr: any = await resErr.json();
+  ok(bodyErr.ok === false, "ok is false");
+  ok(bodyErr.db === "error", "db is 'error'");
+  ok(!("message" in bodyErr), "raw D1 message NOT in response");
+  ok(
+    !JSON.stringify(bodyErr).includes("no such table"),
+    "no schema detail anywhere in the body"
+  );
+  assert.deepEqual(
+    Object.keys(bodyErr).sort(),
+    ["checkedAt", "db", "ok"],
+    "error response has exactly the three public keys"
+  );
+  passed++;
+  console.log("  ✓ error response keys are exactly { ok, db, checkedAt }");
+
   console.log(`\n✅ health-privacy.test: ${passed} assertions passed\n`);
 }
 

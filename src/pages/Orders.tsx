@@ -137,7 +137,13 @@ export default function Orders({ type = 'all' }: OrdersProps) {
         overallStatus = 'Completed';
       } else {
         const allStatuses = updatedItems.map(item => item.status || 'New');
-        if (allStatuses.every(s => s === 'Completed')) {
+        if (allStatuses.length === 0) {
+          // `[].every()` is vacuously true, so an order with no items used to
+          // jump straight to 'Completed' (and, downstream, to a settled ticket)
+          // without a single line ever being prepared. An empty order has no
+          // kitchen progress to aggregate — it stays where it is.
+          overallStatus = order.status || 'New';
+        } else if (allStatuses.every(s => s === 'Completed')) {
           overallStatus = 'Completed';
         } else if (allStatuses.every(s => s === 'Ready' || s === 'Completed')) {
           overallStatus = 'Ready';

@@ -518,6 +518,19 @@ export const inventoryService = {
 
   async deductStock(itemId: string, quantityDeducted: number, notes?: string, referenceId?: string): Promise<void> {
     try {
+      // A deduction is strictly a decrease. Without this guard a negative
+      // quantity (a corrupt recipe line, a sign flip upstream) INCREASED stock
+      // while writing an 'OUT' transaction — inventory grew as it sold, and the
+      // ledger claimed the opposite. `restoreStock` already refuses <= 0; this
+      // is the mirror of that rule.
+      if (!Number.isFinite(quantityDeducted) || quantityDeducted <= 0) {
+        if (quantityDeducted < 0) {
+          console.error(
+            `[inventoryService] refused negative deduction (${quantityDeducted}) for item ${itemId}`
+          );
+        }
+        return;
+      }
       const target = await this.applyStockDelta(itemId, -quantityDeducted);
       if (target) {
         await this.createTransaction({

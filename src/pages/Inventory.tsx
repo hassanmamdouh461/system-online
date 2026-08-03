@@ -13,7 +13,8 @@ import { InventoryItem, InventoryTransaction, RecipeIngredient } from '../types/
 import { MenuItem } from '../types/menu';
 import { useToast } from '../components/ui/Toast';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
-import { getIngredientBaseQty } from '../utils/units';
+import { getIngredientBaseQtySafe } from '../utils/units';
+import { resolveInvItem as sharedResolveInvItem } from '../utils/inventoryHelpers';
 import { addMoney, divideMoney, formatMoney, maxMoney, moneyRatio, multiplyMoney, roundMoney, subtractMoney, sumMoneyBy } from '../utils/money';
 
 export default function Inventory() {
@@ -81,19 +82,15 @@ export default function Inventory() {
       invMapById.set(item.id, item);
     });
 
-    // Helper to find matching inventory item for any recipe ingredient
+    // Helper to find matching inventory item for any recipe ingredient.
+    // IV-019: resolution is by identity ONLY — the old `inv_b_N` positional
+    // fallback silently pointed at the wrong item after any deletion. The
+    // shared helper in utils/inventoryHelpers is the single implementation.
     const resolveInvItem = (inventoryItemId: string): InventoryItem | undefined => {
       if (invMapById.has(inventoryItemId)) {
         return invMapById.get(inventoryItemId);
       }
-      // Fallback matching by canonical seed ID mapping (inv_b_1 .. inv_b_24)
-      if (inventoryItemId.startsWith('inv_b_')) {
-        const num = parseInt(inventoryItemId.replace('inv_b_', ''), 10);
-        if (!isNaN(num) && num > 0 && num <= inventory.length) {
-          return inventory[num - 1];
-        }
-      }
-      return undefined;
+      return sharedResolveInvItem(inventoryItemId, inventory);
     };
 
 
@@ -116,7 +113,7 @@ export default function Inventory() {
         const invItem = resolveInvItem(ing.inventoryItemId);
         if (!invItem) return sum; // Skip deleted items
         const cost = invItem.costPerUnit && invItem.costPerUnit > 0 ? invItem.costPerUnit : 1;
-        const baseQty = getIngredientBaseQty(ing.quantity, ing.unit || '', invItem.unit || '');
+        const baseQty = getIngredientBaseQtySafe(ing.quantity, ing.unit || '', invItem.unit || '');
         return addMoney(sum, multiplyMoney(cost, baseQty));
       }, 0);
       menuTotalCostMap.set(mId, totalCost > 0 ? totalCost : 1);
@@ -157,7 +154,7 @@ export default function Inventory() {
         const menuItem = menuMap.get(String(rec.menuItemId));
         const totalRecipeCost = menuTotalCostMap.get(String(rec.menuItemId)) || 1;
         if (menuItem && rec.quantity > 0) {
-          const baseQty = getIngredientBaseQty(rec.quantity, rec.unit || '', item.unit || '');
+          const baseQty = getIngredientBaseQtySafe(rec.quantity, rec.unit || '', item.unit || '');
           if (baseQty > 0) {
             const itemCostInRecipe = multiplyMoney(itemUnitCost, baseQty);
             const costShareFraction = moneyRatio(itemCostInRecipe, totalRecipeCost);

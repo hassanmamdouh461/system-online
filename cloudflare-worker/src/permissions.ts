@@ -154,6 +154,74 @@ export const CASHIER_FORBIDDEN_READ_SETTING_KEYS: readonly string[] = [
  */
 export const CASHIER_UNREADABLE_TABLES: readonly string[] = ["snapshots"];
 
+/**
+ * Settings keys that may NEVER travel inside a snapshot written by a cashier.
+ *
+ * SECURITY (A-07 — indirect privilege escalation): snapshot READS are
+ * manager-only, but WRITES are open to cashiers because the backup scheduler
+ * runs on every device (App.tsx, no role check) and the till is often the only
+ * machine left open. That left one path intact: a cashier POSTs a snapshot row
+ * whose JSON payload carries a manager credential of their own choosing, waits
+ * for a manager to restore from it, and their password propagates to every
+ * device.
+ *
+ * Rather than break unattended backups, the payload is scrubbed at the write
+ * boundary: a cashier-authored snapshot keeps every business row (orders, menu,
+ * inventory, customers) but cannot carry credential/secret settings. A manager
+ * device — which legitimately holds these values — still writes complete
+ * snapshots, so nothing is lost from the real backup.
+ */
+export const SNAPSHOT_FORBIDDEN_SETTING_KEYS: readonly string[] = [
+  "brewmaster_admin_creds_v2",
+  "brewmaster_manager_creds_v1",
+  "brewmaster_admin_pin",
+  "brewmaster_refund_pin",
+  "brewmaster_telegram_config",
+  "brewmaster_telegram_bot_token",
+  "brewmaster_telegram_chat_id",
+  "brewmaster_telegram_config_enc",
+];
+
+/**
+ * Strip credential/secret settings out of a snapshot payload authored by a
+ * non-manager role. Accepts the payload as an object or a JSON string and
+ * returns the same shape it was given, so callers can drop it straight back
+ * into the row. Unparseable input is replaced with an empty payload — a
+ * snapshot we cannot inspect is a snapshot we cannot trust.
+ */
+export function sanitizeSnapshotPayload(role: Role, payload: unknown): unknown {
+  if (role === "manager") return payload;
+
+  const wasString = typeof payload === "string";
+  let parsed: any = payload;
+  if (wasString) {
+    try {
+      parsed = JSON.parse(payload as string);
+    } catch {
+      return wasString ? "{}" : {};
+    }
+  }
+
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return wasString ? JSON.stringify(parsed ?? {}) : parsed;
+  }
+
+  const settings = parsed.settings;
+  if (settings && typeof settings === "object" && !Array.isArray(settings)) {
+    const clean: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(settings)) {
+      const bare = String(key).includes("::")
+        ? String(key).slice(String(key).indexOf("::") + 2).trim()
+        : String(key).trim();
+      if (SNAPSHOT_FORBIDDEN_SETTING_KEYS.includes(bare)) continue;
+      clean[key] = value;
+    }
+    parsed = { ...parsed, settings: clean };
+  }
+
+  return wasString ? JSON.stringify(parsed) : parsed;
+}
+
 /** May this role read a given settings key? Managers read everything. */
 export function canReadSettingKey(role: Role, key: string | null | undefined): boolean {
   if (role === "manager") return true;
@@ -403,8 +471,16 @@ export function can(ctx: AuthzContext): Decision {
   // needed for client-side login). Snapshot READS are manager-only
   // (CASHIER_UNREADABLE_TABLES) and the restore path — both
   // restoreFromSnapshotIfNeeded and the Settings restore UI — is a manager-only
-  // flow, so a forged snapshot cannot be weaponized into a privilege
-  // escalation by a cashier device.
+  // flow.
+  //
+  // A-07: that was not sufficient on its own. A cashier could still POST a
+  // snapshot whose payload embedded a manager credential they chose and wait
+  // for a manager to restore it. The write stays allowed (backups must keep
+  // running on an unattended till) but index.ts now scrubs credential/secret
+  // settings from any snapshot payload authored by a cashier — see
+  // sanitizeSnapshotPayload above. The client restore path refuses to write
+  // credential keys as well (snapshotService), so the escalation needs BOTH
+  // layers to fail.
 
   if (table === "settings") return canWriteSetting(ctx);
   if (table === "orders") return canWriteOrder(ctx);

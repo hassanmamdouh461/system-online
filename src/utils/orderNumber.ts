@@ -1,25 +1,42 @@
 /**
- * Daily ticket numbers: 1, 2, 3... within the local calendar day.
- * Resets to 1 after local midnight.
+ * Daily ticket numbers: 1, 2, 3... within the BUSINESS day.
+ * Resets to 1 when the business day rolls over.
+ *
+ * BD-015 — ONE definition of "day" for the whole system.
+ * -----------------------------------------------------
+ * Ticket numbering used to key off the local CALENDAR day while every revenue
+ * surface keyed off `businessDay.businessDayKey()`. With `dayStartHour = 6` (a
+ * cafe that trades past midnight) a 01:00 order was booked into YESTERDAY's
+ * revenue but handed a ticket from a FRESH counter that had just reset to 1 —
+ * so a single shift printed duplicate ticket numbers and yesterday's report
+ * contained a ticket "1" that the shift had never opened. The bug is fully
+ * dormant at the default `dayStartHour = 0` and appears the moment a venue
+ * configures a night shift.
+ *
+ * Both helpers below now delegate to businessDay, so numbering and reporting
+ * can never disagree again.
  */
+import { businessDate, businessDayKey, getDayStartHour } from './businessDay';
 
 const MAX_REASONABLE_ORDER_NUM = 99_999;
 /** Numbers above this are treated as legacy/junk (e.g. 1000-series counters). */
 const DAILY_TICKET_SOFT_MAX = 500;
 
-/** Local calendar day key YYYY-MM-DD */
-export function localDayKey(date: Date = new Date()): string {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, '0');
-  const d = String(date.getDate()).padStart(2, '0');
+/**
+ * Business-day key YYYY-MM-DD for a Date — the same bucket reports use.
+ * Name kept for its many call sites; the semantics are now business-day.
+ */
+export function localDayKey(date: Date = new Date(), startHour: number = getDayStartHour()): string {
+  const b = businessDate(date, startHour);
+  const y = b.getFullYear();
+  const m = String(b.getMonth() + 1).padStart(2, '0');
+  const d = String(b.getDate()).padStart(2, '0');
   return `${y}-${m}-${d}`;
 }
 
-export function dayKeyFromIso(iso?: string): string | null {
+export function dayKeyFromIso(iso?: string, startHour: number = getDayStartHour()): string | null {
   if (!iso) return null;
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return null;
-  return localDayKey(d);
+  return businessDayKey(iso, startHour);
 }
 
 /** Parse a short sequential ticket number, or null if junk/timestamp. */
@@ -34,19 +51,35 @@ export function parseOrderSeq(orderNumber?: string | null): number | null {
   return n;
 }
 
-/** Next ticket number for *today* only (local midnight reset). */
+/**
+ * Next ticket number for the CURRENT BUSINESS DAY (resets at `dayStartHour`).
+ *
+ * ON-005: the counter is clamped to MAX_REASONABLE_ORDER_NUM. `parseOrderSeq`
+ * refuses anything above that as junk, so emitting 100000 produced a ticket the
+ * system itself could not read back — the counter then silently fell to 1 with
+ * no warning. Tickets reset daily so the ceiling is unreachable in practice;
+ * should it ever be hit, wrapping explicitly (and loudly) beats emitting an
+ * unreadable number.
+ */
 export function nextOrderSeq(
   orders: { orderNumber?: string; createdAt?: string }[],
   now: Date = new Date()
 ): number {
-  const today = localDayKey(now);
+  const startHour = getDayStartHour();
+  const today = localDayKey(now, startHour);
   let max = 0;
   for (const o of orders) {
-    const day = dayKeyFromIso(o.createdAt);
-    // Only count orders created today
+    const day = dayKeyFromIso(o.createdAt, startHour);
+    // Only count orders created within the current business day
     if (day !== today) continue;
     const n = parseOrderSeq(o.orderNumber);
     if (n !== null && n > max) max = n;
+  }
+  if (max >= MAX_REASONABLE_ORDER_NUM) {
+    console.warn(
+      `[orderNumber] daily ticket counter hit its ceiling (${MAX_REASONABLE_ORDER_NUM}) — wrapping to 1`
+    );
+    return 1;
   }
   return max + 1;
 }

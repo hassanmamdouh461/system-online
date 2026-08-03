@@ -36,6 +36,7 @@ import {
   getSessionRole,
   getSessionCredential,
   isCloudConfigured,
+  refreshCloudSessionRole,
 } from './cloudConfig';
 import { withDB, enqueueWrite, SyncRecord } from '../repositories/indexeddb/db';
 import { syncService } from './syncService';
@@ -100,12 +101,26 @@ async function buildStoredValue(
  * Local plaintext mirrors (localStorage) are written by the caller
  * (settingsConfig.setTelegramConfig) — this service owns only the cloud copy.
  */
+export type TelegramPersistOutcome =
+  | { pushed: true; tokenSynced: boolean }
+  | { pushed: false; reason: 'not_configured' | 'not_manager' | 'push_failed' };
+
 export async function persistTelegramConfigToCloud(
   config: TelegramConfig,
   branchId?: string,
-): Promise<void> {
-  if (!isCloudConfigured()) return;
-  if (getSessionRole() !== 'manager') return; // cashier must never push this
+): Promise<TelegramPersistOutcome> {
+  if (!isCloudConfigured()) return { pushed: false, reason: 'not_configured' };
+
+  // The in-memory role is lost on page reload, but the 12h HttpOnly session
+  // cookie is not. Bailing on the in-memory value alone meant that after a
+  // refresh a signed-in manager's Telegram settings were saved locally and
+  // NEVER pushed — the UI reported success while the cloud kept the old row.
+  // Probe the cookie before giving up (same recovery the refund flow uses).
+  let role = getSessionRole();
+  if (role === null) {
+    role = await refreshCloudSessionRole().catch(() => null);
+  }
+  if (role !== 'manager') return { pushed: false, reason: 'not_manager' }; // cashier must never push this
 
   // Preserve an existing cloud token when this device can't re-encrypt now.
   const existing = await readStoredTelegramConfig();
@@ -140,6 +155,21 @@ export async function persistTelegramConfigToCloud(
   }
   const ok = await cloudUpsert('settings', id, data);
   if (!ok) void syncService.syncPendingData();
+
+  // The non-sensitive fields are now in the cloud either way (the queued write
+  // above survives an offline push). The TOKEN, however, can only be encrypted
+  // while a live manager password is held in memory — after a reload it is
+  // gone, so the previously stored ciphertext is preserved untouched. Report
+  // that distinction instead of implying a full sync.
+  const tokenSynced =
+    !((config.botToken || '').trim()) || managerPassword() !== null;
+  if (!tokenSynced) {
+    console.warn(
+      '[telegramCloud] config pushed, but the bot token was NOT re-encrypted: ' +
+      'no live manager password on this device (sign in again to sync the token).'
+    );
+  }
+  return { pushed: true, tokenSynced };
 }
 
 /** Fetch the raw stored row from D1 (or null when absent / read failed). */

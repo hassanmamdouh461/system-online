@@ -7,7 +7,7 @@ import { useLanguage } from '../../context/LanguageContext';
 import { inventoryService } from '../../services/inventoryService';
 import { InventoryItem } from '../../types/inventory';
 import { useEditingGuard } from '../../hooks/useEditingGuard';
-import { getIngredientBaseQty } from '../../utils/units';
+import { getIngredientBaseQtySafe } from '../../utils/units';
 import { persistSetting } from '../../services/settingsCloudService';
 import { useToast } from '../ui/Toast';
 import { addMoney, formatMoney, moneyPercent, multiplyMoney, subtractMoney } from '../../utils/money';
@@ -173,7 +173,7 @@ export function MenuModal({ isOpen, onClose, onSave, initialData, existingItems 
     return mappedIngredients.reduce((sum, ing) => {
       const invItem = inventoryItems.find(i => i.id === ing.inventoryItemId);
       if (!invItem) return sum;
-      const baseQty = getIngredientBaseQty(ing.quantity, ing.unit || invItem.unit || 'كجم', invItem.unit || 'كجم');
+      const baseQty = getIngredientBaseQtySafe(ing.quantity, ing.unit || invItem.unit || 'كجم', invItem.unit || 'كجم');
       return addMoney(sum, multiplyMoney(invItem.costPerUnit, baseQty));
     }, 0);
   }, [mappedIngredients, inventoryItems]);

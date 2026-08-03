@@ -20,7 +20,8 @@ import { menuService } from '../services/menuService';
 import { isCloudConfigured, getWorkerUrl } from '../services/cloudConfig';
 import { lazy, Suspense } from 'react';
 import { LoadingScreen } from '../components/ui/LoadingScreen';
-import { getIngredientBaseQty } from '../utils/units';
+import { getIngredientBaseQtySafe } from '../utils/units';
+import { resolveInvItem as sharedResolveInvItem } from '../utils/inventoryHelpers';
 import { useToast } from '../components/ui/Toast';
 import { useOrders } from '../hooks/useOrders';
 import { useDailyTelegramReport } from '../hooks/useDailyTelegramReport';
@@ -537,15 +538,12 @@ export default function ManagerDashboard() {
     const invMapById = new Map<string, any>();
     activeInventory.forEach(item => invMapById.set(item.id, item));
 
+    // IV-019: identity-only resolution. The old positional `inv_b_N` fallback
+    // slid onto a neighbouring item after any inventory deletion and costed the
+    // wrong ingredient with no error.
     const resolveInvItem = (inventoryItemId: string): any => {
       if (invMapById.has(inventoryItemId)) return invMapById.get(inventoryItemId);
-      if (inventoryItemId.startsWith('inv_b_')) {
-        const num = parseInt(inventoryItemId.replace('inv_b_', ''), 10);
-        if (!isNaN(num) && num > 0 && num <= activeInventory.length) {
-          return activeInventory[num - 1];
-        }
-      }
-      return undefined;
+      return sharedResolveInvItem(inventoryItemId, activeInventory as any);
     };
 
     const menuRecipeMap: Record<string, any[]> = {};
@@ -564,7 +562,7 @@ export default function ManagerDashboard() {
       const totalCost = sumMoneyBy(ingList, ing => {
         const invItem = resolveInvItem(ing.inventoryItemId);
         const cost = invItem?.costPerUnit && invItem.costPerUnit > 0 ? invItem.costPerUnit : 1;
-        const baseQty = getIngredientBaseQty(ing.quantity, ing.unit || '', invItem?.unit || '');
+        const baseQty = getIngredientBaseQtySafe(ing.quantity, ing.unit || '', invItem?.unit || '');
         return multiplyMoney(cost, baseQty);
       });
       menuTotalCostMap.set(mId, totalCost > 0 ? totalCost : 1);
@@ -600,7 +598,7 @@ export default function ManagerDashboard() {
         const menuItem = menuMap.get(String(rec.menuItemId));
         const totalRecipeCost = menuTotalCostMap.get(String(rec.menuItemId)) || 1;
         if (menuItem && menuItem.price > 0 && rec.quantity > 0) {
-          const baseQty = getIngredientBaseQty(rec.quantity, rec.unit || '', item.unit || '');
+          const baseQty = getIngredientBaseQtySafe(rec.quantity, rec.unit || '', item.unit || '');
           if (baseQty > 0) {
             const itemCostInRecipe = multiplyMoney(itemUnitCost, baseQty);
             const costShareFraction = moneyRatio(itemCostInRecipe, totalRecipeCost);
@@ -665,7 +663,7 @@ export default function ManagerDashboard() {
     for (const r of recipes) {
       const invItem = activeInventory.find((i: any) => i.id === r.inventoryItemId);
       const itemCost = invItem ? invItem.costPerUnit : 0;
-      const baseQty = getIngredientBaseQty(r.quantity, r.unit || '', invItem?.unit || '');
+      const baseQty = getIngredientBaseQtySafe(r.quantity, r.unit || '', invItem?.unit || '');
       costMap[r.menuItemId] = addMoney(costMap[r.menuItemId], multiplyMoney(itemCost, baseQty));
     }
     return costMap;
