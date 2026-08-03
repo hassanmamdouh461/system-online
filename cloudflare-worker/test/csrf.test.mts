@@ -78,7 +78,10 @@ async function main() {
   const { csrfToken } = await mint.json();
   ok(!!csrfToken, "mint returns a csrfToken in the body");
 
-  const WRITE = "https://api.engaz.tech/v1/databases/default/collections/orders/documents/o1";
+  // The probe write targets CUSTOMERS, not orders: order deletion is refused for
+  // every role by design (a refund is the only void), so an orders DELETE would
+  // return 403 on authorization and tell us nothing about CSRF.
+  const WRITE = "https://api.engaz.tech/v1/databases/default/collections/customers/documents/c1";
 
   console.log("\n1) double-submit token is required on writes");
   const noToken = await worker.fetch(

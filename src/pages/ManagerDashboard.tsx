@@ -24,7 +24,6 @@ import { resolveInvItem as sharedResolveInvItem } from '../utils/inventoryHelper
 import { useToast } from '../components/ui/Toast';
 import { useOrders } from '../hooks/useOrders';
 import { useDailyTelegramReport } from '../hooks/useDailyTelegramReport';
-import { useAuth } from '../context/AuthContext';
 import { printCustomerReceipt } from '../utils/printReceipts';
 import { companiesService } from '../services/companiesService';
 import { formatOrderNumber } from '../utils/orderNumber';
@@ -170,7 +169,6 @@ export default function ManagerDashboard() {
   // Automatic daily Telegram report: consumes the reportTime/enabled fields
   // saved by TelegramConfigModal (previously written but never read anywhere).
   useDailyTelegramReport(allRealOrders);
-  const { user } = useAuth();
   const [liveInventory, setLiveInventory] = useState<any[]>([]);
   const [recipes, setRecipes] = useState<any[]>([]);
   const [menuItems, setMenuItems] = useState<any[]>([]);
