@@ -18,14 +18,24 @@ import { nextOrderSeq, orderSeqSortValue } from '../utils/orderNumber';
 
 interface OrdersProps {
   type?: 'all' | 'drinks';
+  /**
+   * Which view the screen opens on. The kitchen kanban board was previously
+   * unreachable: activeView was initialised to 'pos' for type='all' and declared
+   * WITHOUT a setter, and every route passes type='all' — so the tracker branch
+   * of the JSX was dead code. Orders stayed 'New' forever because no control in
+   * the app could advance them, even though the board itself works.
+   */
+  initialView?: 'pos' | 'tracker';
 }
 
-export default function Orders({ type = 'all' }: OrdersProps) {
+export default function Orders({ type = 'all', initialView }: OrdersProps) {
   const { orders, error, updateOrder, addOrder } = useOrders();
   const { t, language } = useLanguage();
   const { items: menuItems } = useMenu();
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
-  const [activeView] = useState<'pos' | 'tracker'>(type === 'all' ? 'pos' : 'tracker');
+  const [activeView, setActiveView] = useState<'pos' | 'tracker'>(
+    initialView ?? (type === 'all' ? 'pos' : 'tracker')
+  );
   const [isNewOrderOpen, setIsNewOrderOpen] = useState(false);
   const isMobile = useIsMobile();
 
@@ -269,7 +279,34 @@ export default function Orders({ type = 'all' }: OrdersProps) {
         </div>
       )}
 
-
+      {/*
+        The control that makes the kitchen board reachable. Without it the
+        kanban columns rendered below could never be shown, so an order's
+        status was written on every row and then never advanced by anyone —
+        the chef had no screen at all.
+      */}
+      {type === 'all' && (
+        <div className="mb-2 md:mb-3 shrink-0 flex items-center gap-1 p-1 bg-gray-100 rounded-xl w-fit">
+          {([
+            { view: 'pos' as const, label: 'Cashier Board' },
+            { view: 'tracker' as const, label: 'Kitchen Board' },
+          ]).map(tab => (
+            <button
+              key={tab.view}
+              type="button"
+              onClick={() => setActiveView(tab.view)}
+              aria-pressed={activeView === tab.view}
+              className={
+                activeView === tab.view
+                  ? 'px-4 py-2 rounded-lg text-sm font-bold bg-white text-gray-900 shadow-sm'
+                  : 'px-4 py-2 rounded-lg text-sm font-bold text-gray-500 hover:text-gray-700'
+              }
+            >
+              {t(tab.label)}
+            </button>
+          ))}
+        </div>
+      )}
 
       {type === 'all' && activeView === 'pos' ? (
         <div className="flex-1 overflow-hidden">
