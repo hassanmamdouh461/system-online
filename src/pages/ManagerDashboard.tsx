@@ -306,7 +306,7 @@ export default function ManagerDashboard() {
     // 1. Get config
     const configRaw = localStorage.getItem('brewmaster_telegram_config');
     if (!configRaw) {
-      alert(language === 'ar' ? 'يرجى إعداد التليجرام أولاً من صفحة الإعدادات!' : 'Please configure Telegram first in Settings!');
+      toast.error(language === 'ar' ? 'يرجى إعداد التليجرام أولاً من صفحة الإعدادات!' : 'Please configure Telegram first in Settings!');
       return;
     }
     let config;
@@ -314,14 +314,14 @@ export default function ManagerDashboard() {
       config = JSON.parse(configRaw);
     } catch(e) {}
     if (!config || !config.botToken || !config.chatId) {
-      alert(language === 'ar' ? 'يرجى إدخال التوكن ومعرف المحادثة في الإعدادات أولاً!' : 'Please enter Bot Token and Chat ID in Settings!');
+      toast.error(language === 'ar' ? 'يرجى إدخال التوكن ومعرف المحادثة في الإعدادات أولاً!' : 'Please enter Bot Token and Chat ID in Settings!');
       return;
     }
 
     const { botToken, chatId } = config;
 
     if (activeTab === 'settings') {
-      alert(language === 'ar' ? 'يرجى فتح لوحة الإحصائيات أو المخزون أو العملاء لإرسال تقرير تليجرام المخصص لها!' : 'Please open the Analytics, Inventory, or Customers tab to send its report!');
+      toast.info(language === 'ar' ? 'يرجى فتح لوحة الإحصائيات أو المخزون أو العملاء لإرسال تقرير تليجرام المخصص لها!' : 'Please open the Analytics, Inventory, or Customers tab to send its report!');
       return;
     }
 
@@ -343,7 +343,7 @@ export default function ManagerDashboard() {
       const filteredOrders = orders.filter(order => inBusinessPeriod(order.$createdAt, dateRange));
 
       if (filteredOrders.length === 0) {
-        alert(language === 'ar' ? 'لا توجد مبيعات مسجلة في هذه الفترة لإرسالها!' : 'No orders recorded in this period to send!');
+        toast.info(language === 'ar' ? 'لا توجد مبيعات مسجلة في هذه الفترة لإرسالها!' : 'No orders recorded in this period to send!');
         return;
       }
 
@@ -450,16 +450,16 @@ export default function ManagerDashboard() {
 
     // Guard: never send an empty report (e.g. from the menu tab, which has no report)
     if (!message.trim()) {
-      alert(language === 'ar' ? 'يرجى فتح لوحة الإحصائيات أو المخزون أو العملاء لإرسال تقرير تليجرام المخصص لها!' : 'Please open the Analytics, Inventory, or Customers tab to send its report!');
+      toast.info(language === 'ar' ? 'يرجى فتح لوحة الإحصائيات أو المخزون أو العملاء لإرسال تقرير تليجرام المخصص لها!' : 'Please open the Analytics, Inventory, or Customers tab to send its report!');
       return;
     }
 
     // Send message to Telegram using shared service
     try {
       await telegramService.sendMessage(botToken, chatId, message, 'HTML');
-      alert(language === 'ar' ? 'تم إرسال تقرير الفترة المحددة للتليجرام بنجاح!' : 'Report for the selected period sent successfully to Telegram!');
+      toast.success(language === 'ar' ? 'تم إرسال تقرير الفترة المحددة للتليجرام بنجاح!' : 'Report for the selected period sent successfully to Telegram!');
     } catch(err: any) {
-      alert(`${language === 'ar' ? 'فشل الإرسال: ' : 'Send failed: '}${err.message || 'خطأ غير معروف'}`);
+      toast.error(`${language === 'ar' ? 'فشل الإرسال: ' : 'Send failed: '}${err.message || 'خطأ غير معروف'}`);
     }
   };
 

@@ -8,6 +8,7 @@ import { useOrders } from '../hooks/useOrders';
 import { useMenu } from '../hooks/useMenu';
 import { AnimatePresence } from 'framer-motion';
 import { useLanguage } from '../context/LanguageContext';
+import { useToast } from '../components/ui/Toast';
 import { POSView } from '../components/orders/POSView';
 
 import { filterItemsBySection, getOrderStatusForSection } from '../utils/orderSection';
@@ -31,6 +32,7 @@ interface OrdersProps {
 export default function Orders({ type = 'all', initialView }: OrdersProps) {
   const { orders, error, updateOrder, addOrder } = useOrders();
   const { t, language } = useLanguage();
+  const toast = useToast();
   const { items: menuItems } = useMenu();
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [activeView, setActiveView] = useState<'pos' | 'tracker'>(
@@ -121,7 +123,7 @@ export default function Orders({ type = 'all', initialView }: OrdersProps) {
       if (!order) return;
 
       if (newStatus === 'Cancelled' && order.paymentStatus === 'Paid') {
-        alert(
+        toast.error(
           language === 'ar'
             ? 'لا يمكن إلغاء طلب مدفوع. استخدم مسار الاسترجاع/الإلغاء المالي.'
             : 'Cannot cancel a paid order. Use refund/void instead.'
@@ -178,7 +180,7 @@ export default function Orders({ type = 'all', initialView }: OrdersProps) {
       }
     } catch (err) {
       console.error('Failed to update order status:', err);
-      alert(language === 'ar' ? 'فشل تحديث حالة الطلب' : 'Failed to update order status');
+      toast.error(language === 'ar' ? 'فشل تحديث حالة الطلب' : 'Failed to update order status');
     }
   };
 
@@ -198,7 +200,7 @@ export default function Orders({ type = 'all', initialView }: OrdersProps) {
   const handleCancelOrder = (orderId: string) => {
     const order = orders.find(o => o.id === orderId);
     if (order?.paymentStatus === 'Paid') {
-      alert(
+      toast.error(
         language === 'ar'
           ? 'لا يمكن إلغاء طلب مدفوع. استخدم مسار الاسترجاع/الإلغاء المالي.'
           : 'Cannot cancel a paid order. Use refund/void instead.'

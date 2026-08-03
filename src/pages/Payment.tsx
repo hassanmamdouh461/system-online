@@ -17,6 +17,7 @@ import {
 import { motion } from 'framer-motion';
 import { useOrders } from '../hooks/useOrders';
 import { useLanguage } from '../context/LanguageContext';
+import { useToast } from '../components/ui/Toast';
 import {
   getTaxRate,
 } from '../utils/settingsConfig';
@@ -229,6 +230,7 @@ function holderMatchesSearch(
 
 export default function Payment() {
   const { t, isRtl, language } = useLanguage();
+  const toast = useToast();
   const { orders: allOrders, error, completeWithPayment, refundOrder } = useOrders();
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
@@ -524,7 +526,7 @@ export default function Payment() {
       });
     } catch (err) {
       console.error('Failed to complete payment:', err);
-      alert(t('Failed to complete payment'));
+      toast.error(t('Failed to complete payment'));
     }
   };
 

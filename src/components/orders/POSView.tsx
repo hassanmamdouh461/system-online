@@ -15,6 +15,7 @@ import {
 import { MenuItem } from '../../types/menu';
 import { OrderItem, Order } from '../../types/order';
 import { useLanguage } from '../../context/LanguageContext';
+import { useToast } from '../ui/Toast';
 import { Coffee, Trash2, Plus, Minus, CreditCard, DollarSign, Check, XCircle, Printer, Search, Settings, RotateCcw, X, BookUser, UserRound, Users } from 'lucide-react';
 import { clsx } from 'clsx';
 import { needsStaffSelection } from '../../utils/staffAttribution';
@@ -54,6 +55,7 @@ interface POSViewProps {
 
 export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSViewProps) {
   const { t, isRtl, language } = useLanguage();
+  const toast = useToast();
   
   const [invoiceItems, setInvoiceItems] = useState<OrderItem[]>(() => {
     try {
@@ -347,7 +349,7 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
 
   const triggerCheckout = (action: 'save' | 'print') => {
     if (invoiceItems.length === 0) {
-      alert(t('Please add items to invoice first'));
+      toast.error(t('Please add items to invoice first'));
       return;
     }
 
@@ -355,7 +357,7 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
     // branch actually HAS staff: an empty list must never stop the sale, it
     // just means nobody has been added yet.
     if (needsStaffSelection(staffList, selectedStaff)) {
-      alert(
+      toast.error(
         isRtl
           ? 'اختر الموظف المسؤول عن الطلب قبل إتمام الفاتورة'
           : 'Select the staff member responsible for this order before completing the invoice'
@@ -365,14 +367,14 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
     }
 
     if (orderMode === 'Dine-in' && !tableId.trim()) {
-      alert(t('Please select table number first'));
+      toast.error(t('Please select table number first'));
       return;
     }
 
     if (orderMode === 'Takeaway') {
       const received = safeMoney(receivedAmount);
       if (paymentMethod === 'Cash' && compareMoney(received, grandTotal) < 0) {
-        alert(isRtl ? 'يجب دفع الفاتورة أولاً لطلبات التيك أواي' : 'Takeaway orders must be paid in full first');
+        toast.error(isRtl ? 'يجب دفع الفاتورة أولاً لطلبات التيك أواي' : 'Takeaway orders must be paid in full first');
         return;
       }
     }
@@ -411,7 +413,7 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
       }
 
       if (result.skipped || (!result.customer && !result.company)) {
-        alert(
+        toast.error(
           isRtl
             ? 'الفاتورة على الحساب تتطلب عميل أو شركة'
             : 'Charging to account requires a customer or company'
@@ -445,7 +447,7 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
       setLinkedCompany(company);
 
       if (billTo === 'company' && !company) {
-        alert(
+        toast.error(
           isRtl
             ? 'لم يتم ربط الشركة — ابحث باسم الشركة مباشرة أو اربط العميل بالشركة من صفحة العملاء'
             : 'Company not linked — search company name directly or link the customer to a company'
@@ -566,7 +568,7 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
     } catch (err) {
       console.error(err);
       const msg = err instanceof Error ? err.message : String(err);
-      alert(isRtl ? `فشل حفظ الطلب: ${msg}` : `Failed to save order: ${msg}`);
+      toast.error(isRtl ? `فشل حفظ الطلب: ${msg}` : `Failed to save order: ${msg}`);
     } finally {
       setIsProcessing(false);
     }
@@ -622,7 +624,7 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
     } catch (err) {
       console.error(err);
       const msg = err instanceof Error ? err.message : String(err);
-      alert(isRtl ? `فشل حفظ الطلب: ${msg}` : `Failed to process order: ${msg}`);
+      toast.error(isRtl ? `فشل حفظ الطلب: ${msg}` : `Failed to process order: ${msg}`);
     } finally {
       setIsProcessing(false);
     }

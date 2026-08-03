@@ -45,6 +45,7 @@ vi.mock('../../utils/printReceipts', () => ({ printAllOrderTickets: vi.fn() }));
 vi.mock('../payment/CustomerLookupStep', () => ({ CustomerLookupStep: () => null }));
 
 import { POSView } from './POSView';
+import { ToastProvider } from '../ui/Toast';
 
 const MENU: MenuItem[] = [
   { id: 'm1', name: 'Espresso', price: 20, category: 'Coffee', available: true } as MenuItem,
@@ -55,7 +56,9 @@ const onCreateOrder = vi.fn(async (..._args: any[]) => ({ id: 'order-1' }) as an
 function renderPOS() {
   return render(
     <LanguageProvider>
-      <POSView menuItems={MENU} onCreateOrder={onCreateOrder} estimatedOrderNumber="1" />
+      <ToastProvider>
+        <POSView menuItems={MENU} onCreateOrder={onCreateOrder} estimatedOrderNumber="1" />
+      </ToastProvider>
     </LanguageProvider>
   );
 }
@@ -79,19 +82,25 @@ function readyPaidTakeawayCart() {
   fireEvent.click(screen.getByRole('button', { name: '00' }));
 }
 
-describe('staff attribution is required when staff exist', () => {
-  let alertSpy: ReturnType<typeof vi.spyOn>;
+/**
+ * The staff guard used to report itself with window.alert(), and this suite
+ * asserted on an alert spy. alert() blocks the event loop and is silently
+ * suppressed by some kiosk browsers, so the guard now speaks through the Toast
+ * system — which means the assertion can be strengthened from "a dialog was
+ * requested" to "the cashier can actually read the reason on screen".
+ */
+const STAFF_GUARD_MESSAGE =
+  /Select the staff member responsible for this order before completing the invoice/;
 
+describe('staff attribution is required when staff exist', () => {
   beforeEach(() => {
     localStorage.clear();
     localStorage.setItem('brewmaster_language', 'en');
     onCreateOrder.mockClear();
     resetSettingsHydrationForTests();
-    alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => {});
   });
 
   afterEach(() => {
-    alertSpy.mockRestore();
     cleanup();
   });
 
@@ -106,7 +115,7 @@ describe('staff attribution is required when staff exist', () => {
     fireEvent.click(screen.getByRole('button', { name: /Print & Pay/ }));
     await settle();
 
-    expect(alertSpy).toHaveBeenCalledTimes(1);
+    expect(screen.getByText(STAFF_GUARD_MESSAGE)).toBeTruthy();
     expect(onCreateOrder).not.toHaveBeenCalled();
   });
 
@@ -138,7 +147,7 @@ describe('staff attribution is required when staff exist', () => {
     fireEvent.click(screen.getByRole('button', { name: /Print & Pay/ }));
     await settle();
 
-    expect(alertSpy).not.toHaveBeenCalled();
+    expect(screen.queryByText(STAFF_GUARD_MESSAGE)).toBeNull();
     expect(onCreateOrder).toHaveBeenCalledTimes(1);
   });
 
@@ -155,7 +164,7 @@ describe('staff attribution is required when staff exist', () => {
     fireEvent.click(screen.getByRole('button', { name: /Print & Pay/ }));
     await settle();
 
-    expect(alertSpy).toHaveBeenCalledTimes(1);
+    expect(screen.getByText(STAFF_GUARD_MESSAGE)).toBeTruthy();
     expect(onCreateOrder).not.toHaveBeenCalled();
   });
 });

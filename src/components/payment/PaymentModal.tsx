@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { useLanguage } from '../../context/LanguageContext';
+import { useToast } from '../ui/Toast';
 import {
   getTaxRate,
   getStoreConfig,
@@ -70,6 +71,7 @@ export function PaymentModal({
   const [refundError, setRefundError] = useState('');
   const [isRefunding, setIsRefunding] = useState(false);
   const { t, language } = useLanguage();
+  const toast = useToast();
   const paymentFiredRef = useRef(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const store = getStoreConfig();
@@ -213,7 +215,7 @@ export function PaymentModal({
   const handleCustomerResolved = async (result: CustomerLookupResult) => {
     if (result.skipped) {
       if (paymentMethod === 'OnAccount') {
-        alert(
+        toast.error(
           language === 'ar'
             ? 'الفاتورة على الحساب تتطلب عميل أو شركة'
             : 'Charging to account requires a customer or company'
@@ -262,7 +264,7 @@ export function PaymentModal({
   const handleProcessPayment = () => {
     if (paymentMethod === 'OnAccount') {
       if (billTo === 'company' && !linkedCompany) {
-        alert(
+        toast.error(
           language === 'ar'
             ? 'اختر شركة (ابحث باسم الشركة أو بعميل تابع لها)'
             : 'Select a company (search by name or affiliated customer)'
@@ -271,7 +273,7 @@ export function PaymentModal({
         return;
       }
       if (billTo === 'customer' && !linkedCustomer) {
-        alert(
+        toast.error(
           language === 'ar'
             ? 'اختر عميل مسجّل قبل التسجيل على الحساب الشخصي'
             : 'Select a registered customer for personal account'
