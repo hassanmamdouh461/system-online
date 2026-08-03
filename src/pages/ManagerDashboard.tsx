@@ -30,6 +30,7 @@ import { printCustomerReceipt } from '../utils/printReceipts';
 import { companiesService } from '../services/companiesService';
 import { formatOrderNumber } from '../utils/orderNumber';
 import { getOrderGrandTotal, getOrderMoney } from '../types/order';
+import { invoiceTotalCount, sharePercent, shareWidth } from '../utils/dashboardCounts';
 import { RevenueAreaChart } from '../components/ui/RevenueAreaChart';
 import {
   addMoney,
@@ -480,6 +481,11 @@ export default function ManagerDashboard() {
     );
     const cashCardTotal = addMoney(cashAmount, cardAmount);
 
+    // Invoices still awaiting settlement in the period (receivables, not revenue).
+    const openInvoices = analytics.periodOrders.filter(
+      o => o.status !== 'Cancelled' && (o.paymentStatus === 'Unpaid' || o.paymentStatus === 'OnAccount')
+    );
+
     return {
       totalRevenue: analytics.totalRevenue,
       totalOrdersCount: analytics.totalOrders,
@@ -490,10 +496,15 @@ export default function ManagerDashboard() {
       dineInCount: analytics.completedPeriod.filter(o => o.tableId !== 'Takeaway').length,
       // Match Reports: paid = Paid only, open = Unpaid + OnAccount
       paidCount: analytics.completedPeriod.length,
-      unpaidCount: analytics.periodOrders.filter(
-        o => o.status !== 'Cancelled' && (o.paymentStatus === 'Unpaid' || o.paymentStatus === 'OnAccount')
-      ).length,
+      unpaidCount: openInvoices.length,
+      // Denominator of the "Sales by order type" widget ONLY. Its numerators
+      // (takeaway / dine-in) are drawn from completedPeriod, so the paid-only
+      // count is the right base there — do not repurpose it for invoices.
       totalCount: analytics.completedPeriod.length,
+      // Denominator of the "Invoice payment status" widget ONLY: every invoice
+      // raised in the period, settled or not. Dividing the open count by the
+      // paid count made the two bars sum to 200%.
+      invoiceCount: invoiceTotalCount(analytics.completedPeriod.length, openInvoices.length),
       paidAmount: analytics.realRevenue,
       unpaidAmount: sumMoneyBy(
         analytics.periodOrders.filter(o => o.status !== 'Cancelled' && (o.paymentStatus === 'Unpaid' || o.paymentStatus === 'OnAccount')),
@@ -1256,7 +1267,7 @@ export default function ManagerDashboard() {
             </p>
           </div>
 
-          {processedData.totalCount === 0 ? (
+          {processedData.invoiceCount === 0 ? (
             <div className="py-12 text-center text-gray-400">
               <p className="text-xs">{t('No orders')}</p>
             </div>
@@ -1267,13 +1278,13 @@ export default function ManagerDashboard() {
               <div className="space-y-1.5">
                 <div className="flex justify-between text-xs md:text-sm font-bold text-gray-700">
                   <span className="flex items-center gap-1.5">{t('Paid Invoices')}</span>
-                  <span>{processedData.paidCount} ({processedData.totalCount ? Math.round((processedData.paidCount / processedData.totalCount) * 100) : 0}%)</span>
+                  <span>{processedData.paidCount} ({sharePercent(processedData.paidCount, processedData.invoiceCount)}%)</span>
                 </div>
                 <div className="w-full h-2.5 bg-green-50 rounded-full overflow-hidden border border-green-100/50">
                   <motion.div
                     key={`paid-inv-`}
                     initial={{ width: 0 }}
-                    animate={{ width: `${(processedData.paidCount / processedData.totalCount) * 100}%` }}
+                    animate={{ width: `${shareWidth(processedData.paidCount, processedData.invoiceCount)}%` }}
                     className="h-full bg-green-600 rounded-full"
                   />
                 </div>
@@ -1286,13 +1297,13 @@ export default function ManagerDashboard() {
               <div className="space-y-1.5">
                 <div className="flex justify-between text-xs md:text-sm font-bold text-gray-700">
                   <span className="flex items-center gap-1.5">{t('Open Invoices')}</span>
-                  <span>{processedData.unpaidCount} ({processedData.totalCount ? Math.round((processedData.unpaidCount / processedData.totalCount) * 100) : 0}%)</span>
+                  <span>{processedData.unpaidCount} ({sharePercent(processedData.unpaidCount, processedData.invoiceCount)}%)</span>
                 </div>
                 <div className="w-full h-2.5 bg-amber-50 rounded-full overflow-hidden border border-amber-100/30">
                   <motion.div
                     key={`open-inv-`}
                     initial={{ width: 0 }}
-                    animate={{ width: `${(processedData.unpaidCount / processedData.totalCount) * 100}%` }}
+                    animate={{ width: `${shareWidth(processedData.unpaidCount, processedData.invoiceCount)}%` }}
                     className="h-full bg-amber-500 rounded-full"
                   />
                 </div>
