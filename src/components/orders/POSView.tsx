@@ -15,7 +15,7 @@ import {
 import { MenuItem } from '../../types/menu';
 import { OrderItem, Order } from '../../types/order';
 import { useLanguage } from '../../context/LanguageContext';
-import { Coffee, Trash2, Plus, Minus, CreditCard, DollarSign, Check, XCircle, Printer, Search, Settings, RotateCcw, X, BookUser } from 'lucide-react';
+import { Coffee, Trash2, Plus, Minus, CreditCard, DollarSign, Check, XCircle, Printer, Search, Settings, RotateCcw, X, BookUser, UserRound, Users } from 'lucide-react';
 import { clsx } from 'clsx';
 import { printAllOrderTickets } from '../../utils/printReceipts';
 import { CustomerLookupStep, CustomerLookupResult } from '../payment/CustomerLookupStep';
@@ -40,6 +40,7 @@ interface POSViewProps {
       companyId?: string;
       companyName?: string;
       billedToType?: BilledToType;
+      cashierName?: string;
     }
   ) => Promise<Order | null>;
   estimatedOrderNumber: string;
@@ -96,6 +97,22 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
   });
   const [isManageTablesOpen, setIsManageTablesOpen] = useState(false);
   const [newTableName, setNewTableName] = useState('');
+
+  // Staff (cashier/waiter) attribution — the selected name is written on the
+  // invoice so management can attribute each sale to the right person.
+  const [staffList, setStaffList] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('pos_staff_list');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [selectedStaff, setSelectedStaff] = useState<string>(() => {
+    return localStorage.getItem('pos_selected_staff') || '';
+  });
+  const [isStaffPickerOpen, setIsStaffPickerOpen] = useState(false);
+  const [newStaffName, setNewStaffName] = useState('');
   /** Pending checkout action waiting for customer phone step (skippable) */
   const [pendingCheckout, setPendingCheckout] = useState<'save' | 'print' | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -132,6 +149,40 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
     localStorage.setItem('pos_tables_list', JSON.stringify(tables));
     void persistSetting('pos_tables_list', JSON.stringify(tables));
   }, [tables]);
+
+  useEffect(() => {
+    localStorage.setItem('pos_staff_list', JSON.stringify(staffList));
+    void persistSetting('pos_staff_list', JSON.stringify(staffList));
+  }, [staffList]);
+
+  useEffect(() => {
+    localStorage.setItem('pos_selected_staff', selectedStaff);
+  }, [selectedStaff]);
+
+  // Live-sync the staff list across tills: settings hydrate rewrites
+  // localStorage; pick up changes made on another device without a reload.
+  useEffect(() => {
+    const readStaff = () => {
+      try {
+        const saved = localStorage.getItem('pos_staff_list');
+        const list: string[] = saved ? JSON.parse(saved) : [];
+        setStaffList(prev =>
+          JSON.stringify(prev) === JSON.stringify(list) ? prev : list
+        );
+      } catch {
+        // ignore malformed value
+      }
+    };
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === 'pos_staff_list') readStaff();
+    };
+    window.addEventListener('storage', onStorage);
+    const timer = setInterval(readStaff, 15000);
+    return () => {
+      window.removeEventListener('storage', onStorage);
+      clearInterval(timer);
+    };
+  }, []);
 
   const handleAddTable = (tableNameToAdd?: string) => {
     const target = (tableNameToAdd || newTableName).trim();
@@ -443,7 +494,11 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
   };
 
   const buildAccountMeta = (customer?: Customer, company?: Company | null) => {
-    if (paymentMethod !== 'OnAccount') return undefined;
+    const staff = selectedStaff.trim();
+    if (paymentMethod !== 'OnAccount') {
+      // Cash/Card invoices still carry the staff attribution.
+      return staff ? { cashierName: staff } : undefined;
+    }
     const co = company !== undefined ? company : linkedCompany;
 
     // Company ledger (even without a person on the invoice)
@@ -454,17 +509,19 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
         companyId: co.id,
         companyName: co.name,
         billedToType: 'company' as BilledToType,
+        ...(staff ? { cashierName: staff } : {}),
       };
     }
 
     // Personal ledger
-    if (!customer) return undefined;
+    if (!customer) return staff ? { cashierName: staff } : undefined;
     return {
       customerId: customer.id,
       customerName: customer.name,
       companyId: undefined,
       companyName: undefined,
       billedToType: 'customer' as BilledToType,
+      ...(staff ? { cashierName: staff } : {}),
     };
   };
 
@@ -834,6 +891,29 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
         <div className="flex-1 flex flex-col overflow-hidden">
           <h2 className="font-extrabold text-xs md:text-sm text-mocha-800 border-b border-gray-100 pb-1 shrink-0">{t('Invoice Details')}</h2>
           
+          {/* Staff picker — who is taking this order (printed on the invoice) */}
+          <button
+            type="button"
+            onClick={() => setIsStaffPickerOpen(true)}
+            className={clsx(
+              "mt-1.5 w-full flex items-center justify-between gap-2 px-3 py-1.5 rounded-xl border text-xs md:text-sm font-extrabold transition-all shrink-0 shadow-sm",
+              selectedStaff
+                ? "bg-mocha-600 text-white border-mocha-700"
+                : "bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100"
+            )}
+            title={isRtl ? 'اختيار الموظف / الكاشير الواقف على الطلب' : 'Pick the staff member taking this order'}
+          >
+            <span className="flex items-center gap-1.5 min-w-0">
+              <UserRound size={14} className="shrink-0" />
+              <span className="truncate">
+                {selectedStaff
+                  ? `${isRtl ? 'الموظف' : 'Staff'}: ${selectedStaff}`
+                  : isRtl ? 'اختر الموظف / الكاشير' : 'Select staff / cashier'}
+              </span>
+            </span>
+            <Users size={14} className="shrink-0 opacity-70" />
+          </button>
+
           {/* Table Mode Selector - Compact & Sleek */}
           <div className="flex bg-gray-100 rounded-xl p-0.5 border border-gray-200 mt-1.5 shrink-0">
             <button
@@ -1076,6 +1156,132 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
           )}
         </div>
       </div>
+
+      {/* Staff Picker Modal — pick who is on the till / took the order */}
+      {isStaffPickerOpen && (
+        <AnimatePresence>
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-2xl p-5 max-w-md w-full shadow-2xl border border-gray-100 space-y-4 text-gray-900"
+            >
+              <div className="flex justify-between items-center border-b border-gray-100 pb-3">
+                <h3 className="font-extrabold text-lg text-mocha-800 flex items-center gap-2">
+                  <UserRound className="w-5 h-5 text-mocha-700" />
+                  {isRtl ? 'مين واقف على الكاشير؟' : 'Who is on the till?'}
+                </h3>
+                <button
+                  onClick={() => setIsStaffPickerOpen(false)}
+                  className="p-1 text-gray-400 hover:text-gray-600 rounded-lg"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              {/* Staff list */}
+              <div className="space-y-1.5">
+                {staffList.length === 0 ? (
+                  <p className="text-xs text-gray-400 font-bold text-center py-4 bg-gray-50 rounded-xl border border-dashed border-gray-200">
+                    {isRtl
+                      ? 'لا يوجد موظفون بعد — أضف أول اسم من الأسفل'
+                      : 'No staff yet — add the first name below'}
+                  </p>
+                ) : (
+                  <div className="grid grid-cols-2 gap-1.5 max-h-56 overflow-y-auto custom-scrollbar p-0.5">
+                    {staffList.map(name => (
+                      <div key={name} className="relative group">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedStaff(name);
+                            setIsStaffPickerOpen(false);
+                          }}
+                          className={clsx(
+                            "w-full px-3 py-2.5 rounded-xl border text-xs md:text-sm font-black transition-all flex items-center justify-center gap-1.5 shadow-sm",
+                            selectedStaff === name
+                              ? "bg-mocha-600 text-white border-mocha-700"
+                              : "bg-gray-50 text-gray-800 border-gray-200 hover:bg-gray-100"
+                          )}
+                        >
+                          <UserRound size={13} className="shrink-0" />
+                          <span className="truncate">{name}</span>
+                          {selectedStaff === name && <Check size={13} className="shrink-0" />}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setStaffList(prev => prev.filter(n => n !== name));
+                            if (selectedStaff === name) setSelectedStaff('');
+                          }}
+                          className="absolute -top-1.5 -end-1.5 bg-white text-red-500 hover:text-red-700 border border-red-200 rounded-full p-0.5 shadow-sm opacity-0 group-hover:opacity-100 transition-opacity"
+                          title={isRtl ? 'حذف الاسم' : 'Remove'}
+                        >
+                          <X size={11} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Add new staff member */}
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const clean = newStaffName.trim();
+                  if (!clean) return;
+                  if (!staffList.includes(clean)) {
+                    setStaffList(prev => [...prev, clean]);
+                  }
+                  setSelectedStaff(clean);
+                  setNewStaffName('');
+                  setIsStaffPickerOpen(false);
+                }}
+                className="flex gap-2"
+              >
+                <input
+                  type="text"
+                  value={newStaffName}
+                  onChange={(e) => setNewStaffName(e.target.value)}
+                  placeholder={isRtl ? 'اسم الموظف (مثال: أحمد)' : 'Staff name (e.g. Ahmed)'}
+                  className="flex-1 px-4 py-2 bg-gray-50 border border-gray-300 rounded-xl text-sm font-extrabold text-gray-900 focus:outline-none focus:border-mocha-600"
+                />
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-mocha-600 hover:bg-mocha-700 text-white rounded-xl text-xs font-black transition-all flex items-center gap-1 shrink-0 shadow-sm"
+                >
+                  <Plus size={16} />
+                  {isRtl ? 'إضافة واختيار' : 'Add & pick'}
+                </button>
+              </form>
+
+              {/* Clear / close */}
+              <div className="flex justify-between items-center pt-3 border-t border-gray-100">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedStaff('');
+                    setIsStaffPickerOpen(false);
+                  }}
+                  className="text-xs font-extrabold text-red-600 hover:text-red-700 flex items-center gap-1"
+                >
+                  <X size={14} />
+                  {isRtl ? 'بدون اسم (إخفاء من الفاتورة)' : 'No name (hide from receipt)'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsStaffPickerOpen(false)}
+                  className="px-4 py-1.5 bg-gray-200 hover:bg-gray-300 text-gray-800 rounded-xl text-xs font-extrabold transition-all"
+                >
+                  {isRtl ? 'تم / إغلاق' : 'Done'}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        </AnimatePresence>
+      )}
 
       {/* Manage Tables Modal */}
       {isManageTablesOpen && (

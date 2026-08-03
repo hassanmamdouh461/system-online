@@ -41,6 +41,9 @@ CREATE TABLE IF NOT EXISTS orders (
   billedToType TEXT,
   refundedAt TEXT,
   refundReason TEXT,
+  -- Staff member (cashier/waiter) who took the order — shown on receipts and
+  -- used to attribute sales per employee. Existing databases: schema-migrate-v13.sql.
+  cashierName TEXT,
   -- Soft-delete tombstone. NULL = live; ISO string = deleted (hidden everywhere).
   deletedAt TEXT,
   branch_id TEXT DEFAULT 'default'

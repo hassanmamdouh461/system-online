@@ -90,8 +90,21 @@ export const CASHIER_FORBIDDEN_SETTING_KEYS: readonly string[] = [
 export const CASHIER_ALLOWED_SETTING_KEYS: readonly string[] = [
   "brewmaster_language",
   "pos_tables_list",
+  "pos_staff_list",
   "removed_menu_categories",
   "custom_menu_categories",
+];
+
+/**
+ * Internal operational keys written ONLY by the Worker's own endpoints
+ * (the atomic daily order-sequence counter and the daily-report claim lock).
+ * Clients never write these through the settings sync path, so every role is
+ * blocked from touching them — a till must not be able to roll the day's
+ * invoice counter backwards or forge tomorrow's report claim.
+ */
+export const WORKER_OWNED_SETTING_KEYS: readonly string[] = [
+  "brewmaster_order_seq",
+  "brewmaster_daily_report_claim",
 ];
 
 /**
@@ -398,6 +411,13 @@ function canWriteSetting(ctx: AuthzContext): Decision {
     return deny(
       "setting_key_unknown",
       "تعديل إعداد غير معروف غير مسموح لصلاحية الكاشير."
+    );
+  }
+
+  if (WORKER_OWNED_SETTING_KEYS.includes(key)) {
+    return deny(
+      "worker_owned_setting",
+      "هذا الإعداد تديره المنظومة داخلياً ولا يمكن تعديله من الأجهزة."
     );
   }
 

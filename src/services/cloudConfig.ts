@@ -568,6 +568,30 @@ export async function cloudFetch(
 }
 
 /**
+ * Reserve the next daily order ticket number on the SERVER so two tills can
+ * never hand out the same invoice number for the same day.
+ *
+ * Returns null when offline / unconfigured / the endpoint is unavailable — the
+ * caller then falls back to the local `nextOrderSeq` heuristic (single-device
+ * behaviour, unchanged from before).
+ */
+export async function reserveServerOrderSeq(dayKey: string): Promise<number | null> {
+  try {
+    const res = await cloudFetch('/api/orders/next-seq', {
+      method: 'POST',
+      body: JSON.stringify({ dayKey }),
+      timeoutMs: 4000,
+    });
+    if (!res || !res.ok) return null;
+    const data: any = await res.json().catch(() => null);
+    const seq = Number(data?.seq);
+    return Number.isFinite(seq) && seq > 0 ? seq : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Incremental-sync high-water marks. We persist the newest change timestamp we
  * have merged for a collection so the next read can ask the worker for ONLY the
  * rows changed since then (?since=), instead of pulling the whole table on every

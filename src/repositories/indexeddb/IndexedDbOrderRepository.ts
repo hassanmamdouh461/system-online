@@ -2,9 +2,10 @@ import { IOrderRepository } from '../types';
 import { Order, OrderStatus } from '../../types/order';
 import { withDB, enqueueWrite, SyncRecord } from './db';
 import { syncService } from '../../services/syncService';
-import { cloudGetCollection, optionalNumber } from '../../services/cloudConfig';
+import { cloudGetCollection, optionalNumber, reserveServerOrderSeq } from '../../services/cloudConfig';
 import {
   nextOrderSeq,
+  localDayKey,
   parseOrderSeq,
   mergeOrderRecords,
   dayKeyFromIso,
@@ -70,6 +71,7 @@ function mapRemoteOrder(doc: any): Order {
     billedToType: doc.billedToType || doc.billed_to_type || undefined,
     refundedAt: doc.refundedAt || doc.refunded_at || undefined,
     refundReason: doc.refundReason || doc.refund_reason || undefined,
+    cashierName: doc.cashierName || doc.cashier_name || undefined,
     deletedAt: doc.deletedAt || doc.deleted_at || undefined,
     branchId: doc.branch_id || doc.branchId || 'main_branch',
   };
@@ -319,7 +321,12 @@ export class IndexedDbOrderRepository implements IOrderRepository {
         // Always assign a short sequential ticket number (1, 2, 3...).
         // Ignore huge digit strings that came from timestamps / document ids.
         const provided = parseOrderSeq(orderData.orderNumber);
-        const base = provided ?? nextOrderSeq(allOrders);
+        // Multi-device: ask the Worker for today's atomic sequence first, so two
+        // tills never issue the same ticket number. Offline → local heuristic.
+        const serverSeq = provided ?? (await reserveServerOrderSeq(
+          localDayKey(orderData.createdAt ? new Date(orderData.createdAt) : new Date())
+        ).catch(() => null));
+        const base = provided ?? serverSeq ?? nextOrderSeq(allOrders);
         // Never reuse a number already printed on a customer receipt TODAY: if the
         // computed base collides with a printed ticket, take a -A suffix instead
         // (nextOrderSeq normally returns max+1, so this only guards edge reuses).
@@ -352,6 +359,7 @@ export class IndexedDbOrderRepository implements IOrderRepository {
           companyId: orderData.companyId,
           companyName: orderData.companyName,
           billedToType: orderData.billedToType,
+          cashierName: orderData.cashierName ? String(orderData.cashierName).trim() || undefined : undefined,
 
           branchId: branchId || orderData.branchId || 'main_branch',
         };
