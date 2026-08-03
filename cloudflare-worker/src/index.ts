@@ -411,6 +411,53 @@ export default {
       // intentionally ignored — reads are not scoped and writes always use
       // MAIN_BRANCH_ID.
 
+      // 3a. Last-write marker — the honest input to the "backups are stale"
+      //     alarm. This lives BEHIND the session gate on purpose: /api/health is
+      //     public so the client can tell a dead database from an expired
+      //     session, and business telemetry (row counts, write timestamps) was
+      //     deliberately removed from it (D-02). Putting the timestamp back
+      //     there would reopen that leak, so it is served here instead, to
+      //     callers who have already proven they belong to the shop.
+      if (pathParts[0] === "api" && pathParts[1] === "status" && request.method === "GET") {
+        const statusHeaders = {
+          "Content-Type": "application/json",
+          // Never cache: a cached timestamp would keep the alarm quiet.
+          "Cache-Control": "no-store, no-cache, must-revalidate",
+          ...corsHeaders
+        };
+
+        let lastWriteAt: string | null = null;
+        try {
+          // Newest write across the tables a real sale touches. A device that
+          // has only ever READ has an empty local sync queue, so this is the
+          // only way it can know the shop is still backing up.
+          const row = (await env.DB.prepare(
+            `SELECT MAX(ts) AS lastWriteAt FROM (
+               SELECT MAX(COALESCE(updatedAt, createdAt)) AS ts FROM orders
+               UNION ALL SELECT MAX(updated_at) FROM settings
+               UNION ALL SELECT MAX(updated_at) FROM customers
+               UNION ALL SELECT MAX(updated_at) FROM inventory
+               UNION ALL SELECT MAX(updated_at) FROM menu_items
+             )`
+          ).first()) as { lastWriteAt?: string | null } | null;
+          lastWriteAt = row?.lastWriteAt ?? null;
+        } catch (err: any) {
+          // Same posture as /api/sync: the operator gets the detail in the log,
+          // the caller gets no D1 internals. A failed lookup is reported as
+          // "unknown", never as a fresh timestamp — the alarm must fail LOUD.
+          console.error("[worker] last-write lookup failed:", err?.message || err);
+          return new Response(
+            JSON.stringify({ ok: false, lastWriteAt: null, checkedAt: new Date().toISOString() }),
+            { status: 503, headers: statusHeaders }
+          );
+        }
+
+        return new Response(
+          JSON.stringify({ ok: true, lastWriteAt, checkedAt: new Date().toISOString() }),
+          { status: 200, headers: statusHeaders }
+        );
+      }
+
       // 3. Handle /api/sync endpoint for SyncService background sync
       if (pathParts[0] === "api" && pathParts[1] === "sync" && request.method === "POST") {
         try {

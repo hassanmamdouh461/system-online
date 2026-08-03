@@ -959,7 +959,13 @@ export interface CloudHealth {
   ok: boolean;
   /** 'ok' | 'error' | 'unconfigured' | 'unreachable' | 'unauthorized' */
   db: string;
-  /** Newest write timestamp the worker can see, when known. */
+  /**
+   * Newest write timestamp the worker can see, when known.
+   *
+   * NEVER populated from /api/health: that endpoint is public and deliberately
+   * carries no operational detail. It is filled from the authenticated
+   * `fetchCloudLastWrite()` probe below.
+   */
   lastWriteAt?: string | null;
   orderCount?: number | null;
   /** When the client completed this probe (ISO). */
@@ -1000,7 +1006,9 @@ export async function checkCloudHealth(): Promise<CloudHealth> {
       const health: CloudHealth = {
         ok: true,
         db: 'ok',
-        lastWriteAt: body.lastWriteAt ?? null,
+        // /api/health is public and returns no timestamp by design — the
+        // marker comes from the authenticated fetchCloudLastWrite() probe.
+        lastWriteAt: null,
         orderCount: typeof body.orderCount === 'number' ? body.orderCount : null,
         checkedAt: now(),
       };
@@ -1028,6 +1036,33 @@ export async function checkCloudHealth(): Promise<CloudHealth> {
     };
   } finally {
     clearTimeout(timer);
+  }
+}
+
+/**
+ * Newest write the CLOUD can see, read from the session-protected /api/status.
+ *
+ * Why this exists: the settings badge and the red backup banner both fall back
+ * to `syncService.getHealth().lastSuccessAt`, which is the high-water mark of
+ * THIS device's local sync queue. A device that has only ever read — a freshly
+ * opened page, a manager's phone — has an empty queue, so both surfaces read
+ * "never" and, worse, the "backups are stale" branch could never be reached:
+ * the alarm built to catch a silent backup failure only fired when the worker
+ * was completely down.
+ *
+ * Returns null when the cloud is unreachable or the session is not valid. Null
+ * means "unknown", never "fresh" — callers must not treat it as healthy.
+ */
+export async function fetchCloudLastWrite(): Promise<string | null> {
+  try {
+    const res = await cloudFetch('/api/status', { method: 'GET', timeoutMs: HEALTH_TIMEOUT_MS });
+    if (!res || !res.ok) return null;
+    const body: any = await res.json().catch(() => null);
+    const value = body?.lastWriteAt;
+    return typeof value === 'string' && value ? value : null;
+  } catch (err) {
+    console.warn('[cloud] last-write probe failed:', err);
+    return null;
   }
 }
 
