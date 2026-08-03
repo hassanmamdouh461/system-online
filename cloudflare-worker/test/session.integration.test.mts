@@ -72,6 +72,22 @@ function makeStubDB(settings: Record<string, string>) {
   };
 }
 
+/**
+ * Pull one named cookie out of a response that may carry several Set-Cookie
+ * headers (a mint sets the role cookie AND clears the legacy shared one).
+ */
+function pickCookie(res: Response, name: string): string {
+  const all =
+    typeof (res.headers as any).getSetCookie === "function"
+      ? (res.headers as any).getSetCookie()
+      : (res.headers.get("Set-Cookie") || "").split(/,\s*(?=[A-Za-z0-9_-]+=)/);
+  for (const raw of all) {
+    const first = String(raw).split(";")[0].trim();
+    if (first.startsWith(`${name}=`)) return first;
+  }
+  return "";
+}
+
 async function main() {
   const creds = await clientHashPassword(MANAGER_PASSWORD);
   const DB = makeStubDB({
@@ -99,9 +115,10 @@ async function main() {
     env
   );
   ok(mint.status === 200, "POST /v1/session with manager password → 200");
-  const setCookie = mint.headers.get("Set-Cookie") || "";
-  const cookie = setCookie.split(";")[0];
-  ok(cookie.startsWith("pos_session="), "Set-Cookie carries the session");
+  // Role-scoped cookie: pos_session_manager (the legacy shared `pos_session`
+  // name is cleared in the same response — see auth.ts selectSessionToken).
+  const cookie = pickCookie(mint, "pos_session_manager");
+  ok(cookie.startsWith("pos_session_manager="), "Set-Cookie carries the manager session");
 
   console.log("\n3) same read WITH the cookie → gate passes (not 401)");
   const authed = await worker.fetch(new Request(READ_URL, { headers: { ...ORIGIN, Cookie: cookie } }), env);

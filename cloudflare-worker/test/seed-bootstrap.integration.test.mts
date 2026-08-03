@@ -62,6 +62,22 @@ function makeStubDB(settings: Record<string, string>) {
   };
 }
 
+/**
+ * Pull one named cookie out of a response that may carry several Set-Cookie
+ * headers (a mint sets the role cookie AND clears the legacy shared one).
+ */
+function pickCookie(res: Response, name: string): string {
+  const all =
+    typeof (res.headers as any).getSetCookie === "function"
+      ? (res.headers as any).getSetCookie()
+      : (res.headers.get("Set-Cookie") || "").split(/,\s*(?=[A-Za-z0-9_-]+=)/);
+  for (const raw of all) {
+    const first = String(raw).split(";")[0].trim();
+    if (first.startsWith(`${name}=`)) return first;
+  }
+  return "";
+}
+
 async function main() {
   // Build the rows with the real seed script.
   const managerValue = await buildCredentialValue("manager", MANAGER_PASSWORD);
@@ -99,8 +115,12 @@ async function main() {
   ok(mgrMint.status === 200, "POST /v1/session with seeded manager password → 200");
   const mgrBody: any = await mgrMint.json();
   ok(mgrBody.role === "manager", "minted role is manager");
-  const cookie = (mgrMint.headers.get("Set-Cookie") || "").split(";")[0];
-  ok(cookie.startsWith("pos_session="), "Set-Cookie carries the session");
+  // Sessions are role-scoped cookies (pos_session_manager / pos_session_cashier)
+  // so a manager and a cashier tab in the SAME browser no longer overwrite each
+  // other's session. The legacy `pos_session` name is cleared in the same
+  // response, so pick the role cookie out of the (possibly multi-value) header.
+  const cookie = pickCookie(mgrMint, "pos_session_manager");
+  ok(cookie.startsWith("pos_session_manager="), "Set-Cookie carries the manager session");
 
   console.log("\n2) that cookie authenticates a protected read");
   const authed = await worker.fetch(new Request(READ_URL, { headers: { ...ORIGIN, Cookie: cookie } }), env);
