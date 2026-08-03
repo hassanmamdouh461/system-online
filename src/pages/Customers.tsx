@@ -32,6 +32,7 @@ import {
 } from '../utils/accountBalance';
 import { printCompanyStatement, printCustomerStatement, printCustomerReceipt } from '../utils/printReceipts';
 import { formatOrderNumber } from '../utils/orderNumber';
+import { countLinkedOrders } from '../utils/linkedOrders';
 
 type Tab = 'customers' | 'companies';
 
@@ -396,8 +397,8 @@ export default function CustomersPage(_props: CustomersPageProps) {
         <StatCard
           icon={ShoppingBag}
           title={language === 'ar' ? 'الطلبات المرتبطة' : 'Linked Orders'}
-          value={orders.filter(o => o.customerPhone || o.customerId).length.toLocaleString()}
-          subtitle={language === 'ar' ? 'عملية مباعة للعملاء' : 'Customer checkouts'}
+          value={countLinkedOrders(orders).toLocaleString()}
+          subtitle={language === 'ar' ? 'طلبات منسوبة لعملاء وشركات (بدون الملغاة)' : 'Non-cancelled orders on an account'}
           gradient="from-emerald-50 to-teal-50/40 border-emerald-100/80 text-emerald-700"
           iconBg="bg-emerald-100/80 text-emerald-800"
         />
