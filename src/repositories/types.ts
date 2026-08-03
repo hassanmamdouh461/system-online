@@ -3,11 +3,26 @@ import { Order, OrderStatus } from '../types/order';
 import { Customer } from '../types/customer';
 import { Company } from '../types/company';
 
+/**
+ * The result of a soft-delete.
+ *
+ * `synced: false` means the row is tombstoned LOCALLY (so every screen already
+ * hides it) but the tombstone has NOT been confirmed by the cloud — it exists
+ * only in this browser's IndexedDB + sync_queue. Clearing browser data before it
+ * syncs loses the deletion, and the next hydrate pulls the still-live row back
+ * from D1. Callers MUST surface `reason` to the operator instead of reporting a
+ * clean success.
+ */
+export interface DeleteOutcome {
+  synced: boolean;
+  reason?: string;
+}
+
 export interface IMenuRepository {
   getAll(branchId?: string): Promise<MenuItem[]>;
   create(item: Omit<MenuItem, 'id'>, branchId?: string): Promise<MenuItem>;
   update(id: string, data: Partial<Omit<MenuItem, 'id'>>): Promise<MenuItem>;
-  delete(id: string): Promise<void>;
+  delete(id: string): Promise<DeleteOutcome>;
   resetToDefaults(defaults: Omit<MenuItem, 'id'>[], branchId?: string): Promise<MenuItem[]>;
 }
 
@@ -34,12 +49,12 @@ export interface ICustomerRepository {
   getAll(branchId?: string): Promise<Customer[]>;
   getByPhone(phone: string, branchId?: string): Promise<Customer | null>;
   save(customer: Partial<Customer> & { phone: string }, branchId?: string): Promise<Customer>;
-  delete(id: string): Promise<void>;
+  delete(id: string): Promise<DeleteOutcome>;
 }
 
 export interface ICompanyRepository {
   getAll(branchId?: string): Promise<Company[]>;
   getById(id: string): Promise<Company | null>;
   save(company: Partial<Company> & { name: string }, branchId?: string): Promise<Company>;
-  delete(id: string): Promise<void>;
+  delete(id: string): Promise<DeleteOutcome>;
 }

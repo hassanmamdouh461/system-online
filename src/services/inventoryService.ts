@@ -1,5 +1,6 @@
 import { InventoryItem, InventoryTransaction, RecipeIngredient } from '../types/inventory';
 import { withDB, enqueueWrite } from '../repositories/indexeddb/db';
+import type { DeleteOutcome } from '../repositories/types';
 import { syncService } from './syncService';
 import { multiplyMoney, sumMoneyBy } from '../utils/money';
 
@@ -381,7 +382,12 @@ export const inventoryService = {
     }
   },
 
-  async delete(id: string): Promise<void> {
+  /**
+   * Soft-delete an inventory item. Returns whether the tombstone was CONFIRMED
+   * by the cloud; an unconfirmed deletion exists only in this browser and is
+   * undone by clearing browser data (see DeleteOutcome).
+   */
+  async delete(id: string): Promise<DeleteOutcome> {
     try {
       const now = new Date().toISOString();
 
@@ -421,13 +427,27 @@ export const inventoryService = {
       // and the tombstone is never stored — letting any later device UPDATE
       // resurrect the deleted item. Do NOT hard-delete afterwards: that would
       // wipe the very tombstone we just wrote.
+      //
+      // The outcome is RETURNED instead of swallowed: a tombstone that never
+      // reached D1 lives only in this browser, so clearing the cache undoes the
+      // deletion and the next hydrate brings the item back.
       try {
-        const { cloudUpsert, ackSyncQueueForEntity } = await import('./cloudConfig');
-        const ok = await cloudUpsert('inventory', id, tombstone);
-        if (ok) await ackSyncQueueForEntity(id);
-        else void syncService.syncPendingData();
-      } catch {
+        const { cloudUpsertWithOutcome, ackSyncQueueForEntity, describeCloudWriteFailure } =
+          await import('./cloudConfig');
+        const outcome = await cloudUpsertWithOutcome('inventory', id, tombstone);
+        if (outcome.kind === 'ok') {
+          await ackSyncQueueForEntity(id);
+          return { synced: true };
+        }
         void syncService.syncPendingData();
+        return { synced: false, reason: describeCloudWriteFailure(outcome) };
+      } catch (err) {
+        console.warn('[inventoryService] tombstone push failed:', err);
+        void syncService.syncPendingData();
+        return {
+          synced: false,
+          reason: 'تعذّر تأكيد الحذف على السحاب — العملية في طابور المزامنة.',
+        };
       }
     } catch (error) {
       console.error('[inventoryService] Error deleting item:', error);

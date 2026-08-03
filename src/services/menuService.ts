@@ -1,5 +1,6 @@
 import { MenuItem } from '../types/menu';
 import { menuRepository } from '../repositories';
+import type { DeleteOutcome } from '../repositories/types';
 import { cloudGetPublicMenu } from './cloudConfig';
 
 /** Map a worker `/public/menu` document to a MenuItem (mirrors the repository's
@@ -69,12 +70,16 @@ export const menuService = {
     }
   },
 
-  async delete(id: string): Promise<void> {
-    try {
-      await menuRepository.delete(id);
-    } catch (error) {
-      await menuRepository.delete(id);
-    }
+  /**
+   * Soft-delete a menu item. Returns whether the tombstone was CONFIRMED by the
+   * cloud; an unconfirmed deletion lives only in this browser and is undone by
+   * clearing browser data (see DeleteOutcome).
+   *
+   * The old body retried the identical call from the catch block, which cannot
+   * succeed for a deterministic failure and hid the error from the caller.
+   */
+  async delete(id: string): Promise<DeleteOutcome> {
+    return await menuRepository.delete(id);
   },
 
   async resetToDefaults(defaultItems: Omit<MenuItem, 'id'>[], branchId?: string): Promise<MenuItem[]> {

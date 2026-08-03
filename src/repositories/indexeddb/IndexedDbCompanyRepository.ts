@@ -1,4 +1,4 @@
-import { ICompanyRepository } from '../types';
+import { DeleteOutcome, ICompanyRepository } from '../types';
 import { Company } from '../../types/company';
 import { withDB, enqueueWrite } from './db';
 import { syncService } from '../../services/syncService';
@@ -163,7 +163,7 @@ export class IndexedDbCompanyRepository implements ICompanyRepository {
     });
   }
 
-  async delete(id: string): Promise<void> {
+  async delete(id: string): Promise<DeleteOutcome> {
     const tombstone: Company = await enqueueWrite(async () => {
       return withDB(async (db) => {
         const now = new Date().toISOString();
@@ -203,16 +203,30 @@ export class IndexedDbCompanyRepository implements ICompanyRepository {
     // Push the tombstone to the cloud so it persists in D1 and every device
     // learns the company was deleted. Do NOT hard-delete afterwards: that
     // would wipe the very tombstone we just wrote (same fix as inventory).
+    //
+    // The OUTCOME is returned to the caller instead of being swallowed. A
+    // tombstone that never reached D1 lives only in this browser's IndexedDB +
+    // sync_queue: clearing the cache wipes both and the next hydrate resurrects
+    // the company (with its OnAccount receivables). The screen used to report
+    // «تم حذف الشركة» in exactly that case, so the operator learned about the
+    // resurrection days later. Now the failure is reported at delete time.
     try {
-      const { cloudUpsert, ackSyncQueueForEntity } = await import('../../services/cloudConfig');
-      const ok = await cloudUpsert('companies', id, tombstone);
-      if (ok) {
+      const { cloudUpsertWithOutcome, ackSyncQueueForEntity, describeCloudWriteFailure } =
+        await import('../../services/cloudConfig');
+      const outcome = await cloudUpsertWithOutcome('companies', id, tombstone);
+      if (outcome.kind === 'ok') {
         await ackSyncQueueForEntity(id);
-      } else {
-        void syncService.syncPendingData();
+        return { synced: true };
       }
-    } catch {
       void syncService.syncPendingData();
+      return { synced: false, reason: describeCloudWriteFailure(outcome) };
+    } catch (err) {
+      console.warn('[company] tombstone push failed:', err);
+      void syncService.syncPendingData();
+      return {
+        synced: false,
+        reason: 'تعذّر تأكيد الحذف على السحاب — العملية في طابور المزامنة.',
+      };
     }
   }
 }

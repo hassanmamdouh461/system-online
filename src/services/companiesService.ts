@@ -1,5 +1,6 @@
 import { Company } from '../types/company';
 import { companyRepository } from '../repositories';
+import type { DeleteOutcome } from '../repositories/types';
 
 /**
  * Companies Service - CRUD for company profiles (IndexedDB + optional Electron)
@@ -27,7 +28,12 @@ export const companiesService = {
     return await companyRepository.save(company, branchId);
   },
 
-  async delete(id: string): Promise<void> {
-    await companyRepository.delete(id);
+  /**
+   * Soft-delete a company. Returns whether the tombstone was CONFIRMED by the
+   * cloud — when it was not, the deletion exists only in this browser and the
+   * caller must warn the operator (see DeleteOutcome).
+   */
+  async delete(id: string): Promise<DeleteOutcome> {
+    return await companyRepository.delete(id);
   },
 };

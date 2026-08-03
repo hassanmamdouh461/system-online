@@ -1,5 +1,6 @@
 import { Customer } from '../types/customer';
 import { customerRepository } from '../repositories';
+import type { DeleteOutcome } from '../repositories/types';
 import { cloudGetCollection, isCloudConfigured } from './cloudConfig';
 
 function normalizePhone(phone: string): string {
@@ -109,11 +110,18 @@ export const customersService = {
     }
   },
 
-  async delete(id: string): Promise<void> {
-    try {
-      await customerRepository.delete(id);
-    } catch (error) {
-      await customerRepository.delete(id);
-    }
+  /**
+   * Soft-delete a customer. Returns whether the tombstone was CONFIRMED by the
+   * cloud — when it was not, the deletion exists only in this browser and the
+   * caller must warn the operator (see DeleteOutcome).
+   *
+   * The previous body called `customerRepository.delete(id)` a SECOND time from
+   * the catch block. A retry that repeats the identical failing call cannot
+   * succeed for any deterministic failure (a 403, a missing session), and it hid
+   * the real error from the caller — so the screen reported a successful delete
+   * either way. The repository already queues + retries the cloud push itself.
+   */
+  async delete(id: string): Promise<DeleteOutcome> {
+    return await customerRepository.delete(id);
   },
 };

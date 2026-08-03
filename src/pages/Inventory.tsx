@@ -350,8 +350,18 @@ export default function Inventory() {
   const confirmDeleteInventory = async () => {
     if (!deleteTargetId) return;
     try {
-      await inventoryService.delete(deleteTargetId);
-      toast.success(t('Inventory item deleted'));
+      const outcome = await inventoryService.delete(deleteTargetId);
+      // Only report a clean delete when the cloud confirmed the tombstone —
+      // otherwise the removal lives only in this browser and clearing browser
+      // data brings the item back on the next hydrate.
+      if (outcome.synced) {
+        toast.success(t('Inventory item deleted'));
+      } else {
+        toast.warning(
+          `${t('Hidden on this device, but the deletion is not confirmed in the cloud yet.')} ${outcome.reason || ''}`,
+          t('Deletion pending sync')
+        );
+      }
       fetchData();
     } catch (error) {
       toast.error(t('Failed to delete stock item'));

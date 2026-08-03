@@ -314,12 +314,32 @@ export default function CustomersPage(_props: CustomersPageProps) {
   const handleConfirmDelete = async () => {
     if (!deleteTarget) return;
     try {
-      if (deleteTarget.type === 'customer') {
-        await customersService.delete(deleteTarget.id);
-        toast.success(language === 'ar' ? 'تم حذف العميل' : 'Customer deleted');
+      const isCustomer = deleteTarget.type === 'customer';
+      const outcome = isCustomer
+        ? await customersService.delete(deleteTarget.id)
+        : await companiesService.delete(deleteTarget.id);
+
+      // A delete is only DONE when the cloud confirmed the tombstone. Until then
+      // it exists solely in this browser's IndexedDB + sync queue, so clearing
+      // browser data resurrects the record on the next hydrate — the exact bug
+      // operators hit: "I deleted the company, cleared the cache, and it came
+      // back". Reporting a plain success here is what hid it.
+      if (outcome.synced) {
+        toast.success(
+          isCustomer
+            ? language === 'ar' ? 'تم حذف العميل نهائياً' : 'Customer deleted'
+            : language === 'ar' ? 'تم حذف الشركة نهائياً' : 'Company deleted'
+        );
       } else {
-        await companiesService.delete(deleteTarget.id);
-        toast.success(language === 'ar' ? 'تم حذف الشركة' : 'Company deleted');
+        const what = isCustomer
+          ? language === 'ar' ? 'العميل' : 'the customer'
+          : language === 'ar' ? 'الشركة' : 'the company';
+        toast.warning(
+          language === 'ar'
+            ? `تم إخفاء ${what} على هذا الجهاز، لكن الحذف لم يتأكد على السحاب بعد. ${outcome.reason || ''} لا تمسح بيانات المتصفح قبل نجاح المزامنة وإلا سيرجع السجل.`
+            : `Hidden on this device, but the deletion is not confirmed in the cloud yet. ${outcome.reason || ''} Do not clear browser data before it syncs, or the record will come back.`,
+          language === 'ar' ? 'الحذف في انتظار المزامنة' : 'Deletion pending sync'
+        );
       }
       setProfileCustomer(null);
       setProfileCompany(null);
