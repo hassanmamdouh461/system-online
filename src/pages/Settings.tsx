@@ -14,7 +14,6 @@ import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
 import { ProfileSettingsModal } from '../components/settings/ProfileSettingsModal';
 import { StoreConfigModal } from '../components/settings/StoreConfigModal';
-import { BackupRestoreCard } from '../components/settings/BackupRestoreCard';
 
 import { QrMenuModal } from '../components/settings/QrMenuModal';
 import { TelegramConfigModal } from '../components/settings/TelegramConfigModal';
@@ -127,15 +126,18 @@ export default function Settings() {
           </motion.div>
         ))}
 
-        {isManager && (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.24 }}
-          >
-            <BackupRestoreCard />
-          </motion.div>
-        )}
+        {/*
+          The "Backup & Restore" card (export JSON / import JSON / restore the
+          latest cloud snapshot) used to render here for managers. Removed on the
+          operator's request — he does not want the section on screen at all.
+
+          Nothing about the backups themselves changed: snapshotService still
+          takes automatic cloud snapshots on its scheduler, and the boot-time
+          restore-if-empty path in App.tsx still runs. Only the manual controls
+          are gone from the UI. The component and its service functions are kept
+          in the codebase so the card can be put back with a one-line import if
+          it is ever needed again.
+        */}
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.28 }}>
