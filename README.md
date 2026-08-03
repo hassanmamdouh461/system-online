@@ -19,7 +19,7 @@
 ## ✨ Features
 
 ### 🏪 Business Features
-- **Live Kanban Board** — Visual order pipeline: `New → Preparing → Ready`
+- **Live Kanban Board** — Visual order pipeline: `New → Preparing → Ready → Completed`. Open it from the **Kitchen Board** tab on the Orders screen; tapping a card advances the order to the next stage.
 - **Smart Payment Flow** — Cashier screen with unpaid/paid lists, cash/card tracking
 - **POS Cashier** — Create orders, optional customer phone, print tickets
 - **Customers & Companies** — Profiles, tags, affiliation, transaction history
@@ -28,7 +28,7 @@
 - **Public QR Menu** — Customer-facing menu at `/public-menu`
 - **Telegram reports** — Optional sales reports via a configured bot (Settings → Telegram)
 - **Bilingual UI** — Arabic / English with RTL support
-- **Responsive** — Desktop sidebar, tablet breakpoints, mobile bottom-nav
+- **Responsive** — Top navigation bar on desktop/tablet, mobile bottom-nav (`MobileNav`) on small screens. There is no sidebar.
 
 ### ⚙️ Technical Features
 - **Offline-first** — IndexedDB (via `idb`) with a durable sync queue
@@ -153,7 +153,23 @@ npm run dev
 
 Open [http://localhost:5173](http://localhost:5173).
 
-Default login: username `admin` / password `123` (change in Settings).
+**Login.** There is no username field — the login screen takes a password only, and
+the role (manager or cashier) is chosen on the screen itself.
+
+On a brand-new install with no credential stored anywhere, the local bootstrap
+password `123` is accepted **once** and immediately replaced by a hash of whatever
+you set; it is permanently disabled after that. This is a local-only escape hatch.
+
+Once the app is pointed at a Cloudflare Worker, logging in verifies against PBKDF2
+hashes stored in **D1**, and a fresh D1 has no credential rows — so every login
+returns `401` until you seed them once:
+
+```bash
+MANAGER_PASSWORD='…' CASHIER_PASSWORD='…' node scripts/seed-manager-credential.mjs
+```
+
+See [Cloudflare Worker / D1](#️-cloudflare-worker--d1) below for the full sequence.
+`123` will **not** get you into a cloud-connected install.
 
 ### Build SPA
 
@@ -165,9 +181,21 @@ npm run preview
 ### Quality checks
 
 ```bash
-npm run typecheck   # TypeScript, no emit
-npm run lint        # ESLint
-npm run test        # Vitest unit tests
+npm run ci          # everything below, in one shot — run this before committing
+```
+
+`npm run ci` is the gate: lint → typecheck → unit tests → Worker tests. It must be
+green (0 ESLint errors, all Vitest tests passing, 18/18 Worker test files) before
+any change is committed.
+
+The individual steps, if you need to run one in isolation:
+
+```bash
+npm run typecheck    # TypeScript, no emit
+npm run lint         # ESLint + the money-safety check
+npm run test         # Vitest unit tests
+npm run test:worker  # Cloudflare Worker test suite
+npm run check:money  # money arithmetic must stay inside src/utils/money.ts
 ```
 
 ---
@@ -229,10 +257,10 @@ online-system/
 
 ## 🔐 Notes
 
-- **Auth is a role-bearing session cookie.** The operator signs in with the manager/cashier password; the browser hands it to the Worker (`POST /v1/session`), which verifies it against PBKDF2 (SHA-256, 100k, random salt) hashes stored in D1 and sets an HMAC-signed HttpOnly cookie carrying the role. Passwords are never stored in plaintext, and the client never holds an API key. The one-time `123` bootstrap password only works on a brand-new install until a real password is set, after which it is permanently disabled.
+- **Auth is a role-bearing session cookie.** The operator signs in with the manager/cashier password; the browser hands it to the Worker (`POST /v1/session`), which verifies it against PBKDF2 (SHA-256, 100k, random salt) hashes stored in D1 and sets an HMAC-signed HttpOnly cookie carrying the role. Passwords are never stored in plaintext, and the client never holds an API key. The one-time `123` bootstrap password is a **local-only** escape hatch: it works on a brand-new install until a real password is set, after which it is permanently disabled, and it is never accepted by the Worker — a cloud-connected install authenticates solely against the seeded D1 hashes.
 - **The Cloudflare Worker is fail-closed.** It refuses to mint sessions (`503`) unless the `SESSION_SECRET` secret is set, returns `401` for any request without a valid session cookie (or role-scoped key), and emits CORS headers only for origins in `ALLOWED_ORIGINS` (no wildcard reflection). Cookie writes are additionally CSRF-guarded (strict `Origin` allowlist + double-submit `X-CSRF-Token`). Set `SESSION_SECRET` and `ALLOWED_ORIGINS`, then **seed the login credentials** before use — see [`cloudflare-worker/README.md`](./cloudflare-worker/README.md) (there is no `API_KEY`/`X-API-Key` requirement for the browser POS anymore).
 - **First-run login deadlock:** a fresh D1 has no credential rows, so login `401`s until you seed them once with `scripts/seed-manager-credential.mjs` (see the Worker README's Recovery section).
-- Seed data (menu + inventory) is applied automatically on first IndexedDB open — no separate seed script required.
+- **There is no automatic seed data.** Automatic seeding of `INITIAL_MENU_ITEMS` and `CLIENT_B_INITIAL_INVENTORY` was deliberately removed (see `src/repositories/indexeddb/db.ts`), because on an existing install it resurrected menu items the operator had already deleted. A fresh install therefore opens on an **empty menu and empty inventory** — this is expected, not a bug. Add items from the Menu and Inventory screens, or restore from a cloud hydrate if the install is pointed at a populated D1.
 
 ---
 
