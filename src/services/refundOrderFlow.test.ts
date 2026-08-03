@@ -210,14 +210,43 @@ describe('performRefund — connectivity', () => {
     expect(h.applyLocal).not.toHaveBeenCalled();
   });
 
-  it('queues the refund when the server was authorised but then unreachable', async () => {
+  /*
+   * REGRESSION (2026-08-04): this used to apply the refund locally and hand it
+   * to the retry queue, reporting SUCCESS to the operator. The queue lives in
+   * IndexedDB, so "clear browsing data" (or 15 failed attempts, which
+   * dead-letters the row) destroyed the only record of the refund while D1 still
+   * said Paid — the invoice came back as paid and the cash was unaccounted for.
+   * Terminal money state is never recorded optimistically.
+   */
+  it('REFUSES the refund when the server was authorised but then unreachable', async () => {
     const h = harness({ probed: 'manager', pushes: [{ kind: 'unreachable' }] });
+
+    await expect(run(h)).rejects.toMatchObject({ code: 'refund_not_confirmed' });
+    expect(h.applyLocal).not.toHaveBeenCalled();
+    expect(h.restoreInventory).not.toHaveBeenCalled();
+    expect(h.triggerSync).not.toHaveBeenCalled();
+  });
+
+  it('REFUSES when the server discarded the write and D1 is NOT refunded', async () => {
+    const h = harness({
+      probed: 'manager',
+      pushes: [{ kind: 'stale', serverHasRefund: false }],
+    });
+
+    await expect(run(h)).rejects.toMatchObject({ code: 'refund_discarded_by_server' });
+    expect(h.applyLocal).not.toHaveBeenCalled();
+  });
+
+  it('accepts a discarded write when D1 already holds the refund (duplicate submit)', async () => {
+    const h = harness({
+      probed: 'manager',
+      pushes: [{ kind: 'stale', serverHasRefund: true }],
+    });
 
     const result = await run(h);
 
     expect(result).toBe(REFUNDED);
     expect(h.applyLocal).toHaveBeenCalledTimes(1);
-    expect(h.triggerSync).toHaveBeenCalledTimes(1);
   });
 
   it('refunds locally with no cloud configured at all', async () => {

@@ -18,6 +18,20 @@ import {
 import { performRefund, type RefundPushResult } from '../services/refundOrderFlow';
 import { useToast } from '../components/ui/Toast';
 
+/**
+ * Does the row D1 returned already carry a resolved refund?
+ *
+ * Mirrors the Worker's `hasRefundMarker`, including the snake_case column shape
+ * a legacy row can still come back in. Used to tell a harmless duplicate refund
+ * submission apart from a write the server actually threw away.
+ */
+function isRefundedRow(row: Record<string, unknown> | null | undefined): boolean {
+  if (!row) return false;
+  const status = row.paymentStatus ?? row.payment_status;
+  const refundedAt = row.refundedAt ?? row.refunded_at;
+  return status === 'Refunded' || (refundedAt !== null && refundedAt !== undefined && refundedAt !== '');
+}
+
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -435,11 +449,17 @@ async function applyOrderInventory(
               return { kind: 'denied', code: outcome.code, message: outcome.message };
             case 'unauthenticated':
               return { kind: 'unauthenticated' };
-            // A freshness-guard rejection means D1 already holds a newer row;
-            // the refund latch keeps a refunded row refunded, so treat it as
-            // "the server has this" rather than as a failure to retry forever.
+            // A freshness-guard rejection was previously reported as 'ok' on the
+            // assumption that D1 must already hold the refund. It does not: a
+            // stored row with a NULL/newer updatedAt makes the guard discard the
+            // write while the row stays Paid, and the till then showed a refund
+            // that existed nowhere but this browser. Report what D1 actually
+            // holds and let performRefund decide.
             case 'stale':
-              return { kind: 'ok' };
+              return {
+                kind: 'stale',
+                serverHasRefund: isRefundedRow(outcome.row),
+              };
             default:
               return { kind: 'unreachable' };
           }
