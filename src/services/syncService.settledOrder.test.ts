@@ -33,11 +33,34 @@ describe('syncService 403 handling', () => {
   });
 
   it('still retires other (genuine) 403 permission denials', () => {
-    // The generic 403 path after the settled_order_immutable carve-out still
-    // retires the record permanently.
+    // The generic 403 path after the settled_order_immutable and role-mismatch
+    // carve-outs still retires the record permanently.
     const generic = src.match(
-      /settled_order_immutable[\s\S]{0,400}?retirePermanently\(record, msg\);/,
+      /settled_order_immutable[\s\S]{0,2000}?retirePermanently\(record, msg\);/,
     );
     expect(generic).not.toBeNull();
+  });
+
+  /**
+   * A 403 is only a real denial if we were authenticated AS the role the
+   * operator is signed in as. Cookies are per-domain, so a cashier login in a
+   * sibling tab could make a MANAGER's queued write execute as a cashier: the
+   * Worker answered "تعديل المنيو والوصفات غير مسموح لصلاحية الكاشير" and this
+   * path retired the record forever, so the manager's menu delete never reached
+   * D1 and no other device ever learned about it.
+   */
+  it('reconciles the session role before retiring a 403, and retries when it was a mismatch', () => {
+    const branch = src.match(
+      /reconcileSessionRole\(\)[\s\S]{0,600}?scheduleRetry\(record, msg\);/,
+    );
+    expect(branch).not.toBeNull();
+    // The retry must be conditional on the role having ACTUALLY changed into the
+    // declared one — otherwise a correct cashier denial would loop forever.
+    expect(branch![0]).toContain('roleBefore !== intent');
+    expect(branch![0]).toContain('getSessionRole() === intent');
+  });
+
+  it('sends the role intent header so the worker picks this role\'s session', () => {
+    expect(src).toContain('roleIntentHeaders()');
   });
 });

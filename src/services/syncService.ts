@@ -6,6 +6,10 @@ import {
   ensureCloudSession,
   resetCloudSession,
   isCloudConfigured,
+  roleIntentHeaders,
+  reconcileSessionRole,
+  getSessionRole,
+  getRoleIntent,
 } from './cloudConfig';
 import { getRefundPin } from '../utils/refundPin';
 
@@ -211,6 +215,10 @@ export class SyncService {
         const headers: Record<string, string> = {
           'Content-Type': 'application/json',
           'X-Branch-ID': getBranchIdHeader(),
+          // Picks WHICH role-scoped session cookie the Worker authenticates
+          // with, so a cashier tab in the same browser cannot make this
+          // manager's queued writes execute as a cashier (403 → retired).
+          ...roleIntentHeaders(),
         };
         const csrf = getCsrfToken();
         if (csrf) headers['X-CSRF-Token'] = csrf;
@@ -308,6 +316,34 @@ export class SyncService {
           await this.scheduleRetry(record, msg);
           return;
         }
+
+        // A denial is only "deterministic" if we were authenticated as the role
+        // the operator is actually signed in as. Cookies are per-DOMAIN, so a
+        // cashier login in a sibling tab (or a lapsed manager cookie, or the
+        // legacy shared cookie) could make a MANAGER's queued write execute as a
+        // cashier — the till then reported
+        //   "تعديل المنيو والوصفات غير مسموح لصلاحية الكاشير"
+        // and this branch retired the record forever, so the manager's menu
+        // delete never reached D1 and no other device ever learned about it.
+        // Reconcile the session against the declared role first: if it was wrong
+        // and we repaired it, this record is retryable, not dead.
+        const intent = getRoleIntent();
+        if (intent) {
+          const roleBefore = getSessionRole();
+          const repaired = await reconcileSessionRole();
+          if (repaired && roleBefore !== intent && getSessionRole() === intent) {
+            console.warn(
+              '[SyncService] 403 was a role mismatch (session was',
+              roleBefore,
+              '→ re-minted as',
+              intent,
+              ') — keeping the record queued for retry.'
+            );
+            await this.scheduleRetry(record, msg);
+            return;
+          }
+        }
+
         await this.retirePermanently(record, msg);
         return;
       }
