@@ -1,0 +1,47 @@
+-- v14: unfreeze orders whose updatedAt is NULL (data repair, not a schema change).
+--
+-- WHY
+-- IndexedDbOrderRepository.create() stamped createdAt but never updatedAt, so every
+-- order it inserted landed here with updatedAt = NULL. The Worker gates its conflict
+-- update on `excluded.updatedAt > orders.updatedAt`, and in SQL any comparison against
+-- NULL evaluates to NULL — never TRUE. The ON CONFLICT update was therefore dropped for
+-- the entire lifetime of the row: settling, refunding, cancelling or advancing the status
+-- all answered `200 {stale:true}` while D1 kept the original copy.
+--
+-- Real consequences seen in production: an invoice paid in cash at the till showed Paid on
+-- the device while the cloud still said Unpaid, so it came back in "pending invoices" after
+-- the next hydrate and risked being collected a SECOND time from the customer; a refund
+-- returned cash while the cloud kept counting the sale as revenue; and the manager
+-- dashboard under-reported takings.
+--
+-- The code fix (client stamps updatedAt, NULL-safe freshness clause, server-side backfill)
+-- stops NEW rows from freezing. It does not retroactively repair rows already stored with
+-- NULL — those stay unwritable under the old strict clause until this migration runs.
+--
+-- WHAT THIS DOES
+--   Backfills orders.updatedAt from the row's own timestamps, oldest sensible value first:
+--     updatedAt := COALESCE(updatedAt, paidAt, createdAt)
+--   Deriving from the row itself (never the current clock) keeps ordering honest: the
+--   repaired row does not pretend to be newer than it is, so a genuine device write wins
+--   the next comparison and the row starts syncing again.
+--
+-- SAFETY
+--   * Touches ONLY rows where updatedAt IS NULL — rows with a real timestamp are untouched.
+--   * Changes no business field: payment status, totals, refund markers all stay as-is.
+--   * Idempotent — after it runs the WHERE clause matches nothing, so re-running is a no-op.
+--   * createdAt is NOT NULL in the schema, so COALESCE always resolves to a real value.
+--
+-- APPLY (same way as previous migrations):
+--   npx wrangler d1 execute <DATABASE_NAME> --remote --file=schema-migrate-v14.sql
+--
+-- VERIFY (expect 0):
+--   SELECT COUNT(*) AS still_frozen FROM orders WHERE updatedAt IS NULL;
+--
+-- APPLIED: 2026-08-03 against system-online-db (production) — 5 of 9 order rows repaired,
+-- all of them created by the current client build. Post-migration count: 0. The other
+-- updated-at tables (menu_items, customers, companies, inventory, settings, recipes) were
+-- checked at the same time and had no NULL rows.
+
+UPDATE orders
+   SET updatedAt = COALESCE(updatedAt, paidAt, createdAt)
+ WHERE updatedAt IS NULL;
