@@ -11,8 +11,10 @@ import { hydrateFromCloud, resetHydrateCache } from './services/cloudHydrate';
 import { DashboardLayout } from './components/layout/DashboardLayout';
 import { ErrorBoundary } from './components/ui/ErrorBoundary';
 import { mustChangePassword } from './utils/settingsConfig';
+import { isBackupStale, newerTimestamp } from './utils/backupFreshness';
 import {
   checkCloudHealth,
+  fetchCloudLastWrite,
   isCloudConfigured,
   getSessionRole,
   refreshCloudSessionRole,
@@ -67,7 +69,6 @@ function NotFound() {
  * worker URL is configured (cloud is meant to be on) AND either the health probe
  * failed or the last successful write is older than the threshold.
  */
-const BACKUP_STALE_AFTER_MS = 6 * 60 * 60 * 1000;
 const BACKUP_CHECK_INTERVAL_MS = 5 * 60 * 1000;
 
 function BackupHealthBanner() {
@@ -90,9 +91,12 @@ function BackupHealthBanner() {
         return;
       }
 
-      const [health, sync] = await Promise.all([
+      const [health, sync, cloudLastWrite] = await Promise.all([
         checkCloudHealth(),
         syncService.getHealth().catch(() => null),
+        // The cloud's own last-write marker, from the session-protected route.
+        // Without it this banner could only ever report a total outage.
+        fetchCloudLastWrite().catch(() => null),
       ]);
       if (cancelled) return;
 
@@ -104,8 +108,8 @@ function BackupHealthBanner() {
         return;
       }
 
-      const lastGood = sync?.lastSuccessAt || health.lastWriteAt || null;
-      if (lastGood && Date.now() - new Date(lastGood).getTime() > BACKUP_STALE_AFTER_MS) {
+      const lastGood = newerTimestamp(sync?.lastSuccessAt || null, cloudLastWrite);
+      if (lastGood && isBackupStale(lastGood)) {
         setProblem({ kind: 'stale', detail: formatAge(lastGood) });
         return;
       }

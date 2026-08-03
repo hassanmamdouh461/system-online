@@ -2,8 +2,9 @@ import { useState, useEffect, useCallback } from 'react';
 import { Database, Wifi, WifiOff, RefreshCw, AlertTriangle } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useLanguage } from '../../context/LanguageContext';
-import { checkCloudHealth, getWorkerUrl, type CloudHealth } from '../../services/cloudConfig';
+import { checkCloudHealth, fetchCloudLastWrite, getWorkerUrl, type CloudHealth } from '../../services/cloudConfig';
 import { syncService } from '../../services/syncService';
+import { newerTimestamp, isBackupStale } from '../../utils/backupFreshness';
 
 /**
  * Honest cloud-database status.
@@ -17,9 +18,6 @@ import { syncService } from '../../services/syncService';
  */
 type ConnectionStatus = 'checking' | 'connected' | 'stale' | 'error' | 'unconfigured';
 
-/** Matches the red App.tsx banner threshold. */
-const STALE_AFTER_MS = 6 * 60 * 60 * 1000;
-
 export function DatabaseStatus() {
   const { language } = useLanguage();
   const isAr = language === 'ar';
@@ -31,18 +29,21 @@ export function DatabaseStatus() {
   const checkConnection = useCallback(async () => {
     setStatus('checking');
 
-    const [result, syncHealth] = await Promise.all([
+    const [result, syncHealth, cloudLastWrite] = await Promise.all([
       checkCloudHealth(),
       syncService.getHealth().catch(() => null),
+      // Authenticated probe — /api/health is public and carries no timestamp.
+      fetchCloudLastWrite().catch(() => null),
     ]);
 
     setHealth(result);
     setLastChecked(new Date());
 
-    // Prefer the local queue's high-water mark: it records when THIS device last
-    // pushed successfully. Fall back to the newest write the worker can see,
-    // which covers a device that has only ever read.
-    const lastSync = syncHealth?.lastSuccessAt || result.lastWriteAt || null;
+    // Two independent signals: the local queue's high-water mark (when THIS
+    // device last pushed) and the newest write the CLOUD can see (which covers a
+    // device that has only ever read — an empty queue used to read "never").
+    // Take whichever is newer; a null on either side must not win.
+    const lastSync = newerTimestamp(syncHealth?.lastSuccessAt || null, cloudLastWrite);
     setLastSuccessAt(lastSync);
 
     if (result.db === 'unconfigured') {
@@ -56,8 +57,7 @@ export function DatabaseStatus() {
     // The worker and D1 are healthy, but if nothing has landed in a long time
     // the operator still needs to know — a reachable database that is not
     // receiving writes is not a working backup.
-    const age = lastSync ? Date.now() - new Date(lastSync).getTime() : null;
-    setStatus(age !== null && age > STALE_AFTER_MS ? 'stale' : 'connected');
+    setStatus(isBackupStale(lastSync) ? 'stale' : 'connected');
   }, []);
 
   useEffect(() => {
