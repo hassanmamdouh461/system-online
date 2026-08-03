@@ -730,16 +730,43 @@ export async function cloudGetPublicMenu(): Promise<any[] | null> {
 }
 
 /**
- * Immediate upsert to D1 (Cloud-first path).
- * Returns true on success, false on offline/failure (caller should queue).
+ * The real outcome of a cloud write.
+ *
+ * `cloudUpsert` collapses everything into a boolean, which is fine for the
+ * queue-and-retry paths: anything that is not success gets queued. It is NOT
+ * fine for an action that must not be applied locally unless the server
+ * accepted it — a refund. "The server REFUSED this write" (403, deterministic)
+ * and "the server was unreachable" (offline, retryable) demand opposite
+ * responses, and a boolean cannot tell them apart.
  */
-export async function cloudUpsert(
+/** A row payload on its way to D1 — shapes vary per collection. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type CloudDocument = Record<string, any>;
+
+export type CloudWriteOutcome =
+  /** Written to D1 and confirmed. */
+  | { kind: 'ok' }
+  /** Server refused it (403). Retrying the same payload can only fail again. */
+  | { kind: 'denied'; status: number; code: string | null; message: string | null }
+  /** Session lapsed (401) — the caller may re-mint and retry. */
+  | { kind: 'unauthenticated'; status: number }
+  /** Rejected by the freshness guard: a newer row already exists. */
+  | { kind: 'stale' }
+  /** Offline / timeout / other HTTP error — safe to queue and retry. */
+  | { kind: 'unreachable'; status: number | null };
+
+/**
+ * Immediate upsert to D1 (Cloud-first path), reporting the real outcome.
+ * Prefer this over `cloudUpsert` whenever the caller must distinguish a server
+ * REFUSAL from a network failure.
+ */
+export async function cloudUpsertWithOutcome(
   collection: string,
   id: string,
-  data: Record<string, any>
-): Promise<boolean> {
-  if (!id) return false;
-  const payload: Record<string, any> = { ...data, id };
+  data: CloudDocument
+): Promise<CloudWriteOutcome> {
+  if (!id) return { kind: 'unreachable', status: null };
+  const payload: CloudDocument = { ...data, id };
   // Single-branch system: every row is stamped with the one branch id.
   payload.branch_id = MAIN_BRANCH_ID;
   payload.branchId = MAIN_BRANCH_ID;
@@ -752,10 +779,28 @@ export async function cloudUpsert(
         body: JSON.stringify({ documentId: id, data: payload }),
       }
     );
-    if (!res) return false;
+    if (!res) return { kind: 'unreachable', status: null };
     if (!res.ok) {
       console.warn(`[cloud] UPSERT ${collection}/${id} failed: HTTP ${res.status}`);
-      return false;
+      if (res.status === 401) return { kind: 'unauthenticated', status: 401 };
+      if (res.status === 403) {
+        // A CSRF-stale 403 is a retryable session problem, not a permission
+        // decision — the Worker flags it with X-CSRF-Failed.
+        if (res.headers.get('X-CSRF-Failed') === '1') {
+          return { kind: 'unauthenticated', status: 403 };
+        }
+        let code: string | null = null;
+        let message: string | null = null;
+        try {
+          const body = (await res.clone().json()) as { code?: string; message?: string } | null;
+          code = body?.code ?? null;
+          message = body?.message ?? null;
+        } catch {
+          // non-JSON error body — the status alone still says "refused"
+        }
+        return { kind: 'denied', status: 403, code, message };
+      }
+      return { kind: 'unreachable', status: res.status };
     }
     // A 200 does NOT always mean the row was written. When the Worker's
     // last-writer-wins freshness guard rejects the conflict update it answers
@@ -771,18 +816,30 @@ export async function cloudUpsert(
           `[cloud] UPSERT ${collection}/${id} discarded by the server freshness guard ` +
             `(a newer row already exists) — queue row NOT acked.`
         );
-        return false;
+        return { kind: 'stale' };
       }
     } catch {
       // Non-JSON / empty body — nothing to inspect; treat the 200 as success.
     }
     // Best-effort: clear pending queue rows for this entity so SyncStatus stays honest
     void ackSyncQueueForEntity(id);
-    return true;
+    return { kind: 'ok' };
   } catch (err) {
     console.warn(`[cloud] UPSERT ${collection}/${id} error:`, err);
-    return false;
+    return { kind: 'unreachable', status: null };
   }
+}
+
+/**
+ * Immediate upsert to D1 (Cloud-first path).
+ * Returns true on success, false on offline/failure (caller should queue).
+ */
+export async function cloudUpsert(
+  collection: string,
+  id: string,
+  data: CloudDocument
+): Promise<boolean> {
+  return (await cloudUpsertWithOutcome(collection, id, data)).kind === 'ok';
 }
 
 /** Mark open sync_queue rows for an entity id as synced (after successful cloud write). */

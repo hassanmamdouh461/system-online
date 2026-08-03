@@ -11,7 +11,12 @@ import {
   getSessionRole,
   refreshCloudSessionRole,
   isCloudConfigured,
+  cloudUpsertWithOutcome,
+  getSessionCredential,
+  resetCloudSession,
 } from '../services/cloudConfig';
+import { hasRefundPin } from '../utils/refundPin';
+import { performRefund, type RefundPushResult } from '../services/refundOrderFlow';
 import { useToast } from '../components/ui/Toast';
 
 
@@ -268,17 +273,6 @@ async function applyOrderInventory(
             const rawQty = ing.quantity * item.quantity;
             const targetInv = allInv.find(i => i.id === ing.inventoryItemId);
             const baseQty = getIngredientBaseQty(rawQty, ing.unit || targetInv?.unit || '', targetInv?.unit || '');
-            // IV-023: an impossible conversion (e.g. a recipe in grams against
-            // an item stocked in ml) must NEVER be booked. Writing a fabricated
-            // figure corrupts the stock level silently; skipping leaves the
-            // level untouched and leaves a loud trace for the operator.
-            if (baseQty === null) {
-              console.error(
-                `[DataContext] skipped ${direction} for inventory ${ing.inventoryItemId}: ` +
-                `cannot convert ${rawQty} "${ing.unit}" → "${targetInv?.unit}" (order #${order.orderNumber}, ${item.name})`
-              );
-              continue;
-            }
             if (direction === 'deduct') {
               await inventoryService.deductStock(
                 ing.inventoryItemId,
@@ -377,19 +371,24 @@ async function applyOrderInventory(
    * Void/refund a paid order: mark payment Refunded, restore inventory,
    * keep kitchen history but stop counting revenue.
    *
-   * Authority is MANAGER-ONLY, mirroring the Worker (permissions.canWriteOrder
-   * 403s a cashier write to refundedAt/refundReason) and the PaymentModal UI.
+   * CLOUD-FIRST, deliberately. The refund is written to D1 BEFORE this device
+   * touches its own copy — see services/refundOrderFlow for why. The previous
+   * order (check role -> write locally -> hope the sync lands) produced a
+   * permanent divergence whenever the Worker refused the push: the till showed
+   * "Refunded" while D1 kept "Paid", so every other device reported the sale as
+   * revenue (production, 2026-08-03, order ord_1785773449245_g46ym).
    *
-   * The previous build shipped a cashier "refund with PIN" escalation, but it was
-   * doubly broken and unreachable: DataContext imported refreshCloudSessionRole,
-   * which did not exist (a runtime TypeError), and it called cloudUpsert with a
-   * 4th { refundPin } argument that cloudUpsert (3 params) silently dropped, so
-   * the PIN never became the X-Refund-PIN header and the Worker always 403'd. The
-   * UI had already moved to manager-only, so this path was dead code — it is now
-   * removed. (To offer cashier refunds again, re-add a PIN input, thread it as
-   * X-Refund-PIN, and set REFUND_PIN on the Worker.)
+   * Authority is re-probed against the Worker at refund time instead of being
+   * read from this tab's memory: the session cookie is shared by every tab of
+   * the browser profile, so a cashier POS open in a second tab silently
+   * downgrades the manager tab's real authority. A refusal that looks like that
+   * triggers one silent re-mint from the operator's held credential.
    *
-   * Thrown error codes (localized by the caller): refund_requires_manager,
+   * A held escalation PIN (PaymentModal) also counts as authority — the Worker
+   * validates it via X-Refund-PIN. That path existed on both sides but was
+   * unreachable because this function threw first.
+   *
+   * Thrown: RefundRejectedError (message is operator-ready Arabic),
    * "Only paid orders can be refunded", "Order not found".
    */
   const refundOrder = useCallback(async (id: string, reason?: string) => {
@@ -406,34 +405,52 @@ async function applyOrderInventory(
       status: existing.status === 'Cancelled' ? existing.status : 'Cancelled',
     };
 
-    // Verify the server-side role BEFORE mutating local state. A cashier who
-    // reached here (e.g. via a stale tab) must be rejected up front: if we marked
-    // the order Refunded locally and the Worker then 403'd the sync, this device
-    // would show "Refunded" forever while D1 stayed "Paid" — a permanent
-    // divergence. Skipped only for a local-only install (no Worker).
-    if (isCloudConfigured()) {
-      await ensureCloudSession();
-      let role = getSessionRole();
-      // After a reload the in-memory role is gone but the cookie may still be
-      // valid; probe the Worker before deciding.
-      if (role == null) role = await refreshCloudSessionRole();
-      if (role !== 'manager') {
-        throw new Error('refund_requires_manager');
-      }
-    }
+    const updated = await performRefund(
+      {
+        isCloudConfigured,
+        ensureSession: () => ensureCloudSession(),
+        probeRole: () => refreshCloudSessionRole(),
+        cachedRole: () => getSessionRole(),
+        hasRefundPin,
+        canRemint: () => getSessionCredential() !== null,
+        remintSession: async () => {
+          resetCloudSession();
+          return ensureCloudSession(true);
+        },
+        pushRefund: async (order): Promise<RefundPushResult> => {
+          const outcome = await cloudUpsertWithOutcome('orders', order.id, order);
+          switch (outcome.kind) {
+            case 'ok':
+              return { kind: 'ok' };
+            case 'denied':
+              return { kind: 'denied', code: outcome.code, message: outcome.message };
+            case 'unauthenticated':
+              return { kind: 'unauthenticated' };
+            // A freshness-guard rejection means D1 already holds a newer row;
+            // the refund latch keeps a refunded row refunded, so treat it as
+            // "the server has this" rather than as a failure to retry forever.
+            case 'stale':
+              return { kind: 'ok' };
+            default:
+              return { kind: 'unreachable' };
+          }
+        },
+        applyLocal: () => orderRepository.update(id, refundPatch),
+        restoreInventory: async () => {
+          try {
+            await applyOrderInventory(existing, 'restore');
+          } catch (invErr) {
+            console.error('[DataContext] Failed to restore inventory on refund:', existing.id, invErr);
+          }
+        },
+        triggerSync: () => {
+          void syncService.syncPendingData();
+        },
+      },
+      () => ({ ...existing, ...refundPatch, updatedAt: new Date().toISOString() })
+    );
 
-    const updatedOrder = await orderRepository.update(id, refundPatch);
-    setOrdersList(prev => prev.map(o => (o.id === id ? updatedOrder : o)));
-    try {
-      await applyOrderInventory(existing, 'restore');
-    } catch (invErr) {
-      console.error('[DataContext] Failed to restore inventory on refund:', existing.id, invErr);
-    }
-
-    // Immediate Cloudflare D1 Sync (non-blocking).
-    // Without this a refund stayed local until the next scheduled cycle, so
-    // other devices kept showing the order as Paid and reported inflated revenue.
-    void syncService.syncPendingData();
+    setOrdersList(prev => prev.map(o => (o.id === id ? updated : o)));
   }, []);
 
   const updateOrder = useCallback(async (id: string, data: Partial<Omit<Order, 'id'>>) => {
