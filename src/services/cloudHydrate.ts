@@ -10,6 +10,7 @@ import {
   pushAllLocalSettingsToCloud,
   cleanupUnsyncableSettingQueue,
 } from './settingsCloudService';
+import { markSettingsHydrationSettled } from './settingsHydration';
 import type { Order } from '../types/order';
 import type { MenuItem } from '../types/menu';
 import type { Customer } from '../types/customer';
@@ -250,9 +251,14 @@ export async function hydrateFromCloud(force = false): Promise<HydrateResult> {
     };
 
     if (!isCloudConfigured()) {
+      // No cloud at all: settle the durable-list gate as a FAILED read so a
+      // device that already holds real lists can still save the operator's
+      // edits locally, while a defaults-only device stays read-only.
+      markSettingsHydrationSettled(false);
       return { ...empty, error: 'Cloud worker URL not configured' };
     }
     if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      markSettingsHydrationSettled(false);
       return { ...empty, configured: true, error: 'Offline' };
     }
 

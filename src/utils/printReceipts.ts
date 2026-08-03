@@ -2,6 +2,7 @@ import { Order, getOrderGrandTotal } from '../types/order';
 import { getTaxRate, getStoreConfig } from './settingsConfig';
 import { filterItemsBySection } from './orderSection';
 import { formatOrderNumber } from './orderNumber';
+import { formatPercent } from './percent';
 import {
   calcGrandTotal,
   calcTax,
@@ -131,7 +132,11 @@ export function printCustomerReceipt(order: Order, lang: 'en' | 'ar' = 'ar') {
   const dateLabel = isRtl ? 'التاريخ' : 'Date';
   const itemLabel = isRtl ? 'الأصناف' : 'Items';
   const subtotalLabel = isRtl ? 'المجموع الفرعي' : 'Subtotal';
-  const taxLabel = isRtl ? `الضريبة (${(taxRate * 100).toFixed(0)}%)` : `Tax (${(taxRate * 100).toFixed(0)}%)`;
+  // Same shared helper as the payment screen: no float noise, and a real 14.5%
+  // rate is not silently printed as 15%.
+  const taxLabel = isRtl
+    ? `الضريبة (${formatPercent(taxRate)}%)`
+    : `Tax (${formatPercent(taxRate)}%)`;
   const totalLabel = isRtl ? 'الإجمالي المدفوع' : 'TOTAL PAID';
   const totalUnpaidLabel = isRtl ? 'المطلوب سداده' : 'TOTAL DUE';
   const paymentMethodLabel = isRtl ? 'طريقة الدفع' : 'Payment Method';

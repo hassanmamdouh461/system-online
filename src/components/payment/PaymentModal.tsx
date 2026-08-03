@@ -21,6 +21,7 @@ import {
   getStoreConfig,
 } from '../../utils/settingsConfig';
 import { getSessionRole, ensureCloudSession, refreshCloudSessionRole } from '../../services/cloudConfig';
+import { formatPercent } from '../../utils/percent';
 import { setRefundPin } from '../../utils/refundPin';
 import { printCustomerReceipt } from '../../utils/printReceipts';
 import { CustomerLookupStep, CustomerLookupResult } from './CustomerLookupStep';
@@ -616,8 +617,8 @@ export function PaymentModal({
                     <div className="flex justify-between">
                       <span>
                         {language === 'ar'
-                          ? `الضريبة (${taxRate * 100}%)`
-                          : `Tax (${taxRate * 100}%)`}
+                          ? `الضريبة (${formatPercent(taxRate)}%)`
+                          : `Tax (${formatPercent(taxRate)}%)`}
                       </span>
                       <span className="font-mono">
                         {formatMoney(tax)} {language === 'ar' ? 'ج.م' : 'EGP'}
@@ -794,7 +795,7 @@ export function PaymentModal({
                     </div>
                     {tax > 0 && (
                       <div className="flex justify-between">
-                        <span>{t('Tax')} ({(taxRate * 100).toFixed(0)}%)</span>
+                        <span>{t('Tax')} ({formatPercent(taxRate)}%)</span>
                         <span>{formatMoney(tax)}</span>
                       </div>
                     )}
