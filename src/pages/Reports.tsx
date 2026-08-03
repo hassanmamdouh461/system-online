@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import {
-  TrendingUp, DollarSign, ShoppingBag, Calendar, Download,
+  TrendingUp, DollarSign, ShoppingBag, Calendar, Download, Printer,
   CheckCircle2, Utensils, Coins, TrendingDown, AlertTriangle, Scale, Wallet
 } from 'lucide-react';
 import { useAnalytics, AnalyticsPeriod } from '../hooks/useAnalytics';
@@ -18,6 +18,8 @@ import { menuService } from '../services/menuService';
 import { MenuItem } from '../types/menu';
 import { getIngredientBaseQtySafe } from '../utils/units';
 import { RevenueAreaChart } from '../components/ui/RevenueAreaChart';
+import { useToast } from '../components/ui/Toast';
+import { downloadCsv, csvFilename, type CsvRow } from '../utils/exportCsv';
 import { safeMoney, addMoney, subtractMoney, multiplyMoney, divideMoney, sumMoneyBy, averageMoney, maxMoney, moneyRatio, moneyPercent, formatMoney } from '../utils/money';
 
 
@@ -32,6 +34,7 @@ function periodLabel(p: AnalyticsPeriod, t: (k: string) => string) {
 // ─── Component ────────────────────────────────────────────────────────────────
 export default function Reports() {
   const { t, isRtl, language } = useLanguage();
+  const toast = useToast();
   const { orders: allOrders } = useOrders();
   const [dateRange, setDateRange] = useState<AnalyticsPeriod>(() => {
     const saved = localStorage.getItem('reports_date_range');
@@ -276,6 +279,80 @@ export default function Reports() {
   const currencyStr = language === 'ar' ? 'ج.م' : 'EGP';
   const maxItemCount = Math.max(1, ...(topItems || []).map(i => i.count));
 
+  /**
+   * Export the period as a CSV file.
+   *
+   * WHY THIS EXISTS
+   * This page's "تصدير" button wore a Download icon and called window.print().
+   * A manager who wanted the period's numbers in Excel got a print dialog — or,
+   * on a kiosk with no printer configured, absolutely nothing: no file, no error,
+   * no feedback of any kind. The reporting numbers existed on screen but there was
+   * no way to get them off the device, so month-end reconciliation was done by
+   * photographing the screen or retyping totals by hand.
+   *
+   * The file mirrors the figures already rendered on this page (same `analytics`
+   * and same derived cost/profit values), so the export can never disagree with
+   * what the manager is looking at. No money arithmetic happens here — every value
+   * is formatted for display only, never recomputed (see check-money-safety.mjs).
+   */
+  const handleExportCsv = () => {
+    const rows: CsvRow[] = [];
+
+    rows.push([language === 'ar' ? 'تقرير الفترة' : 'Period report', pLabel]);
+    rows.push([language === 'ar' ? 'وقت التصدير' : 'Exported at', new Date().toLocaleString()]);
+    rows.push([language === 'ar' ? 'العملة' : 'Currency', currencyStr]);
+    rows.push([]);
+
+    rows.push([language === 'ar' ? 'البيان' : 'Metric', language === 'ar' ? 'القيمة' : 'Value']);
+    rows.push([language === 'ar' ? 'إجمالي الإيراد (بالضريبة)' : 'Total revenue (incl. tax)', formatMoney(analytics.totalRevenue)]);
+    rows.push([language === 'ar' ? 'الضريبة' : 'Tax', formatMoney(analytics.totalTax)]);
+    rows.push([language === 'ar' ? 'المبالغ المستحقة (آجل)' : 'Total amounts due', formatMoney(totalReceivables)]);
+    rows.push([language === 'ar' ? 'تكلفة البضاعة المباعة' : 'Cost of goods sold (COGS)', formatMoney(cogs)]);
+    rows.push([language === 'ar' ? 'صافي الربح' : 'Net profit', formatMoney(netProfit)]);
+    rows.push([language === 'ar' ? 'تكلفة المخزون المتبقي' : 'Total stock cost', formatMoney(inventoryValuation.totalCost)]);
+    rows.push([language === 'ar' ? 'عدد الطلبات' : 'Total orders', analytics.totalOrders]);
+    rows.push([language === 'ar' ? 'طلبات جديدة في الفترة' : 'New orders in period', analytics.realOrders]);
+    rows.push([language === 'ar' ? 'متوسط الفاتورة' : 'Average ticket', formatMoney(analytics.avgOrderValue)]);
+    rows.push([]);
+
+    rows.push([
+      language === 'ar' ? 'رقم الفاتورة' : 'Invoice',
+      language === 'ar' ? 'التاريخ' : 'Date',
+      language === 'ar' ? 'الطاولة' : 'Table',
+      language === 'ar' ? 'الحالة' : 'Status',
+      language === 'ar' ? 'حالة الدفع' : 'Payment status',
+      language === 'ar' ? 'طريقة الدفع' : 'Payment method',
+      language === 'ar' ? 'العميل' : 'Customer',
+      language === 'ar' ? 'الكاشير' : 'Cashier',
+      language === 'ar' ? 'الإجمالي' : 'Total',
+    ]);
+    for (const order of analytics.periodOrders) {
+      rows.push([
+        formatOrderNumber(order),
+        new Date(order.createdAt).toLocaleString(),
+        order.tableId,
+        order.status,
+        order.paymentStatus,
+        order.paymentMethod || '',
+        order.customerName || order.companyName || '',
+        order.cashierName || '',
+        formatMoney(getOrderGrandTotal(order, taxRate)),
+      ]);
+    }
+
+    const ok = downloadCsv(csvFilename(`reports-${dateRange}`), rows);
+    if (ok) {
+      toast.success(language === 'ar' ? 'تم تنزيل ملف CSV 📄' : 'CSV file downloaded 📄');
+    } else {
+      // Never fail silently — silent failure is the exact defect this replaces.
+      toast.error(
+        language === 'ar'
+          ? 'تعذّر تنزيل الملف على هذا الجهاز — جرّب متصفح تاني'
+          : 'Could not download the file on this device — try another browser'
+      );
+    }
+  };
+
   // Stat cards — when dateRange = 'Today', these equal Dashboard's values exactly
   const statCards = [
     {
@@ -331,12 +408,28 @@ export default function Reports() {
               <option value="This Year">{t('This Year')}</option>
             </select>
           </div>
+          {/*
+            Two distinct actions. These used to be ONE button labelled "تصدير"
+            with a Download icon that called window.print() — so it produced no
+            file and no feedback. Export now downloads a CSV; printing is its own
+            button with a printer icon, so neither action pretends to be the other.
+          */}
           <button
-            onClick={() => window.print()}
+            onClick={handleExportCsv}
             className="flex items-center gap-1.5 md:gap-2 px-3 md:px-4 py-2 bg-gray-900 text-white rounded-lg text-xs md:text-sm font-medium hover:bg-black transition-colors"
+            title={language === 'ar' ? 'تنزيل بيانات الفترة كملف CSV' : 'Download the period as a CSV file'}
           >
             <Download size={14} className="md:w-4 md:h-4" />
             <span className="hidden sm:inline">{t('Export')}</span>
+          </button>
+
+          <button
+            onClick={() => window.print()}
+            className="flex items-center gap-1.5 md:gap-2 px-3 md:px-4 py-2 bg-white text-gray-900 border border-gray-200 rounded-lg text-xs md:text-sm font-medium hover:bg-gray-50 transition-colors"
+            title={language === 'ar' ? 'طباعة التقرير' : 'Print the report'}
+          >
+            <Printer size={14} className="md:w-4 md:h-4" />
+            <span className="hidden sm:inline">{language === 'ar' ? 'طباعة' : 'Print'}</span>
           </button>
         </div>
       </div>
