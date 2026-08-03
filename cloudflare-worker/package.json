@@ -7,7 +7,7 @@
     "deploy": "wrangler deploy",
     "dev": "wrangler dev",
     "start": "wrangler dev",
-    "test": "node --experimental-strip-types test/auth.test.mts && node --experimental-strip-types test/session.integration.test.mts && node --experimental-strip-types test/seed-bootstrap.integration.test.mts && node --experimental-strip-types test/permissions.test.mts && node --experimental-strip-types test/csrf.test.mts && node --experimental-strip-types test/upsert-freshness.test.mts && node --experimental-strip-types test/refund-latch.test.mts && node --experimental-strip-types test/report-claim.test.mts && node --experimental-strip-types test/settings-write.integration.test.mts && node --experimental-strip-types test/public-menu-minimal.test.mts && node --experimental-strip-types test/cashier-read-fail-closed.test.mts && node --experimental-strip-types test/health-privacy.test.mts && node --experimental-strip-types test/rate-limit.test.mts && node --experimental-strip-types test/stale-flag.test.mts && node --experimental-strip-types test/sync-error-privacy.test.mts && node --experimental-strip-types test/last-write-status.test.mts",
+    "test": "node run-tests.mjs",
     "seed:creds": "node ../scripts/seed-manager-credential.mjs"
   },
   "devDependencies": {
