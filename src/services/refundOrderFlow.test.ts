@@ -44,7 +44,6 @@ function harness(overrides: {
   cloudConfigured?: boolean;
   probed?: SessionRole | null;
   cached?: SessionRole | null;
-  pin?: boolean;
   canRemint?: boolean;
   pushes?: RefundPushResult[];
   remintSucceeds?: boolean;
@@ -63,7 +62,6 @@ function harness(overrides: {
     ensureSession: async () => true,
     probeRole: async () => overrides.probed ?? null,
     cachedRole: () => overrides.cached ?? null,
-    hasRefundPin: () => overrides.pin ?? false,
     canRemint: () => overrides.canRemint ?? false,
     remintSession,
     pushRefund,
@@ -124,25 +122,32 @@ describe('performRefund — the server decides before this device moves', () => 
   });
 });
 
-describe('performRefund — authority comes from the server, not this tab', () => {
-  it('re-probes the role instead of trusting the cached one', async () => {
-    // The tab remembers "manager" (it logged in as one), but another tab has
-    // since re-minted the shared cookie as a cashier. Server wins.
-    const h = harness({ cached: 'manager', probed: 'cashier' });
+describe('performRefund — a cashier may refund, nobody needs a PIN', () => {
+  it('lets a plain cashier session complete a refund', async () => {
+    // Policy 2026-08-03: refunding is a till duty. No manager role, no
+    // escalation PIN — the cashier confirms it on the payment screen.
+    const h = harness({ probed: 'cashier' });
 
-    await expect(run(h)).rejects.toMatchObject({ code: 'refund_requires_manager' });
-    expect(h.pushRefund).not.toHaveBeenCalled();
-    expect(h.applyLocal).not.toHaveBeenCalled();
+    const result = await run(h);
+
+    expect(result).toBe(REFUNDED);
+    expect(h.pushRefund).toHaveBeenCalledTimes(1);
+    expect(h.applyLocal).toHaveBeenCalledTimes(1);
   });
 
-  it('re-mints once and retries when a manager tab finds its cookie downgraded', async () => {
+  it('lets a manager session refund too', async () => {
+    const h = harness({ probed: 'manager' });
+
+    await expect(run(h)).resolves.toBe(REFUNDED);
+  });
+
+  it('re-mints once and retries when the shared cookie was swapped underneath', async () => {
     const h = harness({
       cached: 'manager',
       probed: 'cashier',
-      pin: true, // held PIN gets us past the pre-check; the server still refuses
       canRemint: true,
       pushes: [
-        { kind: 'denied', code: 'refund_requires_escalation', message: 'no' },
+        { kind: 'denied', code: 'refund_denied', message: 'no' },
         { kind: 'ok' },
       ],
     });
@@ -157,7 +162,7 @@ describe('performRefund — authority comes from the server, not this tab', () =
 
   it('re-mints on a lapsed session (401) and retries', async () => {
     const h = harness({
-      probed: 'manager',
+      probed: 'cashier',
       canRemint: true,
       pushes: [{ kind: 'unauthenticated' }, { kind: 'ok' }],
     });
@@ -172,11 +177,10 @@ describe('performRefund — authority comes from the server, not this tab', () =
     const h = harness({
       cached: 'manager',
       probed: 'cashier',
-      pin: true,
       canRemint: true,
       pushes: [
-        { kind: 'denied', code: 'refund_requires_escalation', message: 'no' },
-        { kind: 'denied', code: 'refund_requires_escalation', message: 'no' },
+        { kind: 'denied', code: 'refund_denied', message: 'no' },
+        { kind: 'denied', code: 'refund_denied', message: 'no' },
       ],
     });
 
@@ -185,43 +189,21 @@ describe('performRefund — authority comes from the server, not this tab', () =
     expect(h.pushRefund).toHaveBeenCalledTimes(2);
     expect(h.applyLocal).not.toHaveBeenCalled();
   });
-});
 
-describe('performRefund — the escalation PIN is alive again', () => {
-  it('lets a cashier holding the PIN complete a refund', async () => {
-    // Before the fix this threw refund_requires_manager before any request, so
-    // the PIN field in PaymentModal (and X-Refund-PIN in both request paths)
-    // could never be exercised.
-    const h = harness({ probed: 'cashier', pin: true });
-
-    const result = await run(h);
-
-    expect(result).toBe(REFUNDED);
-    expect(h.pushRefund).toHaveBeenCalledTimes(1);
-  });
-
-  it('still refuses a cashier with no PIN, without touching the network', async () => {
-    const h = harness({ probed: 'cashier', pin: false });
-
-    await expect(run(h)).rejects.toMatchObject({ code: 'refund_requires_manager' });
-    expect(h.pushRefund).not.toHaveBeenCalled();
-  });
-
-  it('lets the server reject a WRONG pin — the client does not validate it', async () => {
+  it('still lets the server have the last word', async () => {
     const h = harness({
       probed: 'cashier',
-      pin: true,
-      pushes: [{ kind: 'denied', code: 'refund_requires_escalation', message: 'رمز غير صحيح' }],
+      pushes: [{ kind: 'denied', code: 'settled_order_immutable', message: 'مرفوض' }],
     });
 
-    await expect(run(h)).rejects.toMatchObject({ message: 'رمز غير صحيح' });
+    await expect(run(h)).rejects.toMatchObject({ message: 'مرفوض' });
     expect(h.applyLocal).not.toHaveBeenCalled();
   });
 });
 
 describe('performRefund — connectivity', () => {
-  it('refuses when authority cannot be established at all', async () => {
-    const h = harness({ probed: null, pin: false });
+  it('refuses when no live session can be established at all', async () => {
+    const h = harness({ probed: null });
 
     await expect(run(h)).rejects.toBeInstanceOf(RefundRejectedError);
     expect(h.pushRefund).not.toHaveBeenCalled();
@@ -263,8 +245,8 @@ describe('DataContext wires the refund through the guarded flow', () => {
     expect(refundFn).not.toContain("throw new Error('refund_requires_manager')");
   });
 
-  it('treats a held PIN as authority and re-probes the role', () => {
-    expect(refundFn).toContain('hasRefundPin');
+  it('probes the live session instead of trusting this tab, and asks for no PIN', () => {
     expect(refundFn).toContain('refreshCloudSessionRole');
+    expect(refundFn).not.toContain('hasRefundPin');
   });
 });

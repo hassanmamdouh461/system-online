@@ -26,11 +26,16 @@
  *    refusal that looks like a clobbered session triggers ONE re-mint with the
  *    operator's held credential before giving up.
  *
- * Also revived: the refund PIN. `PaymentModal` collects it and both request
- * paths already send `X-Refund-PIN`, but `refundOrder` threw
- * `refund_requires_manager` before any of that could matter, so a cashier
- * holding a valid PIN could never complete a refund. A held PIN now counts as
- * authority — the Worker is the one that validates it.
+ * WHO MAY REFUND (2026-08-03 policy)
+ * ----------------------------------
+ * Refunding an invoice is a CASHIER duty, performed at the till from the
+ * payment screen. Any authenticated session (cashier or manager) may refund —
+ * there is no escalation PIN and no manager password prompt. Deleting an
+ * invoice is not offered to anyone; a refund is the only way to void a sale.
+ *
+ * What is still enforced: a session must exist and the SERVER must accept the
+ * refund write before local state moves, so the till and D1 can never tell
+ * different stories.
  */
 import type { Order } from '../types/order';
 
@@ -63,8 +68,6 @@ export type RefundFlowDeps = {
   probeRole: () => Promise<SessionRole | null>;
   /** In-memory role from the last mint — a hint only, never authority. */
   cachedRole: () => SessionRole | null;
-  /** Does this device hold a refund escalation PIN? */
-  hasRefundPin: () => boolean;
   /** Do we still hold the operator's password, i.e. can we re-mint silently? */
   canRemint: () => boolean;
   /** Drop the current session and mint a fresh one from the held credential. */
@@ -81,7 +84,7 @@ export type RefundFlowDeps = {
 
 const MSG = {
   notAuthorized:
-    'الاسترجاع يحتاج صلاحية مدير أو رمز تصعيد (PIN) صحيح.',
+    'تم رفض الاسترجاع من السيرفر — سجّل الدخول تاني وحاول مرة أخرى.',
   offline:
     'تعذّر التأكد من الصلاحية — الاسترجاع يحتاج اتصال بالإنترنت حتى لا تختلف بيانات الأجهزة.',
   unreachableAfterAuth:
@@ -109,20 +112,16 @@ export async function performRefund(
 
   await deps.ensureSession();
 
-  // Authority. The cookie is shared browser-wide, so ASK THE SERVER rather than
-  // trusting the role this tab happens to remember.
-  const heldPin = deps.hasRefundPin();
+  // A session must exist. Any authenticated role may refund (cashier included),
+  // so the probe is about "is there a live session?", not "is this a manager?".
+  // Asking the server still matters: the cookie is shared browser-wide, and a
+  // dead session must fail here rather than half-apply the refund locally.
   const probed = await deps.probeRole();
-  if (probed === null && !heldPin) {
-    // No answer and no PIN: we cannot establish authority. Refuse rather than
-    // refund locally into a divergence.
+  if (probed === null) {
     throw new RefundRejectedError(
-      deps.cachedRole() ? 'refund_probe_failed' : 'refund_requires_manager',
+      deps.cachedRole() ? 'refund_probe_failed' : 'refund_session_missing',
       MSG.offline
     );
-  }
-  if (probed !== 'manager' && !heldPin) {
-    throw new RefundRejectedError('refund_requires_manager', MSG.notAuthorized);
   }
 
   // Commit point: the server decides, and it decides BEFORE local state moves.
@@ -134,8 +133,7 @@ export async function performRefund(
   // credential and try again before telling the operator no.
   const worthRemint =
     (push.kind === 'unauthenticated' ||
-      (push.kind === 'denied' && probed !== 'manager' && !heldPin) ||
-      (push.kind === 'denied' && deps.cachedRole() === 'manager' && probed !== 'manager')) &&
+      (push.kind === 'denied' && deps.cachedRole() !== probed)) &&
     deps.canRemint();
 
   if (worthRemint) {

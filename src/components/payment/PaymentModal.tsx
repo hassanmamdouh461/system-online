@@ -11,7 +11,6 @@ import {
   Banknote,
   User,
   Undo2,
-  Lock,
   BookUser,
 } from 'lucide-react';
 import { clsx } from 'clsx';
@@ -20,9 +19,8 @@ import {
   getTaxRate,
   getStoreConfig,
 } from '../../utils/settingsConfig';
-import { getSessionRole, ensureCloudSession, refreshCloudSessionRole } from '../../services/cloudConfig';
+import { ensureCloudSession } from '../../services/cloudConfig';
 import { formatPercent } from '../../utils/percent';
-import { setRefundPin } from '../../utils/refundPin';
 import { printCustomerReceipt } from '../../utils/printReceipts';
 import { CustomerLookupStep, CustomerLookupResult } from './CustomerLookupStep';
 import { customersService } from '../../services/customersService';
@@ -69,10 +67,8 @@ export function PaymentModal({
   const [billTo, setBillTo] = useState<'customer' | 'company'>('customer');
   const [customerPhone, setCustomerPhone] = useState<string | undefined>(undefined);
   const [refundReason, setRefundReason] = useState('');
-  const [refundAuthRole, setRefundAuthRole] = useState<'manager' | 'cashier' | null>(getSessionRole());
   const [refundError, setRefundError] = useState('');
   const [isRefunding, setIsRefunding] = useState(false);
-  const [refundPinInput, setRefundPinInput] = useState('');
   const { t, language } = useLanguage();
   const paymentFiredRef = useRef(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -192,27 +188,15 @@ export function PaymentModal({
     };
   }, [isOpen, order?.id]);
 
-  // Refund authority = the server-verified manager role baked into the session
-  // cookie by the Worker — NOT a per-device localStorage PIN (the old gate was
-  // skipped whenever no PIN happened to be saved on that browser). Refresh the
-  // role whenever the refund step opens so the UI matches what the server allows.
+  // Refunding is a cashier duty performed here at the till: no manager role and
+  // no escalation PIN are required. All we do when the refund step opens is make
+  // sure a live session exists, so the write reaches the Worker instead of
+  // failing after the operator has already told the customer "done".
   // This hook MUST be before the early return below — React requires the same
   // number of hooks on every render.
   useEffect(() => {
     if (!isOpen || step !== 'refund') return;
-    let alive = true;
-    void (async () => {
-      await ensureCloudSession();
-      // getSessionRole() is null right after a reload (in-memory role is gone),
-      // even when the cookie is still valid — probe the Worker so a signed-in
-      // manager is not wrongly shown the "manager-only" gate.
-      let r = getSessionRole();
-      if (r == null) r = await refreshCloudSessionRole();
-      if (alive) setRefundAuthRole(r);
-    })();
-    return () => {
-      alive = false;
-    };
+    void ensureCloudSession();
   }, [isOpen, step]);
 
   if (!isOpen || !order) return null;
@@ -359,31 +343,10 @@ export function PaymentModal({
     setIsRefunding(true);
 
     try {
-      // Fail-closed: only an authenticated manager may refund. Re-check against
-      // the live session (not stale state) before writing. The Worker enforces
-      // the same rule server-side — a cashier's write to refundedAt/refundReason
-      // is rejected with 403 — so this keeps the UI honest instead of showing a
-      // Confirm button that would just fail.
+      // A cashier may refund from this screen — no manager role, no PIN. We only
+      // make sure a session exists so the refund actually reaches the Worker
+      // (performRefund treats the server's acceptance as the commit point).
       await ensureCloudSession();
-      let role = getSessionRole();
-      if (role == null) role = await refreshCloudSessionRole();
-      setRefundAuthRole(role);
-      // A held refund PIN escalates ANY authenticated session (the Worker treats
-      // a valid X-Refund-PIN as proven refund authority), so a cashier who was
-      // handed the PIN can complete a refund without the manager password.
-      if (role !== 'manager') {
-        const pin = refundPinInput.trim();
-        if (!pin) {
-          setRefundError(
-            language === 'ar'
-              ? 'الاسترجاع يتطلب صلاحية مدير أو رمز التصعيد (PIN).'
-              : 'Refund requires a manager session or the escalation PIN.'
-          );
-          setIsRefunding(false);
-          return;
-        }
-        setRefundPin(pin);
-      }
 
       if (onRefund) {
         await onRefund(order.id, refundReason);
@@ -393,9 +356,6 @@ export function PaymentModal({
       setRefundError(err.message || 'Refund failed');
     } finally {
       setIsRefunding(false);
-      // Never leave the typed PIN sitting in the form — a till is a shared
-      // device. The PIN itself stays held in session storage until logout.
-      setRefundPinInput('');
     }
   };
 
@@ -475,31 +435,6 @@ export function PaymentModal({
                     placeholder={language === 'ar' ? 'مثال: خطأ كاشير / طلب خاطئ' : 'e.g. cashier error / wrong order'}
                   />
                 </div>
-                {refundAuthRole !== 'manager' && (
-                  <div className="space-y-2">
-                    <div className="flex items-start gap-2 text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
-                      <Lock size={14} className="mt-0.5 shrink-0" />
-                      <span>
-                        {language === 'ar'
-                          ? 'الاسترجاع يحتاج صلاحية مدير أو رمز التصعيد (PIN) المعتمد من الإدارة.'
-                          : 'Refund needs a manager session or the escalation PIN provided by management.'}
-                      </span>
-                    </div>
-                    <div>
-                      <label className="text-xs font-bold text-gray-500 block mb-1">
-                        {language === 'ar' ? 'رمز التصعيد (PIN)' : 'Escalation PIN'}
-                      </label>
-                      <input
-                        type="password"
-                        inputMode="numeric"
-                        value={refundPinInput}
-                        onChange={e => setRefundPinInput(e.target.value)}
-                        className="w-full border border-gray-200 rounded-xl p-3 text-sm focus:ring-2 focus:ring-red-400 outline-none"
-                        placeholder={language === 'ar' ? 'أدخل رمز الاسترجاع' : 'Enter the refund PIN'}
-                      />
-                    </div>
-                  </div>
-                )}
                 {refundError && (
                   <p className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{refundError}</p>
                 )}
@@ -515,7 +450,6 @@ export function PaymentModal({
                     type="submit"
                     disabled={
                       isRefunding ||
-                      (refundAuthRole !== 'manager' && !refundPinInput.trim()) ||
                       (!refundReason.trim() && order.paymentStatus === 'Paid')
                     }
                     className="flex-1 py-3 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700 disabled:opacity-60"

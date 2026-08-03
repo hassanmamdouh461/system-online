@@ -371,7 +371,12 @@ export default {
       submitted?: Record<string, any> | null;
     }): Promise<Response | null> => {
       let current: Record<string, any> | null = null;
-      if (role !== "manager" && args.docId && args.method !== "DELETE") {
+      // Orders load the stored row for EVERY role: the no-delete rule (see
+      // permissions.can) must compare against what D1 actually holds, otherwise
+      // a manager's whole-object re-sync of an order looks like a fresh write
+      // and a harmless `deletedAt` resend would be refused.
+      const needsCurrent = role !== "manager" || args.table === "orders";
+      if (needsCurrent && args.docId && args.method !== "DELETE") {
         try {
           current = (await env.DB
             .prepare(`SELECT * FROM ${args.table} WHERE id = ?`)

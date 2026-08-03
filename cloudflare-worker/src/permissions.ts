@@ -238,14 +238,17 @@ export function canReadTable(role: Role, table: string): boolean {
 /**
  * Order fields a cashier may never CHANGE.
  *
- * `refundedAt`/`refundReason` are the refund mechanism itself — without this a
- * cashier could issue a refund via a plain PATCH and skip the PIN prompt, since
- * the PIN check lives in PaymentModal (client-side). `deletedAt` is a soft
- * delete, i.e. DELETE by another name.
+ * `deletedAt` is a soft delete, i.e. DELETE by another name — deleting an
+ * invoice is not part of this POS for ANY role, so it stays blocked here.
+ *
+ * `refundedAt`/`refundReason` used to live on this list: refunds were
+ * manager-only and a cashier had to type an escalation PIN. Policy changed on
+ * 2026-08-03 — refunding is a cashier duty performed at the till from the
+ * payment screen, so a cashier writes the refund markers directly (see
+ * `canWriteOrder`). A refund is now the ONLY way to void a sale, which is
+ * exactly why nobody gets to delete one.
  */
 export const CASHIER_FROZEN_ORDER_FIELDS: readonly string[] = [
-  "refundedAt",
-  "refundReason",
   "deletedAt",
 ];
 
@@ -402,7 +405,11 @@ export interface AuthzContext {
   submitted?: Record<string, any> | null;
   /** Row currently stored in D1, or null when creating. */
   current?: Record<string, any> | null;
-  /** True when the caller proved refund authority (valid server-side PIN). */
+  /**
+   * True when the caller proved refund authority with a valid server-side PIN.
+   * Kept for wire compatibility with older clients that still send
+   * `X-Refund-PIN`; refunds no longer require it (a cashier may refund).
+   */
   refundEscalated?: boolean;
 }
 
@@ -432,6 +439,41 @@ export function can(ctx: AuthzContext): Decision {
         "setting_key_mismatch",
         "مفتاح الإعداد المرسل لا يطابق المستند المطلوب تعديله."
       );
+    }
+  }
+
+  // Invoices are never deleted — by ANY role, manager included.
+  //
+  // Policy 2026-08-03: the only way to void a sale is a refund from the cashier
+  // payment screen, which leaves the record (and its reason) in place. Deleting
+  // an order would silently rewrite history and revenue on every device, so both
+  // the hard DELETE and the `deletedAt` soft delete are refused here regardless
+  // of who is asking. The manager UI no longer offers either action; this is the
+  // server-side half of the same rule.
+  if (table === "orders") {
+    if (method === "DELETE") {
+      return deny(
+        "order_delete_forbidden",
+        "حذف الفاتورة غير مسموح — استخدم الاسترجاع من شاشة الدفع."
+      );
+    }
+    if (method !== "GET") {
+      // Only a real tombstone counts. `deletedAt: null/""` rides along in every
+      // whole-object sync and must stay allowed, or normal order writes break.
+      const incoming = ctx.submitted?.deletedAt ?? ctx.submitted?.deleted_at;
+      const tombstoning =
+        incoming !== null &&
+        incoming !== undefined &&
+        String(incoming).trim() !== "" &&
+        changedFields(ctx.submitted || {}, ctx.current || null).some(
+          (f) => f === "deletedAt" || f === "deleted_at"
+        );
+      if (tombstoning) {
+        return deny(
+          "order_delete_forbidden",
+          "حذف الفاتورة غير مسموح — استخدم الاسترجاع من شاشة الدفع."
+        );
+      }
     }
   }
 
@@ -560,33 +602,33 @@ function canWriteOrder(ctx: AuthzContext): Decision {
   const current = ctx.current || null;
   const changed = changedFields(submitted, current);
 
-  // Refund fields: a real change requires proven escalation.
-  const touchingRefund = changed.filter((f) =>
-    CASHIER_FROZEN_ORDER_FIELDS.includes(f)
-  );
+  // Soft delete stays forbidden. Refund markers (refundedAt/refundReason) are
+  // deliberately NOT on the frozen list any more — a cashier refunds from the
+  // payment screen with no PIN and no manager password.
+  const frozen = changed.filter((f) => CASHIER_FROZEN_ORDER_FIELDS.includes(f));
 
-  if (touchingRefund.length > 0) {
-    const onlyRefundMarkers = touchingRefund.every(
-      (f) => f === "refundedAt" || f === "refundReason"
-    );
-
-    if (onlyRefundMarkers && ctx.refundEscalated) {
-      // PIN verified server-side: this is the sanctioned escalation path.
-      return ALLOW;
-    }
-
-    if (touchingRefund.includes("deletedAt")) {
-      return deny(
-        "cashier_soft_delete_forbidden",
-        "حذف الطلب غير مسموح لصلاحية الكاشير — تحتاج صلاحية مدير."
-      );
-    }
-
+  if (frozen.includes("deletedAt")) {
     return deny(
-      "refund_requires_escalation",
-      "الاسترجاع يحتاج رمز تصعيد صحيح أو صلاحية مدير."
+      "order_delete_forbidden",
+      "حذف الفاتورة غير مسموح — استخدم الاسترجاع من شاشة الدفع."
     );
   }
+
+  if (frozen.length > 0) {
+    return deny(
+      "cashier_frozen_order_field",
+      "هذا التعديل غير مسموح لصلاحية الكاشير."
+    );
+  }
+
+  // A refund flips paymentStatus to 'Refunded' on an already-settled order, so
+  // the settled-money freeze below must not block the refund write itself.
+  const isRefundWrite =
+    changed.includes("refundedAt") ||
+    changed.includes("refundReason") ||
+    String(submitted.paymentStatus || "").trim() === "Refunded";
+
+  if (isRefundWrite) return ALLOW;
 
   // Money fields freeze once the order is settled, so a paid order cannot be
   // quietly re-priced. Before settlement the cashier must write them — that is

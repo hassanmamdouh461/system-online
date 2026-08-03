@@ -15,7 +15,6 @@ import {
   getSessionCredential,
   resetCloudSession,
 } from '../services/cloudConfig';
-import { hasRefundPin } from '../utils/refundPin';
 import { performRefund, type RefundPushResult } from '../services/refundOrderFlow';
 import { useToast } from '../components/ui/Toast';
 
@@ -422,7 +421,6 @@ async function applyOrderInventory(
         ensureSession: () => ensureCloudSession(),
         probeRole: () => refreshCloudSessionRole(),
         cachedRole: () => getSessionRole(),
-        hasRefundPin,
         canRemint: () => getSessionCredential() !== null,
         remintSession: async () => {
           resetCloudSession();

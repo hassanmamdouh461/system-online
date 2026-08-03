@@ -7,10 +7,18 @@ export function localizeRefundError(err: unknown, language: string): string {
   const code = err instanceof Error ? err.message : String(err ?? '');
   const ar = language === 'ar';
   switch (code) {
+    // Legacy code — refunds are no longer manager-only, but an old queued
+    // failure or an older client build can still surface it.
     case 'refund_requires_manager':
+    case 'refund_session_missing':
+    case 'refund_probe_failed':
       return ar
-        ? 'الاسترجاع يتطلب صلاحية مدير. سجّل الدخول بحساب مدير.'
-        : 'Refund requires manager authorization. Please sign in as a manager.';
+        ? 'تعذّر التأكد من الجلسة — تأكد من الاتصال بالإنترنت وسجّل الدخول تاني.'
+        : 'Could not verify the session — check your connection and sign in again.';
+    case 'order_delete_forbidden':
+      return ar
+        ? 'حذف الفاتورة غير مسموح — استخدم الاسترجاع من شاشة الدفع.'
+        : 'Deleting an invoice is not allowed — use Refund on the payment screen.';
     case 'Only paid orders can be refunded':
       return ar ? 'يمكن استرجاع الطلبات المدفوعة فقط.' : 'Only paid orders can be refunded.';
     case 'Order not found':

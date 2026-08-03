@@ -27,21 +27,44 @@ function ok(cond: unknown, label: string) {
 function pureMatrix() {
   console.log("\n1) permissions.can() decision matrix");
 
-  ok(can({ role: "manager", table: "orders", method: "DELETE" }).allowed, "manager may DELETE");
-  ok(!can({ role: "cashier", table: "orders", method: "DELETE" }).allowed, "cashier DELETE → denied");
+  // Deleting an invoice is forbidden for EVERY role — a refund is the only void.
+  ok(!can({ role: "manager", table: "orders", method: "DELETE" }).allowed, "manager DELETE order → denied");
+  ok(!can({ role: "cashier", table: "orders", method: "DELETE" }).allowed, "cashier DELETE order → denied");
   ok(can({ role: "cashier", table: "orders", method: "GET" }).allowed, "cashier GET → allowed");
+  ok(
+    !can({
+      role: "manager",
+      table: "orders",
+      method: "PATCH",
+      docId: "o1",
+      submitted: { id: "o1", deletedAt: "2026-01-01T00:00:00Z" },
+      current: { id: "o1", deletedAt: null, paymentStatus: "Paid" },
+    }).allowed,
+    "manager soft-delete of an order → denied"
+  );
 
-  // Refund fields are frozen for a cashier unless escalated.
+  // A cashier refunds from the till: no escalation PIN, no manager session.
   const refundAttempt = {
     role: "cashier" as const,
     table: "orders",
     method: "PATCH" as const,
     docId: "o1",
-    submitted: { id: "o1", refundedAt: "2026-01-01T00:00:00Z", refundReason: "x" },
+    submitted: { id: "o1", refundedAt: "2026-01-01T00:00:00Z", refundReason: "x", paymentStatus: "Refunded" },
     current: { id: "o1", refundedAt: null, refundReason: null, paymentStatus: "Paid" },
   };
-  ok(!can(refundAttempt).allowed, "cashier refund without escalation → denied");
-  ok(can({ ...refundAttempt, refundEscalated: true }).allowed, "cashier refund WITH escalation → allowed");
+  ok(can(refundAttempt).allowed, "cashier refund with no PIN → allowed");
+  ok(can({ ...refundAttempt, refundEscalated: true }).allowed, "cashier refund with a legacy PIN header → allowed");
+  ok(
+    !can({
+      role: "cashier",
+      table: "orders",
+      method: "PATCH",
+      docId: "o1",
+      submitted: { id: "o1", deletedAt: "2026-01-01T00:00:00Z" },
+      current: { id: "o1", deletedAt: null, paymentStatus: "Paid" },
+    }).allowed,
+    "cashier soft-delete of an order → denied"
+  );
 
   // Whole-object resend of an unchanged frozen field must NOT be denied.
   ok(
@@ -317,7 +340,7 @@ async function integration() {
   ok((cashierDelete.headers.get("X-Auth-Role") || "") === "cashier", "403 reports X-Auth-Role: cashier");
 
   const managerDelete = await worker.fetch(new Request(DEL, { method: "DELETE", headers: H(mgrSession) }), env);
-  ok(managerDelete.status === 200, `manager DELETE order → 200 (got ${managerDelete.status})`);
+  ok(managerDelete.status === 403, `manager DELETE order → 403, invoices are never deleted (got ${managerDelete.status})`);
 
   // Blocker 1, end-to-end: a cashier PATCH to the manager-creds document that
   // CLAIMS the cashier-allowed key "brewmaster_language" in the body must be
