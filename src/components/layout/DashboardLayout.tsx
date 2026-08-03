@@ -2,29 +2,29 @@ import { MobileHeader } from './MobileHeader';
 import { MobileNav } from './MobileNav';
 import { TopNav } from './TopNav';
 import { Outlet } from 'react-router-dom';
+import { useAuth } from '../../context/AuthContext';
 
 /**
- * Navigation is rendered for EVERY role.
+ * The desktop top strip is hidden for the manager, on the manager's request: its
+ * items (Manager Dashboard / Inventory / Reports / Settings) duplicate the
+ * dashboard's own internal tabs, which read as two competing navigations.
  *
- * This layout used to hide TopNav, MobileHeader and MobileNav whenever the user
- * was a manager (or the route started with /manager). The manager dashboard has
- * its own internal tabs, so that looked fine there — but it left the manager with
- * literally zero navigation controls on every OTHER page. Landing on /orders,
- * /payment or /settings (via a direct link, or via the backup-warning banner that
- * links to Settings) trapped him with no way back except the browser's Back
- * button. Measured: 0 visible nav elements as a manager on /orders, versus a full
- * nav bar for a cashier on the same page.
- *
- * TopNav and MobileNav already build manager-specific item lists (Manager
- * Dashboard / Inventory / Reports / Settings), so showing them needs no new
- * routing — those lists were simply never rendered. Items stay role-scoped inside
- * those components, and the routes themselves stay guarded by ManagerRoute.
+ * The mobile header and the mobile bottom nav still render for every role — they
+ * are the only navigation a phone has, and MobileHeader also carries the logout
+ * button. On desktop the manager keeps a logout button inside the manager
+ * dashboard header, so removing the strip cannot strand him in a session he
+ * can't end. (A previous audit found the opposite bug: nav was hidden for the
+ * manager EVERYWHERE, on mobile too, which left zero controls on /orders and
+ * /settings. Only the desktop strip is dropped here.)
  */
 export function DashboardLayout() {
+  const { user } = useAuth();
+  const isManager = user?.role === 'manager';
+
   return (
     <div className="flex flex-col h-screen bg-gray-50 overflow-hidden">
-      {/* Desktop Top Navigation Bar */}
-      <TopNav />
+      {/* Desktop Top Navigation Bar — cashier/branch roles only */}
+      {!isManager && <TopNav />}
 
       {/* Mobile Header */}
       <MobileHeader />

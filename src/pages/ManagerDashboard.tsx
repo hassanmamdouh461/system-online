@@ -6,8 +6,10 @@ import {
   CheckCircle2, AlertCircle, Utensils,
   UserCheck, Coins, Building2, RefreshCw,
   SignalHigh, WifiOff, Package, BarChart3, Users, Settings, Send, Scale, TrendingDown, Wallet,
-  Undo2, Printer
+  Undo2, Printer, LogOut
 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
 import { getTaxRate, getBranchConfig } from '../utils/settingsConfig';
 import { useMenu } from '../hooks/useMenu';
@@ -163,6 +165,15 @@ export default function ManagerDashboard() {
   });
 
   const [activeTab, setActiveTab] = useState<'analytics' | 'menu' | 'inventory' | 'customers' | 'settings'>('analytics');
+
+  // The desktop top strip (which used to carry the logout button) is hidden for
+  // the manager, so logout lives in this header instead.
+  const { logout } = useAuth();
+  const navigate = useNavigate();
+  const handleLogout = () => {
+    logout();
+    navigate('/login');
+  };
 
   // Component-scoped so both the Telegram report and the CSV export label the
   // period identically (it used to be declared inside the Telegram handler).
@@ -1012,6 +1023,16 @@ export default function ManagerDashboard() {
               title={language === 'ar' ? 'تحديث كافة البيانات والمخزون' : 'Refresh All Data & Inventory'}
             >
               <RefreshCw size={14} className={`transition-transform ${isRefreshing ? 'animate-spin text-mocha-650' : 'hover:rotate-45'}`} />
+            </button>
+
+            {/* Logout — the manager's only sign-out control on desktop now that
+                the top navigation strip is hidden for this role. */}
+            <button
+              onClick={handleLogout}
+              className="p-2 rounded-lg hover:bg-red-50 border border-gray-200 hover:border-red-100 transition-all text-gray-500 hover:text-red-600 active:scale-95"
+              title={language === 'ar' ? 'تسجيل الخروج' : 'Logout'}
+            >
+              <LogOut size={14} />
             </button>
 
           </div>

@@ -263,15 +263,14 @@ function AppRoutes() {
         <Route element={<ProtectedRoute />}>
           <Route element={<DashboardLayout />}>
             <Route path="/dashboard" element={<Dashboard />} />
-            <Route path="/pos" element={<Orders type="all" />} />
-            <Route path="/orders" element={<Orders type="all" />} />
+            <Route path="/pos" element={<Orders />} />
+            <Route path="/orders" element={<Orders />} />
             {/*
-              Dedicated kitchen screen. The board is also reachable from the
-              Kitchen tab on /orders, but a standalone route lets a kitchen
-              display be parked on it (and bookmarked) without the cashier
-              screen loading first.
+              The kitchen kanban board was removed on the operator's request, so
+              the old /kitchen (and legacy /drinks) links land back on the cashier
+              screen instead of 404-ing any bookmarked display.
             */}
-            <Route path="/kitchen" element={<Orders type="all" initialView="tracker" />} />
+            <Route path="/kitchen" element={<Navigate to="/orders" replace />} />
             <Route path="/drinks" element={<Navigate to="/orders" replace />} />
             <Route path="/payment" element={<Payment />} />
 
