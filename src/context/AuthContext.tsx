@@ -145,8 +145,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // password we just verified. The Worker re-verifies it against the stored
     // credential hashes and bakes the resulting role into the signed cookie, so
     // cloud writes are authorized as this operator's real role — not anonymously.
+    // Await the mint and confirm the role matches the login intent: a stale
+    // cashier cookie must never survive a manager login (it would 403 every
+    // manager-only setting write, e.g. the tax rate).
     setSessionCredential(password);
-    void ensureCloudSession(true);
+    const minted = await ensureCloudSession(true);
+    const cloudRole = getSessionRole();
+    if (minted && isManager && cloudRole !== 'manager') {
+      console.warn('[auth] manager login but cloud session role is', cloudRole, '— dropping mismatched session');
+      void clearCloudSession();
+    }
 
     return userData;
   };
