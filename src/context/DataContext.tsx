@@ -273,6 +273,17 @@ async function applyOrderInventory(
             const rawQty = ing.quantity * item.quantity;
             const targetInv = allInv.find(i => i.id === ing.inventoryItemId);
             const baseQty = getIngredientBaseQty(rawQty, ing.unit || targetInv?.unit || '', targetInv?.unit || '');
+            // IV-023: an impossible conversion (e.g. a recipe in grams against
+            // an item stocked in ml) must NEVER be booked. Writing a fabricated
+            // figure corrupts the stock level silently; skipping leaves the
+            // level untouched and leaves a loud trace for the operator.
+            if (baseQty === null) {
+              console.error(
+                `[DataContext] skipped ${direction} for inventory ${ing.inventoryItemId}: ` +
+                `cannot convert ${rawQty} "${ing.unit}" → "${targetInv?.unit}" (order #${order.orderNumber}, ${item.name})`
+              );
+              continue;
+            }
             if (direction === 'deduct') {
               await inventoryService.deductStock(
                 ing.inventoryItemId,
