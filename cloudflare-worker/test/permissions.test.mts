@@ -80,6 +80,62 @@ function pureMatrix() {
     "cashier writing manager creds → denied"
   );
 
+  // Blocker 1 regression: a SPOOFED submitted.key must never launder a write to
+  // a sensitive document. Before the fix, settingKeyFrom read submitted.key
+  // first, so claiming "brewmaster_language" (cashier-allowed) on the
+  // manager-creds docId authorized the write. The key now comes from the docId
+  // exclusively and any disagreeing submitted.key is denied outright — for the
+  // cashier AND for the manager (the mismatch guard precedes role checks).
+  const spoofedManager = can({
+    role: "cashier",
+    table: "settings",
+    method: "PATCH",
+    docId: "global::brewmaster_manager_creds_v1",
+    submitted: { key: "brewmaster_language", value: "en" },
+    current: { key: "brewmaster_manager_creds_v1" },
+  });
+  ok(!spoofedManager.allowed, "cashier spoofed key on manager-creds docId → denied");
+  ok(
+    spoofedManager.code === "setting_key_mismatch" ||
+      spoofedManager.code === "cashier_sensitive_setting",
+    `spoofed key surfaces a fail-closed code (got ${spoofedManager.code})`
+  );
+  ok(
+    !can({
+      role: "manager",
+      table: "settings",
+      method: "PATCH",
+      docId: "global::brewmaster_manager_creds_v1",
+      submitted: { key: "brewmaster_language", value: "en" },
+      current: { key: "brewmaster_manager_creds_v1" },
+    }).allowed,
+    "even a MANAGER payload with a disagreeing submitted.key → denied"
+  );
+  // Sanity: a body that echoes the CORRECT key (or omits it) stays allowed —
+  // whole-row sync clients resend stored fields, so an honest resend must pass.
+  ok(
+    can({
+      role: "manager",
+      table: "settings",
+      method: "PATCH",
+      docId: "global::brewmaster_manager_creds_v1",
+      submitted: { key: "brewmaster_manager_creds_v1", value: "{}" },
+      current: { key: "brewmaster_manager_creds_v1" },
+    }).allowed,
+    "manager write with matching key → allowed"
+  );
+  ok(
+    can({
+      role: "cashier",
+      table: "settings",
+      method: "PATCH",
+      docId: "global::brewmaster_language",
+      submitted: { value: "ar" },
+      current: { key: "brewmaster_language" },
+    }).allowed,
+    "cashier allowed-key write without a key field in the body → still allowed"
+  );
+
   // Sanity on helpers.
   ok(valuesEqual("12.5", 12.5), "valuesEqual normalizes number vs string");
   ok(changedFields({ id: "x", a: 1 }, { id: "x", a: 1 }).length === 0, "no-op resend → no changes");
@@ -262,6 +318,22 @@ async function integration() {
 
   const managerDelete = await worker.fetch(new Request(DEL, { method: "DELETE", headers: H(mgrSession) }), env);
   ok(managerDelete.status === 200, `manager DELETE order → 200 (got ${managerDelete.status})`);
+
+  // Blocker 1, end-to-end: a cashier PATCH to the manager-creds document that
+  // CLAIMS the cashier-allowed key "brewmaster_language" in the body must be
+  // rejected with 403 — before the fix this authorized and landed the write.
+  const SPOOF =
+    "https://api.engaz.tech/v1/databases/default/collections/settings/documents/global::brewmaster_manager_creds_v1";
+  const spoofed = await worker.fetch(
+    new Request(SPOOF, {
+      method: "PATCH",
+      headers: { ...H(cshSession), "Content-Type": "application/json" },
+      body: JSON.stringify({ data: { key: "brewmaster_language", value: "en" } }),
+    }),
+    env
+  );
+  ok(spoofed.status === 403, `cashier PATCH manager-creds with spoofed key → 403 (got ${spoofed.status})`);
+  ok((spoofed.headers.get("X-Auth-Role") || "") === "cashier", "spoof 403 reports X-Auth-Role: cashier");
 }
 
 async function readFilter() {

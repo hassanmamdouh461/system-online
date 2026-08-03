@@ -32,6 +32,9 @@ export type SnapshotPayload = {
 let intervalId: ReturnType<typeof setInterval> | null = null;
 let running = false;
 
+/** localStorage keys whose values are JSON blobs rather than plain strings. */
+const JSON_SETTING_KEYS = new Set(['web_menu_recipes_store']);
+
 function collectLocalSettings(): Record<string, string> {
   const out: Record<string, string> = {};
   if (typeof localStorage === 'undefined') return out;
@@ -184,8 +187,112 @@ export async function getLatestSnapshot(branchId?: string): Promise<SnapshotPayl
   }
 }
 
+/** Basic shape check before we trust a payload near IndexedDB / localStorage. */
+function isValidSnapshotPayload(p: any): p is SnapshotPayload {
+  return !!p && typeof p === 'object' && Array.isArray(p.orders) && Array.isArray(p.menu_items);
+}
+
+export type RestoreCounts = {
+  orders: number;
+  menu: number;
+  customers: number;
+  companies: number;
+  inventory: number;
+  settings: number;
+};
+
+/**
+ * Write a snapshot payload back into IndexedDB + localStorage.
+ *
+ * Restore is MERGE-ONLY by id: live local rows are never cleared, so restoring
+ * can only re-materialize missing/stale data — never wipe current work. Rows
+ * that carry a `deletedAt` tombstone are skipped (a restore must never
+ * resurrect something the operator deleted). Settings are written to
+ * localStorage without overwriting keys that already have a local value.
+ *
+ * Works fully offline on a JSON payload (the Settings Import flow) and is also
+ * what the cloud-restore path uses after downloading the latest snapshot.
+ */
+export async function applySnapshotPayload(payload: SnapshotPayload): Promise<RestoreCounts> {
+  const counts: RestoreCounts = {
+    orders: 0,
+    menu: 0,
+    customers: 0,
+    companies: 0,
+    inventory: 0,
+    settings: 0,
+  };
+  if (!isValidSnapshotPayload(payload)) {
+    throw new Error('invalid snapshot payload');
+  }
+
+  const liveRows = (rows: any[] | undefined) =>
+    (rows || []).filter((r: any) => r && r.id && !r.deletedAt);
+
+  await withDB(async (db) => {
+    const mergeInto = async (store: 'orders' | 'menu_items' | 'customers' | 'companies' | 'inventory', rows: any[]) => {
+      const tx = db.transaction(store, 'readwrite');
+      for (const row of rows) {
+        const existing = (await tx.store.get(row.id)) as any;
+        // Latest-writer-wins on updatedAt; an incoming row with no timestamp
+        // only fills a gap (never overwrites a row that already exists).
+        const existingT = Date.parse(existing?.updatedAt ?? '') || 0;
+        const incomingT = Date.parse(row?.updatedAt ?? row?.updated_at ?? '') || 0;
+        if (!existing || incomingT >= existingT) {
+          await tx.store.put(row);
+        }
+      }
+      await tx.done;
+      return rows.length;
+    };
+
+    counts.orders = await mergeInto('orders', liveRows(payload.orders));
+    counts.menu = await mergeInto('menu_items', liveRows(payload.menu_items));
+    counts.customers = await mergeInto('customers', liveRows(payload.customers));
+    counts.companies = await mergeInto('companies', liveRows(payload.companies));
+    counts.inventory = await mergeInto('inventory', liveRows(payload.inventory));
+  });
+
+  if (typeof localStorage !== 'undefined') {
+    for (const [key, value] of Object.entries(payload.settings || {})) {
+      try {
+        if (localStorage.getItem(key) === null) {
+          localStorage.setItem(
+            key,
+            typeof value === 'string' ? value : JSON.stringify(value)
+          );
+          counts.settings++;
+        }
+      } catch {
+        // ignore individual key failures
+      }
+    }
+  }
+
+  if (payload.recipes && typeof localStorage !== 'undefined') {
+    try {
+      if (localStorage.getItem('web_menu_recipes_store') === null) {
+        localStorage.setItem('web_menu_recipes_store', JSON.stringify(payload.recipes));
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  return counts;
+}
+
 /**
  * Restore snapshot into IndexedDB + localStorage when cloud collections look empty.
+ *
+ * MANAGER-ONLY: the settings blob inside a snapshot carries password hashes
+ * and other sensitive config, so this is gated on the session role (and the
+ * Worker independently blocks cashier READS of the snapshots table). When the
+ * hydrate found no live rows anywhere — the classic "fresh device / cleared
+ * browser" case — the latest cloud snapshot is downloaded and merged back in.
+ * A partially-populated database is left alone: an empty store can be a
+ * deliberate reset, and auto-resurrecting wiped data was the reason the old
+ * version of this function was disabled.
  */
 export async function restoreFromSnapshotIfNeeded(_hydrateResult: {
   orders: number;
@@ -193,11 +300,76 @@ export async function restoreFromSnapshotIfNeeded(_hydrateResult: {
   customers: number;
   settings?: number;
 }): Promise<boolean> {
-  // Do NOT automatically resurrect wiped databases from old snapshots.
-  // An empty database is valid when the user clears/resets their system.
-  return false;
+  try {
+    if (typeof localStorage !== 'undefined') {
+      const role = localStorage.getItem('brewmaster_user_role');
+      if (role !== 'manager') return false;
+    }
+    const totalLocal =
+      (_hydrateResult?.orders || 0) +
+      (_hydrateResult?.menu || 0) +
+      (_hydrateResult?.customers || 0);
+    if (totalLocal > 0) return false; // device already has data — nothing to rescue
+
+    const latest = await getLatestSnapshot();
+    if (!latest || !isValidSnapshotPayload(latest)) return false;
+
+    const counts = await applySnapshotPayload(latest);
+    const restored =
+      counts.orders + counts.menu + counts.customers + counts.companies + counts.inventory;
+    if (restored > 0) {
+      console.info('[snapshot] restored latest cloud snapshot', counts);
+      return true;
+    }
+    return false;
+  } catch (e) {
+    console.warn('[snapshot] restore skipped:', e);
+    return false;
+  }
 }
 
+/**
+ * Manual cloud restore (Settings → Restore). Manager-only. Unlike the
+ * automatic path above this runs unconditionally: the manager explicitly asked
+ * for the latest snapshot to be merged over the current local data.
+ */
+export async function restoreLatestSnapshotNow(): Promise<RestoreCounts | null> {
+  const latest = await getLatestSnapshot();
+  if (!latest || !isValidSnapshotPayload(latest)) return null;
+  return applySnapshotPayload(latest);
+}
+
+/** Download the CURRENT local data as a JSON backup file (works offline). */
+export async function exportLocalBackup(): Promise<void> {
+  const payload = await buildSnapshotPayload();
+  const blob = new Blob([JSON.stringify(payload, null, 2)], {
+    type: 'application/json',
+  });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `system-online-backup-${new Date().toISOString().slice(0, 10)}.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+/**
+ * Restore from a user-supplied JSON backup file (works offline — no cloud
+ * involved). Returns merge counts, or null when the file is not a snapshot.
+ */
+export async function importBackupFromFile(file: File): Promise<RestoreCounts | null> {
+  const text = await file.text();
+  let payload: any;
+  try {
+    payload = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  if (!isValidSnapshotPayload(payload)) return null;
+  return applySnapshotPayload(payload as SnapshotPayload);
+}
 
 export function startSnapshotScheduler() {
   if (typeof window === 'undefined') return;
@@ -231,3 +403,4 @@ export function getLastSnapshotAt(): string | null {
     return null;
   }
 }
+ JSON_SETTING_KEYS;

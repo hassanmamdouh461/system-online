@@ -148,9 +148,9 @@ export const CASHIER_FORBIDDEN_READ_SETTING_KEYS: readonly string[] = [
  * buildSnapshotPayload → collectLocalSettings), so it carries the manager hash,
  * the refund PIN and the Telegram token inside its JSON payload. Filtering the
  * `settings` collection but leaving `snapshots` open would just move the leak one
- * endpoint over. Nothing on a cashier device reads snapshots (getLatestSnapshot
- * is unused and restoreFromSnapshotIfNeeded is a no-op), so denying the read is
- * zero-impact — a cashier device still WRITES its backups normally.
+ * endpoint over. Snapshot READS are manager-only (restore is a manager-only
+ * flow — see snapshotService.restoreFromSnapshotIfNeeded / the Settings
+ * restore UI); a cashier device still WRITES its backups normally.
  */
 export const CASHIER_UNREADABLE_TABLES: readonly string[] = ["snapshots"];
 
@@ -290,20 +290,37 @@ export function changedFields(
   return changed;
 }
 
-/** Extract the settings key being written, from the row or its document id. */
+/**
+ * Extract the settings key being written — FROM THE DOCUMENT ID ONLY.
+ *
+ * SECURITY (Blocker 1 — cashier → manager privilege escalation):
+ * previously this read `submitted?.key` FIRST and only fell back to the
+ * document id. A cashier could therefore send a PATCH to the manager-creds
+ * document (`global::brewmaster_manager_creds_v1`) while claiming
+ * `key: "brewmaster_language"` (a cashier-allowed key) in the body — the guard
+ * checked the spoofed key, ALLOWED the write, and the upsert then wrote the
+ * manager row with the attacker-chosen value. That is why the key that
+ * AUTHORIZES the write must be derived exclusively from the URL/document id
+ * the row will actually be written to, never from client-controlled fields.
+ *
+ * `current?.key` (the row stored in D1, loaded server-side) is kept as a
+ * fallback for callers that operate without a docId; `submitted?.key` is NEVER
+ * consulted here.
+ */
 export function settingKeyFrom(
   submitted: Record<string, any> | null | undefined,
   docId: string | null | undefined,
   current?: Record<string, any> | null
 ): string | null {
-  const direct = submitted?.key ?? current?.key;
-  if (direct) return String(direct).trim();
+  void submitted; // intentionally ignored — the client never authorizes a write.
   if (docId) {
     // Ids are namespaced: `global::brewmaster_admin_pin` or `<branch>::<key>`.
     const idx = String(docId).indexOf("::");
     if (idx >= 0) return String(docId).slice(idx + 2).trim();
     return String(docId).trim();
   }
+  const stored = current?.key;
+  if (stored) return String(stored).trim();
   return null;
 }
 
@@ -328,6 +345,27 @@ export interface AuthzContext {
  */
 export function can(ctx: AuthzContext): Decision {
   const { role, table, method } = ctx;
+
+  // Settings key-mismatch guard applies to EVERY role. The key that
+  // authorizes a write comes from the docId (or the stored row), so a body
+  // whose `key` field disagrees with that is either a spoofing attempt or a
+  // corrupted client — either way the write must not proceed. See Blocker 1.
+  if (table === "settings" && method !== "GET" && method !== "DELETE") {
+    const fromDoc = settingKeyFrom(null, ctx.docId, ctx.current);
+    const submittedKey = ctx.submitted?.key;
+    if (
+      fromDoc &&
+      submittedKey !== undefined &&
+      submittedKey !== null &&
+      String(submittedKey).trim() !== "" &&
+      String(submittedKey).trim() !== fromDoc
+    ) {
+      return deny(
+        "setting_key_mismatch",
+        "مفتاح الإعداد المرسل لا يطابق المستند المطلوب تعديله."
+      );
+    }
+  }
 
   if (role === "manager") return ALLOW;
 
@@ -355,17 +393,18 @@ export function can(ctx: AuthzContext): Decision {
     );
   }
 
-  // Snapshots: ALLOWED for cashiers.
+  // Snapshots: WRITES stay ALLOWED for cashiers.
   //
   // `startSnapshotScheduler` runs on every device without a role check
   // (App.tsx), so blocking cashiers would silently stop backups whenever the
   // cashier till is the only device left open — which is the common case.
   // The snapshot payload is built entirely from data the cashier already reads
   // (orders, menu, inventory, settings including password hashes that are
-  // needed for client-side login). `restoreFromSnapshotIfNeeded` is a no-op
-  // (returns false), and there is no manual restore UI, so a forged snapshot
-  // cannot be weaponized into a privilege escalation today.
-  // If a restore path is ever added, gate it behind manager-only.
+  // needed for client-side login). Snapshot READS are manager-only
+  // (CASHIER_UNREADABLE_TABLES) and the restore path — both
+  // restoreFromSnapshotIfNeeded and the Settings restore UI — is a manager-only
+  // flow, so a forged snapshot cannot be weaponized into a privilege
+  // escalation by a cashier device.
 
   if (table === "settings") return canWriteSetting(ctx);
   if (table === "orders") return canWriteOrder(ctx);
@@ -405,6 +444,7 @@ function canWriteCustomerOrCompany(ctx: AuthzContext): Decision {
 }
 
 function canWriteSetting(ctx: AuthzContext): Decision {
+  // The key comes from the docId / stored row ONLY — never the request body.
   const key = settingKeyFrom(ctx.submitted, ctx.docId, ctx.current);
 
   if (!key) {

@@ -2,6 +2,13 @@ name = "system-online-backend"
 main = "src/index.ts"
 compatibility_date = "2024-02-22"
 
+# Custom domain for the POS backend API. Without this, `wrangler deploy` from
+# the repo only publishes to the workers.dev subdomain and api.engaz.tech keeps
+# serving whatever was attached before (Blocker 4).
+routes = [
+  { pattern = "api.engaz.tech", custom_domain = true },
+]
+
 # Allowlisted browser origins for CORS. The Worker is fail-closed: when this is
 # unset it returns NO Access-Control-Allow-Origin header, so the browser blocks
 # every request from the POS to the Worker and local changes never sync.

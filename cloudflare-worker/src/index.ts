@@ -971,6 +971,14 @@ function sanitizeAndNormalize(table: string, data: any) {
       sanitized[key] = normalized[key];
     }
   }
+  // Defence in depth (Blocker 1): a settings row's `key` is derived from the
+  // document id and is NEVER client-writable. The authorization layer already
+  // denies a mismatching `key`, but stripping it at the sanitize boundary as
+  // well means no write path (REST POST/PATCH, /api/sync) can ever smuggle a
+  // `key` column change into SQL — even by accident from a stale client.
+  if (table === "settings") {
+    delete sanitized.key;
+  }
   return sanitized;
 }
 
