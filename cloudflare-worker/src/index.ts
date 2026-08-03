@@ -724,6 +724,156 @@ export default {
         }
       }
 
+      // 3d. Cross-device atomic stock delta — POST /api/inventory/stock-delta
+      //
+      // Stock used to be computed on the tablet and pushed as a WHOLE row with an
+      // ABSOLUTE stock value. The upsert freshness guard only rejects writes with
+      // an older updated_at; it cannot merge two concurrent deltas. So two tills
+      // selling the same ingredient both read stock=10, wrote 7 and 6, and the
+      // later timestamp won — leaving 6 instead of 3. Stock drifted UP on every
+      // concurrent sale, so the shop oversold ingredients it had already used.
+      // `enqueueWrite` on the client serialized this only WITHIN one device.
+      //
+      // Here the arithmetic happens in D1: `stock = MAX(0, stock + delta)` in one
+      // statement, so concurrent deltas compose instead of clobbering.
+      //
+      // Retries are the other half of the problem: a delta replayed after a lost
+      // response would deduct twice. Each op carries a stable client-generated
+      // `opId`; the ledger insert and the stock update go in ONE D1 batch
+      // (transactional), so a replay hits the PRIMARY KEY, the batch rolls back,
+      // and we return the stock recorded the first time instead of deducting again.
+      if (pathParts[0] === "api" && pathParts[1] === "inventory" && pathParts[2] === "stock-delta" && request.method === "POST") {
+        if (role !== "manager" && role !== "cashier") {
+          return new Response(JSON.stringify({ error: "Forbidden" }), {
+            status: 403, headers: { "Content-Type": "application/json", ...corsHeaders }
+          });
+        }
+        try {
+          const body: any = await request.json().catch(() => ({}));
+          const rawOps = Array.isArray(body?.ops) ? body.ops : [];
+          if (rawOps.length === 0 || rawOps.length > 100) {
+            return new Response(JSON.stringify({ error: "Bad Request", message: "ops must be a non-empty array (max 100)" }), {
+              status: 400, headers: { "Content-Type": "application/json", ...corsHeaders }
+            });
+          }
+
+          const now = new Date().toISOString();
+          const results: Array<Record<string, unknown>> = [];
+
+          for (const raw of rawOps) {
+            const opId = String(raw?.opId || "").trim();
+            const itemId = String(raw?.itemId || "").trim();
+            const delta = Number(raw?.delta);
+            const referenceId = raw?.referenceId ? String(raw.referenceId).slice(0, 200) : null;
+
+            // A zero/NaN delta is a client bug, not a stock movement — never let it
+            // burn an opId, or the real retry would be swallowed as a duplicate.
+            if (!opId || !itemId || !Number.isFinite(delta) || delta === 0) {
+              results.push({ opId, itemId, ok: false, reason: "invalid_op" });
+              continue;
+            }
+
+            // Already applied? Return the stock we recorded then — same answer,
+            // no second deduction.
+            const prior: any = await env.DB
+              .prepare(`SELECT resulting_stock FROM stock_delta_ops WHERE op_id = ?1`)
+              .bind(opId)
+              .first();
+            if (prior) {
+              results.push({
+                opId, itemId, ok: true, duplicate: true,
+                stock: prior.resulting_stock === null ? null : Number(prior.resulting_stock)
+              });
+              continue;
+            }
+
+            const target: any = await env.DB
+              .prepare(`SELECT id, stock FROM inventory WHERE id = ?1 AND deleted_at IS NULL`)
+              .bind(itemId)
+              .first();
+            if (!target) {
+              // Unknown/soft-deleted item. Do NOT record the op — the client keeps
+              // its local-only deduction and we stay silent about a row we don't own.
+              results.push({ opId, itemId, ok: false, reason: "not_found" });
+              continue;
+            }
+
+            // Clamp at zero exactly like the client did, so both sides agree.
+            const projected = Math.max(0, (Number(target.stock) || 0) + delta);
+
+            try {
+              await env.DB.batch([
+                env.DB.prepare(
+                  `INSERT INTO stock_delta_ops (op_id, item_id, delta, resulting_stock, reference_id, branch_id, created_at)
+                   VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`
+                ).bind(opId, itemId, delta, projected, referenceId, MAIN_BRANCH_ID, now),
+                // Relative update — recomputed from the CURRENT row, not from the
+                // projection above, so a delta that landed between our SELECT and
+                // this UPDATE still composes correctly.
+                env.DB.prepare(
+                  `UPDATE inventory
+                      SET stock = MAX(0, COALESCE(stock, 0) + ?1), updated_at = ?2
+                    WHERE id = ?3 AND deleted_at IS NULL`
+                ).bind(delta, now, itemId)
+              ]);
+            } catch (batchErr: any) {
+              // PRIMARY KEY collision = concurrent replay of the same op. Treat as
+              // already-applied rather than deducting a second time.
+              const msg = String(batchErr?.message || "");
+              if (/UNIQUE|PRIMARY KEY|constraint/i.test(msg)) {
+                const settled: any = await env.DB
+                  .prepare(`SELECT resulting_stock FROM stock_delta_ops WHERE op_id = ?1`)
+                  .bind(opId)
+                  .first();
+                results.push({
+                  opId, itemId, ok: true, duplicate: true,
+                  stock: settled?.resulting_stock === null || settled?.resulting_stock === undefined
+                    ? null : Number(settled.resulting_stock)
+                });
+                continue;
+              }
+              throw batchErr;
+            }
+
+            // Authoritative post-write value. The client adopts THIS, not its own
+            // arithmetic — that is what stops the drift.
+            const after: any = await env.DB
+              .prepare(`SELECT stock FROM inventory WHERE id = ?1`)
+              .bind(itemId)
+              .first();
+            const settledStock = after ? Number(after.stock) || 0 : projected;
+
+            // Keep the ledger honest when a racing delta changed the outcome.
+            if (settledStock !== projected) {
+              await env.DB
+                .prepare(`UPDATE stock_delta_ops SET resulting_stock = ?1 WHERE op_id = ?2`)
+                .bind(settledStock, opId)
+                .run();
+            }
+
+            results.push({ opId, itemId, ok: true, stock: settledStock, updatedAt: now });
+          }
+
+          // Bounded retention — this ledger is a dedupe window, not history.
+          // inventory_transactions remains the audit trail.
+          try {
+            const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+            await env.DB.prepare(`DELETE FROM stock_delta_ops WHERE created_at < ?1`).bind(cutoff).run();
+          } catch {
+            // Housekeeping only — never fail a stock movement over it.
+          }
+
+          return new Response(JSON.stringify({ success: true, results, updatedAt: now }), {
+            status: 200, headers: { "Content-Type": "application/json", ...corsHeaders }
+          });
+        } catch (e: any) {
+          console.error('[Worker /api/inventory/stock-delta Error]:', e);
+          return new Response(JSON.stringify({ error: "Stock Delta Error", message: "تعذر تحديث المخزون. حاول مرة أخرى." }), {
+            status: 500, headers: { "Content-Type": "application/json", ...corsHeaders }
+          });
+        }
+      }
+
       // 4. Handle /v1 REST routes
       if (pathParts[0] !== "v1") {
         return new Response(JSON.stringify({ error: "Not Found", message: "Route not supported" }), {
@@ -1045,7 +1195,7 @@ function getCorsHeaders(request: Request, env: Env) {
       // is a specific (non-"*") allowlisted value.
       "Access-Control-Allow-Credentials": "true",
       "Access-Control-Allow-Methods": "GET, POST, PATCH, PUT, DELETE, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Branch-ID, X-Device-ID, X-API-Key, X-CSRF-Token, X-Refund-PIN, X-Role-Intent",
+      "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Branch-ID, X-Device-ID, X-API-Key, X-CSRF-Token, X-Refund-PIN",
       "Access-Control-Max-Age": "86400",
       "Vary": "Origin"
     };
@@ -1061,7 +1211,7 @@ function getCorsHeaders(request: Request, env: Env) {
     // See note above: mandatory for the cookie to be stored + replayed.
     "Access-Control-Allow-Credentials": "true",
     "Access-Control-Allow-Methods": "GET, POST, PATCH, PUT, DELETE, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Branch-ID, X-Device-ID, X-API-Key, X-CSRF-Token, X-Refund-PIN, X-Role-Intent",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Branch-ID, X-Device-ID, X-API-Key, X-CSRF-Token, X-Refund-PIN",
     "Access-Control-Max-Age": "86400",
     "Vary": "Origin"
   };

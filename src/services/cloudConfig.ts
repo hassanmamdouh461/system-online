@@ -148,77 +148,6 @@ export function resetWorkerUrlWarningForTests(): void {
 const SESSION_PATH = '/v1/session';
 let sessionPromise: Promise<boolean> | null = null;
 
-// ─── Role intent (which session in THIS browser we mean to use) ──────────────
-/**
- * WHY THIS EXISTS — the manager-writes-as-cashier bug.
- *
- * Cookies are scoped to the DOMAIN, not the tab. A shop routinely has the till
- * and the manager dashboard open in the same browser, and with a single
- * `pos_session` cookie the LAST login owned the role for both tabs: a cashier
- * sign-in silently downgraded the manager's session. The manager dashboard kept
- * believing it was a manager (the role is cached in memory at mint), so every
- * catalog write came back
- *   403 "تعديل المنيو والوصفات غير مسموح لصلاحية الكاشير"
- * and syncService retired it as a permanent denial — the menu delete never
- * reached D1, so the till never learned about it either.
- *
- * The Worker now keeps one cookie PER ROLE and we tell it which one this app
- * instance means to use via `X-Role-Intent`. The header only SELECTS among
- * cookies the browser already holds — the role still comes from the signed
- * cookie, so this grants no authority by itself.
- *
- * Persisted (not just in memory) because after a reload the in-memory password
- * is gone but the 12h cookie is still valid: the reloaded manager dashboard must
- * still ask for the MANAGER session rather than whatever cookie answers first.
- */
-export type SessionRole = 'manager' | 'cashier';
-const ROLE_INTENT_HEADER = 'X-Role-Intent';
-const ROLE_INTENT_STORAGE_KEY = 'brewmaster_role_intent';
-let roleIntent: SessionRole | null = readStoredRoleIntent();
-
-function readStoredRoleIntent(): SessionRole | null {
-  if (typeof window === 'undefined') return null;
-  try {
-    const raw = localStorage.getItem(ROLE_INTENT_STORAGE_KEY);
-    return raw === 'manager' || raw === 'cashier' ? raw : null;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Declare the role this app instance is signed in as. Called on login (and on
- * logout with null). Switching intent invalidates the cached mint and the
- * cached role so nothing from the previous operator is reused.
- */
-export function setRoleIntent(role: SessionRole | null): void {
-  const changed = roleIntent !== role;
-  roleIntent = role;
-  if (changed) {
-    sessionPromise = null;
-    sessionRole = null;
-    // Pick up the token bound to THIS role's session (or none yet).
-    csrfToken = readStoredCsrf();
-  }
-  if (typeof window === 'undefined') return;
-  try {
-    if (role) localStorage.setItem(ROLE_INTENT_STORAGE_KEY, role);
-    else localStorage.removeItem(ROLE_INTENT_STORAGE_KEY);
-  } catch {
-    // ignore
-  }
-}
-
-/** The role this app instance believes it is signed in as (persisted). */
-export function getRoleIntent(): SessionRole | null {
-  return roleIntent;
-}
-
-/** Header pair carrying the role intent, or {} when none is established. */
-export function roleIntentHeaders(): Record<string, string> {
-  return roleIntent ? { [ROLE_INTENT_HEADER]: roleIntent } : {};
-}
-
 /** The operator password used to (re-)mint a session. Memory only — never persisted. */
 let sessionCredential: string | null = null;
 /** Role reported by the Worker at the last successful mint. */
@@ -232,30 +161,12 @@ let sessionRole: 'manager' | 'cashier' | null = null;
  * valid as long as the session's sid does), and read back on startup.
  */
 const CSRF_STORAGE_KEY = 'brewmaster_csrf_token';
-
-/**
- * The token is stored PER ROLE. localStorage is shared by every tab on the
- * origin, so one key meant a cashier mint in the till tab overwrote the
- * manager dashboard's token — the manager then echoed a token bound to the
- * cashier session's sid and every write came back 403 X-CSRF-Failed. Each role
- * keeps its own token, exactly like the role-scoped session cookies.
- */
-function csrfStorageKey(role: SessionRole | null): string {
-  return role ? `${CSRF_STORAGE_KEY}:${role}` : CSRF_STORAGE_KEY;
-}
-
 let csrfToken: string | null = readStoredCsrf();
 
 function readStoredCsrf(): string | null {
   if (typeof window === 'undefined') return null;
   try {
-    return (
-      localStorage.getItem(csrfStorageKey(roleIntent)) ||
-      // Legacy single-key token from before role scoping — used once, then the
-      // next mint replaces it with a role-scoped one.
-      localStorage.getItem(CSRF_STORAGE_KEY) ||
-      null
-    );
+    return localStorage.getItem(CSRF_STORAGE_KEY) || null;
   } catch {
     return null;
   }
@@ -265,12 +176,8 @@ function storeCsrf(token: string | null): void {
   csrfToken = token || null;
   if (typeof window === 'undefined') return;
   try {
-    const key = csrfStorageKey(roleIntent);
-    if (token) localStorage.setItem(key, token);
-    else localStorage.removeItem(key);
-    // Never leave the legacy shared key behind: another tab reading it would
-    // resurrect the cross-role collision this scoping removes.
-    localStorage.removeItem(CSRF_STORAGE_KEY);
+    if (token) localStorage.setItem(CSRF_STORAGE_KEY, token);
+    else localStorage.removeItem(CSRF_STORAGE_KEY);
   } catch {
     // ignore
   }
@@ -336,7 +243,6 @@ export async function refreshCloudSessionRole(): Promise<'manager' | 'cashier' |
     const res = await fetch(`${base}${SESSION_PATH}`, {
       method: 'GET',
       credentials: 'include',
-      headers: roleIntentHeaders(),
     });
     if (!res.ok) return null;
     const json = await res.json();
@@ -350,69 +256,6 @@ export async function refreshCloudSessionRole(): Promise<'manager' | 'cashier' |
     console.warn('[cloud] session role probe failed:', err);
     return null;
   }
-}
-
-// ─── Role reconciliation (server-authoritative role, self-healing) ───────────
-/**
- * Dispatched when the Worker insists this session is NOT the role the app is
- * signed in as, and we cannot silently fix it (no password in memory after a
- * reload). The app listens for this and asks the operator to sign in again with
- * the manager password — instead of leaving him clicking Delete on a menu item
- * and watching a silent 403 in the console.
- */
-export const ROLE_MISMATCH_EVENT = 'pos:role-mismatch';
-
-let lastRoleMismatchNotifyAt = 0;
-
-function notifyRoleMismatch(serverRole: SessionRole | null): void {
-  const now = Date.now();
-  if (now - lastRoleMismatchNotifyAt < 5000) return;
-  lastRoleMismatchNotifyAt = now;
-  console.warn(
-    '[cloud] role mismatch: app is signed in as',
-    roleIntent,
-    'but the server session is',
-    serverRole
-  );
-  if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
-    try {
-      window.dispatchEvent(
-        new CustomEvent(ROLE_MISMATCH_EVENT, { detail: { expected: roleIntent, actual: serverRole } })
-      );
-    } catch {
-      // best-effort
-    }
-  }
-}
-
-/**
- * Make sure the session we are about to write with really carries the role this
- * app instance is signed in as, re-minting once if it does not.
- *
- * This is the runtime half of the role-scoped-cookie fix. Even with per-role
- * cookies a session can drift: the cookie can lapse while a sibling role's is
- * still valid, an old deployment may have left only the shared legacy cookie
- * behind, or the operator may have signed in elsewhere. Rather than let the
- * write die as a "permanent" 403 (which is how the menu delete was silently
- * lost), we ask the Worker who it thinks we are and repair the session when we
- * still hold the password.
- *
- * Returns true when the session matches the intent, false when the operator has
- * to sign in again.
- */
-export async function reconcileSessionRole(): Promise<boolean> {
-  if (!roleIntent) return true; // no declared role (e.g. public QR menu) — nothing to check
-  const serverRole = await refreshCloudSessionRole();
-  if (serverRole === roleIntent) return true;
-
-  if (sessionCredential) {
-    resetCloudSession();
-    const minted = await ensureCloudSession(true);
-    if (minted && sessionRole === roleIntent) return true;
-  }
-
-  notifyRoleMismatch(serverRole);
-  return false;
 }
 
 // ─── Mint-failure cooldown ──────────────────────────────────────────────────
@@ -590,7 +433,7 @@ export function ensureCloudSession(force = false): Promise<boolean> {
         const res = await fetch(`${base}${SESSION_PATH}`, {
           method: 'POST',
           credentials: 'include',
-          headers: { 'Content-Type': 'application/json', ...roleIntentHeaders() },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ password: sessionCredential }),
         });
         if (!res.ok) {
@@ -690,12 +533,7 @@ export async function clearCloudSession(): Promise<void> {
   const base = getWorkerUrl();
   if (!base) return;
   try {
-    // Intent-scoped: sign THIS role out and leave a sibling tab's session alone.
-    await fetch(`${base}${SESSION_PATH}`, {
-      method: 'DELETE',
-      credentials: 'include',
-      headers: roleIntentHeaders(),
-    });
+    await fetch(`${base}${SESSION_PATH}`, { method: 'DELETE', credentials: 'include' });
   } catch {
     // ignore — cookie will lapse on its own
   }
@@ -752,8 +590,6 @@ export function cloudHeaders(extra?: Record<string, string>): Record<string, str
   return {
     'Content-Type': 'application/json',
     'X-Branch-ID': getBranchIdHeader(),
-    // Selects WHICH role-scoped session cookie the Worker authenticates with.
-    ...roleIntentHeaders(),
     ...extra,
   };
 }
@@ -873,26 +709,6 @@ export async function cloudFetch(
     if (ok) res = await attempt();
   }
 
-  // A plain 403 on a write is the permissions matrix talking. It is a real
-  // decision for the role we authenticated AS — but that role is not always the
-  // role the operator is signed in as: a sibling tab's login, a lapsed cookie or
-  // a legacy shared cookie can leave a manager writing as a cashier, which is
-  // how a manager's menu delete came back "تعديل المنيو غير مسموح لصلاحية
-  // الكاشير" and was then retired as permanent. Reconcile the session role once
-  // and retry only if the session was actually repaired; otherwise the operator
-  // is told to sign in again (ROLE_MISMATCH_EVENT).
-  if (!skipSession && isWrite && res && res.status === 403 && !csrfFailed && roleIntent) {
-    const roleBefore = sessionRole;
-    const repaired = await reconcileSessionRole();
-    // Only retry when the session actually CHANGED into the right role. A
-    // cashier denied a cashier-forbidden write is a correct 403 — re-sending it
-    // would just burn another request and hit the same wall.
-    if (repaired && sessionRole === roleIntent && roleBefore !== roleIntent) {
-      const retried = await attempt();
-      if (retried) res = retried;
-    }
-  }
-
   // Still 401 after a re-mint attempt on an authenticated path ⇒ the session is
   // genuinely gone (cookie expired, no credential to re-mint with). Signal the
   // app so it prompts a fresh login instead of leaving empty screens behind.
@@ -922,6 +738,50 @@ export async function reserveServerOrderSeq(dayKey: string): Promise<number | nu
     const data: any = await res.json().catch(() => null);
     const seq = Number(data?.seq);
     return Number.isFinite(seq) && seq > 0 ? seq : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Outcome of one server-applied stock delta. `stock` is authoritative. */
+export interface StockDeltaResult {
+  opId: string;
+  itemId: string;
+  ok: boolean;
+  duplicate?: boolean;
+  stock?: number | null;
+  reason?: string;
+}
+
+/**
+ * Apply signed stock deltas on the SERVER so concurrent sales from different
+ * tablets compose instead of clobbering each other.
+ *
+ * The client used to compute `stock - qty` locally and push the ABSOLUTE value.
+ * Two tills selling one ingredient at once both read 10, pushed 7 and 6, and the
+ * newer timestamp won — the shop kept 6 instead of 3 and oversold the difference.
+ * Sending a DELTA lets D1 do `stock = MAX(0, stock + delta)` in one statement.
+ *
+ * `opId` must be STABLE across retries of the same logical deduction: the worker
+ * dedupes on it, which is what makes a retry after a lost response safe.
+ *
+ * Returns null when offline / unconfigured / the endpoint is unavailable, so the
+ * caller can fall back to the local-only path (previous single-device behaviour).
+ */
+export async function applyServerStockDeltas(
+  ops: Array<{ opId: string; itemId: string; delta: number; referenceId?: string }>
+): Promise<StockDeltaResult[] | null> {
+  if (!ops.length) return [];
+  try {
+    const res = await cloudFetch('/api/inventory/stock-delta', {
+      method: 'POST',
+      body: JSON.stringify({ ops }),
+      timeoutMs: 6000,
+    });
+    if (!res || !res.ok) return null;
+    const data: any = await res.json().catch(() => null);
+    if (!data || !Array.isArray(data.results)) return null;
+    return data.results as StockDeltaResult[];
   } catch {
     return null;
   }

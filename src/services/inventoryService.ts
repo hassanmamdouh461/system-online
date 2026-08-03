@@ -5,6 +5,115 @@ import { multiplyMoney, sumMoneyBy } from '../utils/money';
 
 const WEB_RECIPES_STORAGE_KEY = 'web_menu_recipes_store';
 
+/**
+ * Stock deltas that could not reach the worker (offline / worker down).
+ *
+ * These MUST be replayed as deltas, never as an absolute stock value: an
+ * absolute write is precisely the clobber that let two tablets overwrite each
+ * other's deduction. Each entry keeps its original `opId`, so a replay that the
+ * server already applied is recognised and ignored instead of deducting twice.
+ */
+const PENDING_STOCK_DELTAS_KEY = 'pos_pending_stock_deltas_v1';
+/** Bounded so a long offline stretch can never blow the localStorage quota. */
+const MAX_PENDING_STOCK_DELTAS = 500;
+
+interface PendingStockDelta {
+  opId: string;
+  itemId: string;
+  delta: number;
+  referenceId?: string;
+  queuedAt: string;
+}
+
+function readPendingStockDeltas(): PendingStockDelta[] {
+  try {
+    const raw = localStorage.getItem(PENDING_STOCK_DELTAS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function writePendingStockDeltas(list: PendingStockDelta[]): void {
+  try {
+    localStorage.setItem(PENDING_STOCK_DELTAS_KEY, JSON.stringify(list));
+  } catch (e) {
+    console.warn('[inventory] could not persist pending stock deltas:', e);
+  }
+}
+
+function queuePendingStockDelta(op: Omit<PendingStockDelta, 'queuedAt'>): void {
+  const list = readPendingStockDeltas();
+  if (list.some((p) => p.opId === op.opId)) return;
+  list.push({ ...op, queuedAt: new Date().toISOString() });
+  // Drop the OLDEST on overflow: newer movements reflect current stock better,
+  // and the local IndexedDB value already accounts for every queued delta.
+  writePendingStockDeltas(
+    list.length > MAX_PENDING_STOCK_DELTAS ? list.slice(-MAX_PENDING_STOCK_DELTAS) : list
+  );
+}
+
+let flushingStockDeltas = false;
+
+/**
+ * Replay parked deltas. Returns how many were accepted by the server.
+ *
+ * Only entries the server actually answered are removed; a still-unreachable
+ * worker leaves the queue intact for the next attempt. `not_found` entries are
+ * dropped rather than retried forever — the row does not exist server-side.
+ */
+async function flushPendingStockDeltas(): Promise<number> {
+  if (flushingStockDeltas) return 0;
+  const pending = readPendingStockDeltas();
+  if (pending.length === 0) return 0;
+
+  flushingStockDeltas = true;
+  try {
+    const { applyServerStockDeltas } = await import('./cloudConfig');
+    let settled = 0;
+    // The endpoint accepts up to 100 ops per call.
+    for (let i = 0; i < pending.length; i += 100) {
+      const batch = pending.slice(i, i + 100);
+      const results = await applyServerStockDeltas(
+        batch.map(({ opId, itemId, delta, referenceId }) => ({
+          opId,
+          itemId,
+          delta,
+          referenceId,
+        }))
+      );
+      if (results === null) break; // still offline — keep the rest queued
+
+      const done = new Set(
+        results
+          .filter((r) => r.ok || r.reason === 'not_found' || r.reason === 'invalid_op')
+          .map((r) => r.opId)
+      );
+      if (done.size === 0) continue;
+      settled += done.size;
+      writePendingStockDeltas(readPendingStockDeltas().filter((p) => !done.has(p.opId)));
+    }
+    if (settled > 0) {
+      console.info(`[inventory] replayed ${settled} parked stock delta(s)`);
+    }
+    return settled;
+  } catch (e) {
+    console.warn('[inventory] pending stock delta flush failed:', e);
+    return 0;
+  } finally {
+    flushingStockDeltas = false;
+  }
+}
+
+// Reconnect is the natural moment to drain the queue. Guarded for SSR/tests.
+if (typeof window !== 'undefined') {
+  window.addEventListener('online', () => {
+    void flushPendingStockDeltas();
+  });
+}
+
 
 function getWebRecipeStore(): Record<string, RecipeIngredient[]> {
   try {
@@ -468,7 +577,16 @@ export const inventoryService = {
    * missing / soft-deleted. Resolution mirrors getByIdLocal (exact id first,
    * then a live-item fallback by id or name).
    */
-  async applyStockDelta(itemId: string, delta: number): Promise<InventoryItem | null> {
+  async applyStockDelta(
+    itemId: string,
+    delta: number,
+    referenceId?: string
+  ): Promise<InventoryItem | null> {
+    // Stable across every retry of THIS logical movement — the server dedupes on
+    // it, which is what makes replaying a lost request safe instead of a double
+    // deduction.
+    const opId = `sd_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+
     const updated = await enqueueWrite(async () => {
       return withDB(async (db) => {
         // Resolve the target INSIDE the lock so the value we mutate is fresh.
@@ -484,36 +602,79 @@ export const inventoryService = {
         const newStock = Math.max(0, (Number(item.stock) || 0) + delta);
         const next: InventoryItem = { ...item, stock: newStock, updatedAt: now };
         await db.put('inventory', next);
-
-        // Queue the change for sync inside the same serialized section.
-        try {
-          await db.put('sync_queue', {
-            id: `sync_inv_${next.id}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-            type: 'inventory',
-            action: 'update',
-            data: next,
-            timestamp: now,
-            synced: 0,
-          });
-        } catch (e) {
-          console.warn('[inventory] sync_queue stock delta failed:', e);
-        }
         return next;
       });
     });
 
     if (!updated) return null;
 
-    // Cloud-first push (same pattern as update()).
+    // Server-side atomic delta. We deliberately do NOT queue an absolute-value
+    // sync_queue row: that row is exactly what used to clobber a concurrent
+    // tablet's deduction.
     try {
-      const { cloudUpsert, ackSyncQueueForEntity } = await import('./cloudConfig');
-      const ok = await cloudUpsert('inventory', updated.id, updated);
-      if (ok) await ackSyncQueueForEntity(updated.id);
-      else void syncService.syncPendingData();
-    } catch {
-      void syncService.syncPendingData();
+      const { applyServerStockDeltas } = await import('./cloudConfig');
+      const results = await applyServerStockDeltas([
+        { opId, itemId: updated.id, delta, referenceId },
+      ]);
+
+      if (results === null) {
+        // Offline / worker unreachable. Park the DELTA so it replays on reconnect.
+        queuePendingStockDelta({ opId, itemId: updated.id, delta, referenceId });
+        return updated;
+      }
+
+      const outcome = results.find((r) => r.itemId === updated.id) || results[0];
+
+      if (outcome && outcome.ok && typeof outcome.stock === 'number') {
+        // Adopt the server's value — it accounts for deltas from other tablets that
+        // landed between our local read and this call. This is the step that
+        // actually stops the drift.
+        if (outcome.stock !== updated.stock) {
+          const reconciled = await enqueueWrite(async () =>
+            withDB(async (db) => {
+              const fresh = (await db.get('inventory', updated.id)) as
+                | InventoryItem
+                | undefined;
+              if (!fresh || fresh.deletedAt) return null;
+              const next: InventoryItem = {
+                ...fresh,
+                stock: outcome.stock as number,
+                updatedAt: new Date().toISOString(),
+              };
+              await db.put('inventory', next);
+              return next;
+            })
+          );
+          if (reconciled) return reconciled;
+        }
+        return updated;
+      }
+
+      // `not_found` means the server has no such row (local-only item, or one we
+      // resolved by name). Fall back to the legacy absolute upsert for THAT case
+      // only — there is no concurrent server-side row to clobber.
+      if (outcome && !outcome.ok && outcome.reason === 'not_found') {
+        const { cloudUpsert } = await import('./cloudConfig');
+        void cloudUpsert('inventory', updated.id, updated).catch(() => {
+          void syncService.syncPendingData();
+        });
+        return updated;
+      }
+
+      // Anything else (invalid_op) is a client bug — surface it rather than
+      // silently papering over it with an absolute write.
+      console.warn('[inventory] server stock delta rejected:', outcome);
+      return updated;
+    } catch (e) {
+      console.warn('[inventory] stock delta push failed, queued for replay:', e);
+      queuePendingStockDelta({ opId, itemId: updated.id, delta, referenceId });
+      return updated;
     }
-    return updated;
+  },
+
+  /** Replay stock deltas parked while offline. Safe to call repeatedly. */
+  async flushPendingStockDeltas(): Promise<number> {
+    return flushPendingStockDeltas();
   },
 
   async deductStock(itemId: string, quantityDeducted: number, notes?: string, referenceId?: string): Promise<void> {
@@ -531,7 +692,7 @@ export const inventoryService = {
         }
         return;
       }
-      const target = await this.applyStockDelta(itemId, -quantityDeducted);
+      const target = await this.applyStockDelta(itemId, -quantityDeducted, referenceId || 'POS-SALE');
       if (target) {
         await this.createTransaction({
           itemId: target.id,
@@ -553,7 +714,7 @@ export const inventoryService = {
   async restoreStock(itemId: string, quantityRestored: number, notes?: string, referenceId?: string): Promise<void> {
     try {
       if (quantityRestored <= 0) return;
-      const target = await this.applyStockDelta(itemId, quantityRestored);
+      const target = await this.applyStockDelta(itemId, quantityRestored, referenceId || 'POS-RESTORE');
       if (target) {
         await this.createTransaction({
           itemId: target.id,

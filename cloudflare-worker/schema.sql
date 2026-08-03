@@ -166,3 +166,21 @@ CREATE INDEX IF NOT EXISTS idx_settings_key        ON settings(key);
 CREATE INDEX IF NOT EXISTS idx_recipes_menu        ON recipes(menu_item_id);
 CREATE INDEX IF NOT EXISTS idx_inv_tx_item         ON inventory_transactions(item_id);
 CREATE INDEX IF NOT EXISTS idx_snapshots_branch    ON snapshots(branch_id);
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- v15: idempotency ledger for server-side atomic stock deltas
+-- Existing databases: cloudflare-worker/schema-migrate-v15.sql
+-- ─────────────────────────────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS stock_delta_ops (
+  op_id TEXT PRIMARY KEY,
+  item_id TEXT NOT NULL,
+  delta REAL NOT NULL,
+  resulting_stock REAL,
+  reference_id TEXT,
+  branch_id TEXT,
+  created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_stock_delta_ops_created ON stock_delta_ops(created_at);
+CREATE INDEX IF NOT EXISTS idx_stock_delta_ops_item    ON stock_delta_ops(item_id);
