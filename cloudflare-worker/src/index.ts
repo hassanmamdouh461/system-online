@@ -18,6 +18,35 @@ interface Env {
 }
 
 // Incremental-sync column per table (names are inconsistent across tables).
+/**
+ * NULL-safe last-writer-wins clause.
+ *
+ * The original guard was `WHERE excluded.<col> > <table>.<col>`. That is correct
+ * only while BOTH sides are non-NULL. A stored row whose updated-at is NULL (any
+ * order created by a client that did not stamp updatedAt) made the comparison
+ * evaluate to NULL — not TRUE — so the conflict update was dropped and the row
+ * became permanently unwritable. Allowing the write when the STORED value is
+ * unknown restores progress, and because the write then stamps a real timestamp,
+ * normal freshness ordering resumes from that point on. Terminal states stay
+ * protected by applyRefundLatch and the settled-order rule, not by this clause.
+ */
+function freshnessClause(table: string, col: string): string {
+  return ` WHERE ${table}.${col} IS NULL OR excluded.${col} > ${table}.${col}`;
+}
+
+/**
+ * Backfill a missing updated-at on an INCOMING payload so the stored row never
+ * goes back to NULL. Derived from the payload's own timestamps (never the server
+ * clock) so a genuinely old copy cannot promote itself to "newest".
+ */
+function backfillUpdatedAt(table: string, row: any): void {
+  const col = UPDATED_AT_COLUMN[table];
+  if (!col) return;
+  if (row[col]) return;
+  const fallback = row.paidAt || row.paid_at || row.createdAt || row.created_at;
+  if (fallback) row[col] = fallback;
+}
+
 const UPDATED_AT_COLUMN: Record<string, string> = {
   menu_items: "updated_at",
   orders: "updatedAt",
@@ -549,9 +578,7 @@ export default {
             // when the incoming row is strictly newer than the stored one. The
             // INSERT path (genuinely new id) is unaffected.
             const updatedAtCol = UPDATED_AT_COLUMN[table];
-            const freshness = updatedAtCol
-              ? ` WHERE excluded.${updatedAtCol} > ${table}.${updatedAtCol}`
-              : "";
+            const freshness = updatedAtCol ? freshnessClause(table, updatedAtCol) : "";
 
             const sql = `
               INSERT INTO ${table} (${columns})
@@ -850,9 +877,7 @@ export default {
 
         // Last-writer-wins freshness guard — see the /api/sync upsert above.
         const updatedAtCol = UPDATED_AT_COLUMN[table];
-        const freshness = updatedAtCol
-          ? ` WHERE excluded.${updatedAtCol} > ${table}.${updatedAtCol}`
-          : "";
+        const freshness = updatedAtCol ? freshnessClause(table, updatedAtCol) : "";
 
         const sql = `
           INSERT INTO ${table} (${columns})
@@ -1274,6 +1299,12 @@ function normalizeData(table: string, data: any) {
     if (!normalized.kind) normalized.kind = 'auto';
     delete normalized.branchId;
   }
+
+  // Runs LAST, after the per-table camel→snake renames, so it stamps whichever
+  // column name this table actually stores. Older clients that never send an
+  // updated-at would otherwise keep inserting NULL rows that the freshness guard
+  // can never update again.
+  backfillUpdatedAt(table, normalized);
 
   return normalized;
 }

@@ -45,8 +45,25 @@ console.log("\n1) upsert freshness guard is wired to UPDATED_AT_COLUMN");
 
 ok(code.includes("const updatedAtCol = UPDATED_AT_COLUMN[table]"), "looks up the table's updated-at column");
 ok(
-  code.includes("WHERE excluded.${updatedAtCol} > ${table}.${updatedAtCol}"),
+  code.includes("excluded.${col} > ${table}.${col}"),
   "conflict update is gated on strictly-newer incoming updated_at"
+);
+
+// The guard MUST be NULL-safe. `excluded.col > table.col` alone evaluates to
+// NULL (never TRUE) when the stored value is NULL, so any row inserted without
+// an updated-at became permanently unwritable: payments, refunds, cancellations
+// and status changes all answered 200 {stale:true} while D1 kept the old copy.
+ok(
+  code.includes("${table}.${col} IS NULL OR"),
+  "stored NULL updated_at does not freeze the row (NULL-safe clause)"
+);
+ok(
+  code.includes("function backfillUpdatedAt"),
+  "incoming payloads missing updated_at are backfilled so stored rows never go NULL"
+);
+ok(
+  /backfillUpdatedAt\(table, normalized\)/.test(code),
+  "backfill runs inside normalizeData, after the camel→snake renames"
 );
 
 console.log("\n2) both upsert paths carry the guard");

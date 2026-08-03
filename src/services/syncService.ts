@@ -238,6 +238,31 @@ export class SyncService {
       }
 
       if (response.ok) {
+        // A 200 is NOT proof the row was written. When the Worker's freshness
+        // guard rejects the conflict update it answers
+        // `200 { success: true, stale: true }` and D1 keeps the OLD row. Acking
+        // the queue row here retired writes that never landed — a cash payment
+        // stayed "Unpaid" in the cloud forever while the till showed it paid.
+        // The direct-upsert path already reported this (cloudUpsertWithOutcome);
+        // the queue path did not. Keep it retryable and surface it instead.
+        const stale = await response
+          .clone()
+          .json()
+          .then((b: any) => b?.stale === true)
+          .catch(() => false);
+        if (stale) {
+          const msg =
+            'الكتابة اترفضت من السيرفر لوجود نسخة أحدث — لسه بيحاول (لم تُحفظ في السحاب)';
+          this.lastError = msg;
+          console.warn(
+            '[SyncService] Write discarded by the server freshness guard:',
+            record.type,
+            record.action,
+            record.data?.id
+          );
+          await this.scheduleRetry(record, msg);
+          return;
+        }
         await withDB(async (db) => {
           record.synced = 1;
           record.syncedAt = new Date().toISOString();
