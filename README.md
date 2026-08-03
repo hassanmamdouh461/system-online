@@ -19,7 +19,6 @@
 ## ✨ Features
 
 ### 🏪 Business Features
-- **Live Kanban Board** — Visual order pipeline: `New → Preparing → Ready → Completed`. Open it from the **Kitchen Board** tab on the Orders screen; tapping a card advances the order to the next stage.
 - **Smart Payment Flow** — Cashier screen with unpaid/paid lists, cash/card tracking
 - **POS Cashier** — Create orders, optional customer phone, print tickets
 - **Customers & Companies** — Profiles, tags, affiliation, transaction history
@@ -37,7 +36,6 @@
 - **Bounded retries** — Exponential backoff on failed sync (no infinite hammering)
 - **Smart Auth** — Remember Me via `localStorage` / `sessionStorage`
 - **Framer Motion** animations for cards, modals, and page transitions
-- **Performance-optimized Kanban** — single-pass `useMemo` grouping
 
 ---
 
@@ -51,13 +49,13 @@ Most café POS systems treat *"order status"* and *"payment status"* as the same
 
 ```
 ┌─────────────────────────────────┐     ┌──────────────────────────────────┐
-│         KITCHEN FLOW            │     │          FINANCIAL FLOW           │
+│         ORDER FLOW              │     │          FINANCIAL FLOW           │
 │    (Operational / Workflow)     │     │       (Accounting / Revenue)      │
 │                                 │     │                                   │
 │   New ──► Preparing ──► Ready   │     │      Unpaid ────────► Paid        │
 │                                 │     │                                   │
-│  Managed by: Kitchen Staff      │     │  Managed by: Cashier              │
-│  Lives on:   Orders Page        │     │  Lives on:   Payment Page         │
+│  Status field on every order    │     │  Managed by: Cashier              │
+│  (no on-screen kitchen board)   │     │  Lives on:   Payment Page         │
 └─────────────────────────────────┘     └──────────────────────────────────┘
 ```
 
@@ -89,9 +87,9 @@ Orders must never disappear if the tab closes mid-write or the cloud endpoint is
 - Successful sync records retained 24h then cleaned up
 - Local data remains source of truth even when Worker is unreachable
 
-### 2. Kanban Performance — Single-Pass `useMemo` Grouping
+### 2. Order Grouping Performance — Single-Pass `useMemo`
 
-The initial board used three `Array.filter()` calls (`O(3n)`). Replaced with one `reduce()` pass:
+Historical: while the kitchen board existed it grouped orders with three `Array.filter()` calls (`O(3n)`), replaced with one `reduce()` pass. The board has since been removed at the operator's request; the same single-pass pattern is still used elsewhere for list grouping:
 
 ```typescript
 const groupedOrders = useMemo(() => {

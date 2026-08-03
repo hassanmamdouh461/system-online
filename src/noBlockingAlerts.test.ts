@@ -33,7 +33,11 @@ const GUARDED = [
   'components/orders/POSView.tsx',
   'components/payment/PaymentModal.tsx',
   'pages/ManagerDashboard.tsx',
-  'pages/Orders.tsx',
+  // pages/Orders.tsx was guarded here while it owned the kitchen board's
+  // cancel/advance dialogs. That board was removed on the operator's request,
+  // leaving the page a thin wrapper that renders POSView (guarded above) and
+  // nothing else — it no longer speaks to the operator, so it has no Toast to
+  // wire up and no dialog to police.
   'pages/Payment.tsx',
 ];
 
