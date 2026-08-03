@@ -31,16 +31,53 @@ function cleanUrl(raw: string | undefined | null): string {
   return url;
 }
 
+/**
+ * The production Worker, used as a last-resort fallback in production builds only.
+ *
+ * WHY THIS IS NOT SIMPLY THE DEFAULT ANY MORE
+ * This constant used to be returned before the localStorage override was even
+ * consulted, in every mode including `npm run dev`. Two consequences:
+ *
+ *   1. A developer running the app locally with no VITE_CLOUDFLARE_WORKER_URL set
+ *      was silently pointed at the LIVE production D1 database. Local
+ *      experimentation — creating test orders, editing the menu, triggering a
+ *      sync — wrote to real business data, with nothing in the UI indicating it.
+ *      The only reason this had not already caused damage is that CORS on the
+ *      production Worker rejects unknown origins: an unrelated safety net in a
+ *      different system was the sole thing standing between a dev session and the
+ *      real till's data.
+ *   2. Because it was checked BEFORE localStorage, the operator-facing worker-URL
+ *      override could never take effect — whatever was stored, this constant won.
+ *
+ * Resolution order is now: env var → stored override → (production only) this
+ * built-in. Dev never reaches for production.
+ */
+const BUILTIN_PRODUCTION_WORKER = 'https://api.engaz.tech';
+
+/** True under `npm run dev` and vitest; false in a production `vite build`. */
+function isDevEnvironment(): boolean {
+  try {
+    return import.meta.env.DEV === true;
+  } catch {
+    return false;
+  }
+}
+
+let warnedAboutMissingWorkerUrl = false;
+
+/**
+ * Resolve the Cloudflare Worker base URL.
+ *
+ * Order: VITE_CLOUDFLARE_WORKER_URL → stored operator override → built-in
+ * production Worker (production builds only). Returns '' when nothing resolves,
+ * which callers already treat as "stay local-only".
+ */
 export function getWorkerUrl(): string {
   const fromEnv = cleanUrl(import.meta.env.VITE_CLOUDFLARE_WORKER_URL as string | undefined);
   if (fromEnv) return fromEnv;
 
-  // Built-in production worker — baked in so a plain `npm run build` works
-  // out of the box on every device without exporting VITE_CLOUDFLARE_WORKER_URL.
-  // Any explicit env var or stored override still wins.
-  const fromBuiltin = cleanUrl('https://api.engaz.tech');
-  if (fromBuiltin) return fromBuiltin;
-
+  // The operator's stored override now outranks the built-in constant, so the
+  // setting actually does something.
   if (typeof window !== 'undefined') {
     try {
       const stored = cleanUrl(localStorage.getItem('brewmaster_d1_worker_url'));
@@ -49,7 +86,46 @@ export function getWorkerUrl(): string {
       // ignore
     }
   }
+
+  if (isDevEnvironment()) {
+    // Loud, once per session: an unconfigured dev build stays local instead of
+    // silently attaching itself to the production database.
+    if (!warnedAboutMissingWorkerUrl) {
+      warnedAboutMissingWorkerUrl = true;
+      console.error(
+        '[cloudConfig] VITE_CLOUDFLARE_WORKER_URL is not set. Cloud sync is DISABLED for this ' +
+          'dev session (the app stays local-only).\n' +
+          'This is deliberate: dev builds no longer fall back to the production Worker, because ' +
+          'that pointed local testing at the live D1 database.\n' +
+          'To use a Worker locally, set VITE_CLOUDFLARE_WORKER_URL in .env.local — point it at ' +
+          'your own `wrangler dev` instance or a staging Worker.'
+      );
+    }
+    return '';
+  }
+
+  // Production build with no explicit configuration: keep an existing deployment
+  // working, but say so clearly, because a hardcoded hostname is not a
+  // configuration anyone actually chose.
+  const fromBuiltin = cleanUrl(BUILTIN_PRODUCTION_WORKER);
+  if (fromBuiltin) {
+    if (!warnedAboutMissingWorkerUrl) {
+      warnedAboutMissingWorkerUrl = true;
+      console.warn(
+        '[cloudConfig] VITE_CLOUDFLARE_WORKER_URL was not set at build time; falling back to the ' +
+          `built-in Worker ${fromBuiltin}. Set VITE_CLOUDFLARE_WORKER_URL when building so the ` +
+          'backend is an explicit deployment choice rather than a hardcoded default.'
+      );
+    }
+    return fromBuiltin;
+  }
+
   return '';
+}
+
+/** Test-only: reset the once-per-session warning latch. */
+export function resetWorkerUrlWarningForTests(): void {
+  warnedAboutMissingWorkerUrl = false;
 }
 
 /**
