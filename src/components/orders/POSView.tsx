@@ -17,6 +17,7 @@ import { OrderItem, Order } from '../../types/order';
 import { useLanguage } from '../../context/LanguageContext';
 import { Coffee, Trash2, Plus, Minus, CreditCard, DollarSign, Check, XCircle, Printer, Search, Settings, RotateCcw, X, BookUser, UserRound, Users } from 'lucide-react';
 import { clsx } from 'clsx';
+import { needsStaffSelection } from '../../utils/staffAttribution';
 import { printAllOrderTickets } from '../../utils/printReceipts';
 import { CustomerLookupStep, CustomerLookupResult } from '../payment/CustomerLookupStep';
 import { Customer } from '../../types/customer';
@@ -347,6 +348,19 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
   const triggerCheckout = (action: 'save' | 'print') => {
     if (invoiceItems.length === 0) {
       alert(t('Please add items to invoice first'));
+      return;
+    }
+
+    // Every invoice must name the cashier who took it. Enforced only while the
+    // branch actually HAS staff: an empty list must never stop the sale, it
+    // just means nobody has been added yet.
+    if (needsStaffSelection(staffList, selectedStaff)) {
+      alert(
+        isRtl
+          ? 'اختر الموظف المسؤول عن الطلب قبل إتمام الفاتورة'
+          : 'Select the staff member responsible for this order before completing the invoice'
+      );
+      setIsStaffPickerOpen(true);
       return;
     }
 
