@@ -29,6 +29,7 @@ import { companiesService } from '../services/companiesService';
 import { formatOrderNumber } from '../utils/orderNumber';
 import { getOrderGrandTotal, getOrderMoney } from '../types/order';
 import { invoiceTotalCount, sharePercent, shareWidth } from '../utils/dashboardCounts';
+import { downloadCsv, csvFilename, type CsvRow } from '../utils/exportCsv';
 import { RevenueAreaChart } from '../components/ui/RevenueAreaChart';
 import {
   addMoney,
@@ -162,6 +163,15 @@ export default function ManagerDashboard() {
   });
 
   const [activeTab, setActiveTab] = useState<'analytics' | 'menu' | 'inventory' | 'customers' | 'settings'>('analytics');
+
+  // Component-scoped so both the Telegram report and the CSV export label the
+  // period identically (it used to be declared inside the Telegram handler).
+  const periodNames: Record<AnalyticsPeriod, string> = {
+    'Today': language === 'ar' ? 'اليوم' : 'Today',
+    'This Week': language === 'ar' ? 'هذا الأسبوع' : 'This Week',
+    'This Month': language === 'ar' ? 'هذا الشهر' : 'This Month',
+    'This Year': language === 'ar' ? 'هذا العام' : 'This Year',
+  };
 
   // Unified Analytics & Inventory State
   const analytics = useAnalytics(dateRange);
@@ -325,12 +335,6 @@ export default function ManagerDashboard() {
 
     if (activeTab === 'analytics') {
       // 📑 REPORT 1: SALES & ANALYTICS REPORT
-      const periodNames: Record<AnalyticsPeriod, string> = {
-        'Today': language === 'ar' ? 'اليوم' : 'Today',
-        'This Week': language === 'ar' ? 'هذا الأسبوع' : 'This Week',
-        'This Month': language === 'ar' ? 'هذا الشهر' : 'This Month',
-        'This Year': language === 'ar' ? 'هذا العام' : 'This Year'
-      };
       const activePeriodLabel = periodNames[dateRange] || dateRange;
 
       // Filter orders matching current dateRange (single-branch system).
@@ -456,6 +460,74 @@ export default function ManagerDashboard() {
       alert(language === 'ar' ? 'تم إرسال تقرير الفترة المحددة للتليجرام بنجاح!' : 'Report for the selected period sent successfully to Telegram!');
     } catch(err: any) {
       alert(`${language === 'ar' ? 'فشل الإرسال: ' : 'Send failed: '}${err.message || 'خطأ غير معروف'}`);
+    }
+  };
+
+  /**
+   * Download the selected period as a CSV file.
+   *
+   * The button that calls this used to be wired to window.print() while wearing a
+   * Download icon and the label "تصدير" — no file, no message, nothing. A manager
+   * who wanted the numbers in Excel got a print dialog at best.
+   *
+   * Reads the same processedData / analytics values the cards on screen display, so
+   * the file always agrees with the dashboard. No money arithmetic here: values are
+   * formatted, never recomputed.
+   */
+  const handleExportCsv = () => {
+    const periodLabel = periodNames[dateRange] || dateRange;
+    const rows: CsvRow[] = [];
+
+    rows.push([language === 'ar' ? 'تقرير الفترة' : 'Period report', periodLabel]);
+    rows.push([language === 'ar' ? 'وقت التصدير' : 'Exported at', new Date().toLocaleString()]);
+    rows.push([]);
+
+    rows.push([language === 'ar' ? 'البيان' : 'Metric', language === 'ar' ? 'القيمة' : 'Value']);
+    rows.push([language === 'ar' ? 'الإيراد المحصّل' : 'Collected revenue', formatMoney(processedData.totalRevenue)]);
+    rows.push([language === 'ar' ? 'المستحقات (آجل/غير مدفوع)' : 'Receivables', formatMoney(processedData.unpaidAmount)]);
+    rows.push([language === 'ar' ? 'نقداً' : 'Cash', formatMoney(processedData.cashAmount)]);
+    rows.push([language === 'ar' ? 'بطاقة' : 'Card', formatMoney(processedData.cardAmount)]);
+    rows.push([language === 'ar' ? 'عدد الطلبات' : 'Orders', processedData.totalOrdersCount]);
+    rows.push([language === 'ar' ? 'فواتير مدفوعة' : 'Paid invoices', processedData.paidCount]);
+    rows.push([language === 'ar' ? 'فواتير معلقة' : 'Open invoices', processedData.unpaidCount]);
+    rows.push([language === 'ar' ? 'متوسط الفاتورة' : 'Average ticket', formatMoney(processedData.avgOrderValue)]);
+    rows.push([]);
+
+    rows.push([
+      language === 'ar' ? 'رقم الفاتورة' : 'Invoice',
+      language === 'ar' ? 'التاريخ' : 'Date',
+      language === 'ar' ? 'الطاولة' : 'Table',
+      language === 'ar' ? 'الحالة' : 'Status',
+      language === 'ar' ? 'حالة الدفع' : 'Payment status',
+      language === 'ar' ? 'طريقة الدفع' : 'Payment method',
+      language === 'ar' ? 'العميل' : 'Customer',
+      language === 'ar' ? 'الكاشير' : 'Cashier',
+      language === 'ar' ? 'الإجمالي' : 'Total',
+    ]);
+    for (const order of analytics.periodOrders) {
+      rows.push([
+        formatOrderNumber(order),
+        new Date(order.createdAt).toLocaleString(),
+        order.tableId,
+        order.status,
+        order.paymentStatus,
+        order.paymentMethod || '',
+        order.customerName || order.companyName || '',
+        order.cashierName || '',
+        formatMoney(getOrderGrandTotal(order, taxRate)),
+      ]);
+    }
+
+    const ok = downloadCsv(csvFilename(`report-${dateRange}`), rows);
+    if (ok) {
+      toast.success(language === 'ar' ? 'تم تنزيل ملف CSV 📄' : 'CSV file downloaded 📄');
+    } else {
+      // Never fail silently, which is exactly what the old button did.
+      toast.error(
+        language === 'ar'
+          ? 'تعذّر تنزيل الملف على هذا الجهاز — جرّب متصفح تاني'
+          : 'Could not download the file on this device — try another browser'
+      );
     }
   };
 
@@ -983,13 +1055,28 @@ export default function ManagerDashboard() {
               <span className="whitespace-nowrap">{language === 'ar' ? 'تليجرام' : 'Telegram'}</span>
             </button>
 
-            {/* Print Report */}
+            {/*
+              Two distinct actions. These used to be ONE button labelled "تصدير"
+              with a Download icon that called window.print() — so it produced no
+              file and no feedback. Export now downloads a CSV; printing is its own
+              button with a printer icon.
+            */}
             <button
-              onClick={() => window.print()}
+              onClick={handleExportCsv}
               className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 sm:py-2.5 bg-gray-900 hover:bg-black text-white rounded-xl text-[11px] sm:text-xs md:text-sm font-bold transition-all active:scale-95 shadow-sm"
+              title={language === 'ar' ? 'تنزيل بيانات الفترة كملف CSV' : 'Download the period as a CSV file'}
             >
               <Download size={14} className="shrink-0" />
               <span className="whitespace-nowrap">{t('Export')}</span>
+            </button>
+
+            <button
+              onClick={() => window.print()}
+              className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 sm:py-2.5 bg-white hover:bg-gray-50 text-gray-900 border border-gray-200 rounded-xl text-[11px] sm:text-xs md:text-sm font-bold transition-all active:scale-95 shadow-sm"
+              title={language === 'ar' ? 'طباعة التقرير' : 'Print the report'}
+            >
+              <Printer size={14} className="shrink-0" />
+              <span className="whitespace-nowrap">{language === 'ar' ? 'طباعة' : 'Print'}</span>
             </button>
           </div>
         )}
