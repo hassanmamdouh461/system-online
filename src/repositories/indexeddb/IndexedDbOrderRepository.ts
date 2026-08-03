@@ -476,11 +476,22 @@ export class IndexedDbOrderRepository implements IOrderRepository {
         // Soft-delete: write a tombstone row instead of hard-deleting.
         // This prevents cloud hydrate from resurrecting the order.
         const existing = await db.get('orders', id) as Order | undefined;
+        // The tombstone's updatedAt MUST be strictly newer than the row it
+        // replaces. D1's upsert freshness guard is
+        // `excluded.updatedAt > orders.updatedAt`, so a delete that lands in the
+        // same millisecond as the write before it (refund → delete is one click
+        // apart, and clocks drift between devices) is silently discarded — the
+        // order then reappears the moment the cache is cleared and hydrate pulls
+        // the still-undeleted row back from D1.
+        const prevUpdated = existing?.updatedAt ? new Date(existing.updatedAt).getTime() : 0;
+        const stamp = Number.isFinite(prevUpdated) && prevUpdated >= Date.parse(now)
+          ? new Date(prevUpdated + 1000).toISOString()
+          : now;
         tombstone = {
           ...(existing || {} as Order),
           id,
-          deletedAt: now,
-          updatedAt: now,
+          deletedAt: stamp,
+          updatedAt: stamp,
         };
         await db.put('orders', tombstone);
         // Push tombstone as an update so D1 also marks it deleted.
