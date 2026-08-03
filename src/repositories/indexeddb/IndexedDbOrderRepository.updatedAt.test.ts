@@ -27,7 +27,7 @@ const src = readFileSync(resolve(__dirname, './IndexedDbOrderRepository.ts'), 'u
 
 /** Body of `async create(...)` up to the start of the next method. */
 function createBody(): string {
-  const match = src.match(/async create\([\s\S]*?\n  async /);
+  const match = src.match(/async create\([\s\S]*?\n {2}async /);
   expect(match, 'create() method found in the repository source').not.toBeNull();
   return match![0];
 }
