@@ -284,7 +284,17 @@ export default {
               "SELECT id, name, price, category, description, image FROM menu_items WHERE (deleted_at IS NULL OR deleted_at = '') AND available = 1"
             )
             .all();
-          const documents = (results || []).map((row) => denormalizeData("menu_items", row));
+          // Every row here already matched `available = 1`, but the guest-safe
+          // SELECT deliberately omits that column (see the public-menu-minimal
+          // test). denormalizeData therefore sees `undefined` and emits
+          // `available: false`, and the QR page drops anything non-available —
+          // which silently blanked the entire customer-facing menu. Presence in
+          // this payload IS the availability signal, so state it explicitly
+          // instead of widening the SELECT back out.
+          const documents = (results || []).map((row) => ({
+            ...denormalizeData("menu_items", row),
+            available: true,
+          }));
           return new Response(JSON.stringify({ documents }), {
             status: 200,
             headers: {

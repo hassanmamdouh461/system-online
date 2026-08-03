@@ -12,7 +12,13 @@ function mapPublicMenuDoc(doc: any): MenuItem {
     category: doc.category || 'عام',
     description: doc.description,
     image: doc.image,
-    available: doc.available !== false && doc.available !== 0,
+    // `/public/menu` only ever returns available items — the WHERE clause
+    // guarantees it — so a missing flag means "the guest-safe projection did
+    // not carry the column", NOT "unavailable". Treating absent as false made
+    // the whole QR menu render empty against a worker that omits it.
+    available: doc.available === undefined || doc.available === null
+      ? true
+      : doc.available !== false && doc.available !== 0,
     branchId: doc.branch_id || doc.branchId,
     createdAt: doc.created_at || doc.createdAt,
     updatedAt: doc.updated_at || doc.updatedAt,
