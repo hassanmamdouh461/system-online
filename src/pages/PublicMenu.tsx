@@ -43,6 +43,50 @@ const ITEM_TRANSLATIONS: Record<string, { name: string; desc: string }> = {
   'passion fruit mojito': { name: 'موهيتو باشون فروت', desc: 'مزيج منعش من الليمون والنعناع الطازج والباشون فروت والصودا.' }
 };
 
+/**
+ * Bucket for items whose menu category is blank or unusable.
+ *
+ * Deliberately a visible tab rather than a filter: an item the customer cannot
+ * see is a sale that cannot happen, so an uncategorised item shown under "أخرى"
+ * is strictly better than a correctly-categorised item hidden from the menu.
+ */
+const UNCATEGORISED = 'أخرى';
+
+/**
+ * The category a public-menu item belongs under.
+ *
+ * Menu categories are stored as `MenuCategory|PrepDestination` (e.g.
+ * "Hot Coffee|Bar", "ساندوتشات|Kitchen"), which is what the menu editor writes.
+ * The part before the pipe is the operator's own category name — the editor
+ * offers no fixed vocabulary, it collects the categories already present on
+ * items and lets the operator add new ones. So the only correct behaviour here
+ * is to read that value, never to infer it.
+ *
+ * WHY THIS FUNCTION EXISTS
+ * This page used to do two things instead:
+ *
+ *   1. `smartCategorize()` re-derived every item's category by matching English
+ *      keywords ('frappe', 'iced', 'milkshake') against the item name, with a
+ *      final `else` that stamped anything unmatched as 'Hot Coffee|Bar'. An
+ *      Arabic-named item matches no English keyword, so every sandwich, dessert
+ *      and side on the menu was relabelled as hot coffee and served to the
+ *      customer under that heading.
+ *   2. The category list then EXCLUDED 'Kitchen', 'General' and 'Bar', while the
+ *      item filter matched on exact category equality. Any item whose menu
+ *      category was one of those three therefore had no tab to appear under and
+ *      was invisible to the customer — silently absent from the menu, with no
+ *      empty state and nothing in the UI to indicate anything was missing.
+ *
+ * Both behaviours are gone. Every available item now appears under the category
+ * the operator actually assigned it.
+ */
+function publicMenuCategory(item: MenuItem): string {
+  const raw = (item.category || '').split('|')[0]?.trim() || '';
+  // 'All' is a POS filter pseudo-category, never a real menu category.
+  if (!raw || raw === 'All') return UNCATEGORISED;
+  return raw;
+}
+
 export default function PublicMenu() {
   const [items, setItems] = useState<MenuItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -51,58 +95,20 @@ export default function PublicMenu() {
   const [selectedCategory, setSelectedCategory] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Smart categorize an item based on its name if it has old-format category
-  const smartCategorize = (item: MenuItem): MenuItem => {
-    const cat = item.category || '';
-    if (cat.includes('|')) {
-      const menuCat = cat.split('|')[0];
-      if (menuCat !== 'Bar' && menuCat !== 'Kitchen' && menuCat !== 'All' && menuCat !== 'ساندوتشات' && menuCat !== 'مقبلات' && menuCat !== 'حلويات') {
-        return item; // Already good
-      }
-    }
-    
-    const nameLower = (item.name || '').toLowerCase();
-    let menuCategory = 'Hot Coffee';
-    const prepDest = 'Bar';
-    
-    const frappeKw = ['frappe', 'frappé'];
-    const milkshakeKw = ['milkshake', 'milk shake'];
-    const icedKw = ['iced', 'cold brew', 'cold', 'mint lemonade', 'peach iced', 'passion fruit', 'mojito', 'lemonade'];
-    
-    if (frappeKw.some(k => nameLower.includes(k))) {
-      menuCategory = 'Frappe';
-    } else if (milkshakeKw.some(k => nameLower.includes(k))) {
-      menuCategory = 'Milkshakes';
-    } else if (icedKw.some(k => nameLower.includes(k))) {
-      menuCategory = 'Iced Coffee';
-    } else {
-      menuCategory = 'Hot Coffee';
-    }
-    
-    return { ...item, category: `${menuCategory}|${prepDest}` };
-  };
-
   // Only consider items that are available (available !== false)
   const availableItems = React.useMemo(() => {
     return items.filter(item => item.available !== false);
   }, [items]);
 
   const drinksCategories = React.useMemo(() => {
-    const unique = new Set<string>();
-    
-    availableItems.forEach(item => {
-      const parts = item.category ? item.category.split('|') : [];
-      const menuCat = parts[0] || '';
-      if (menuCat && menuCat !== 'All' && menuCat !== 'Kitchen' && menuCat !== 'General' && menuCat !== 'Bar') {
-        unique.add(menuCat);
-      }
-    });
-
-    const defaults = ['Hot Coffee', 'Iced Coffee', 'Frappe', 'Milkshakes'];
-    if (availableItems.length === 0) return defaults;
-
-    const list = Array.from(unique);
-    return list.length > 0 ? list : defaults;
+    // Preserve first-seen order so the tab order follows the menu's own order
+    // rather than an arbitrary alphabetical or hardcoded sequence.
+    const unique: string[] = [];
+    for (const item of availableItems) {
+      const cat = publicMenuCategory(item);
+      if (!unique.includes(cat)) unique.push(cat);
+    }
+    return unique;
   }, [availableItems]);
 
   const activeCategories = React.useMemo(() => {
@@ -117,9 +123,10 @@ export default function PublicMenu() {
     async function loadMenu() {
       try {
         setLoading(true);
+        // Stored categories are used exactly as the menu editor wrote them.
+        // Nothing is re-derived from the item name here.
         const fetchedItems = await menuService.getPublicMenu();
-        const categorizedItems = fetchedItems.map(smartCategorize);
-        setItems(categorizedItems);
+        setItems(fetchedItems);
       } catch (err) {
         console.error('Error fetching public menu:', err);
         setError('تعذر تحميل القائمة. يرجى المحاولة مرة أخرى.');
@@ -152,8 +159,9 @@ export default function PublicMenu() {
              arDesc.includes(searchQuery);
     }
 
-    const menuCat = item.category ? item.category.split('|')[0] : '';
-    return menuCat === selectedCategory;
+    // Same helper that builds the tabs, so a tab can never exist without its
+    // items and an item can never exist without a tab.
+    return publicMenuCategory(item) === selectedCategory;
   });
 
   const DRINKS_BG = 'https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?q=80&w=1000';
@@ -355,7 +363,19 @@ export default function PublicMenu() {
                 {/* Empty State */}
                 {filteredItems.length === 0 && (
                   <div className="text-center py-12">
-                    <p className="text-sm font-bold text-mocha-900">لا توجد أصناف في هذا القسم حالياً</p>
+                    {/*
+                      Distinguish "the menu is empty" from "this section is
+                      empty". The page used to invent four hardcoded tabs when
+                      there were no items at all, so a completely empty menu
+                      looked like four real-but-empty sections. With the tabs now
+                      derived from real data, an empty menu has no tabs — and it
+                      deserves to say so rather than reuse the per-section text.
+                    */}
+                    <p className="text-sm font-bold text-mocha-900">
+                      {activeCategories.length === 0
+                        ? 'القائمة غير متاحة حالياً'
+                        : 'لا توجد أصناف في هذا القسم حالياً'}
+                    </p>
                   </div>
                 )}
               </div>
