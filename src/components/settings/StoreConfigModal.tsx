@@ -8,6 +8,7 @@ import {
   getStoreConfig,
   setStoreConfig,
 } from '../../utils/settingsConfig';
+import { formatPercent, percentToFraction } from '../../utils/percent';
 
 interface StoreConfigModalProps {
   isOpen: boolean;
@@ -28,7 +29,7 @@ export function StoreConfigModal({ isOpen, onClose }: StoreConfigModalProps) {
 
   useEffect(() => {
     if (isOpen) {
-      setTaxInput(String(getTaxRate() * 100));
+      setTaxInput(formatPercent(getTaxRate()));
       const store = getStoreConfig();
       setStoreName(store.storeName);
       setAddress(store.address);
@@ -60,7 +61,7 @@ export function StoreConfigModal({ isOpen, onClose }: StoreConfigModalProps) {
 
       const rate = parseFloat(taxInput);
       if (!isNaN(rate) && rate >= 0) {
-        outcomes.push(await setTaxRate(rate / 100));
+        outcomes.push(await setTaxRate(percentToFraction(rate)));
       }
 
       // Business-day start hour: clamp to 0–23, fall back to 0 (calendar midnight).

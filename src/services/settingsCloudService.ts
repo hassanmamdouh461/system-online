@@ -12,6 +12,7 @@ import {
   refreshCloudSessionRole,
 } from './cloudConfig';
 import { withDB, enqueueWrite, SyncRecord } from '../repositories/indexeddb/db';
+import { markSettingsHydrationSettled } from './settingsHydration';
 import { syncService } from './syncService';
 
 /**
@@ -329,6 +330,22 @@ export async function removeSetting(key: string, branchId?: string): Promise<voi
  * Returns number of keys restored.
  */
 export async function hydrateSettingsFromCloud(): Promise<number> {
+  const reachable =
+    isCloudConfigured() && (typeof navigator === 'undefined' || navigator.onLine);
+  let read = false;
+  try {
+    const n = await runSettingsHydrate();
+    read = reachable && n >= 0;
+    return n;
+  } finally {
+    // Tell the durable-list gate that an attempt has finished, and whether it
+    // actually saw the cloud. Until this fires, a device may not upload a list
+    // it only got from its own (possibly empty) cache. See settingsHydration.
+    markSettingsHydrationSettled(read);
+  }
+}
+
+async function runSettingsHydrate(): Promise<number> {
   if (!isCloudConfigured()) return 0;
   if (typeof navigator !== 'undefined' && !navigator.onLine) return 0;
 

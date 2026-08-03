@@ -23,7 +23,12 @@ import { Customer } from '../../types/customer';
 import { Company } from '../../types/company';
 import { companiesService } from '../../services/companiesService';
 import { PaymentMethod, BilledToType, PaymentStatus } from '../../types/order';
-import { persistSetting } from '../../services/settingsCloudService';
+import { useCloudBackedList } from '../../hooks/useCloudBackedList';
+
+/** Fallback table layout for a till that has never seen a real list. */
+const DEFAULT_TABLES = ['1', '2', '3', '4', '5', '6', '7', '8'] as const;
+/** A till with no staff names yet. Module-level so its identity is stable. */
+const EMPTY_STAFF_LIST: readonly string[] = [];
 
 interface POSViewProps {
   menuItems: MenuItem[];
@@ -86,28 +91,27 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
   /** When charging OnAccount: personal customer ledger vs company ledger */
   const [billTo, setBillTo] = useState<'customer' | 'company'>('customer');
 
-  // Dynamic Table Management State
-  const [tables, setTables] = useState<string[]>(() => {
-    try {
-      const saved = localStorage.getItem('pos_tables_list');
-      return saved ? JSON.parse(saved) : ['1', '2', '3', '4', '5', '6', '7', '8'];
-    } catch {
-      return ['1', '2', '3', '4', '5', '6', '7', '8'];
-    }
-  });
+  // Dynamic Table Management State.
+  //
+  // Cloud-backed: seeded from the local cache, reconciled with D1 once the
+  // settings hydrate lands, and uploaded ONLY on a real operator edit. Doing
+  // this from a plain useEffect is what wiped the shop's real table names —
+  // see hooks/useCloudBackedList.
+  const { list: tables, setList: setTables } = useCloudBackedList(
+    'pos_tables_list',
+    DEFAULT_TABLES
+  );
   const [isManageTablesOpen, setIsManageTablesOpen] = useState(false);
   const [newTableName, setNewTableName] = useState('');
 
   // Staff (cashier/waiter) attribution — the selected name is written on the
   // invoice so management can attribute each sale to the right person.
-  const [staffList, setStaffList] = useState<string[]>(() => {
-    try {
-      const saved = localStorage.getItem('pos_staff_list');
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
-  });
+  // Cloud-backed like the table list: an empty staff list is only ever uploaded
+  // when a human emptied it, never because this device has not hydrated yet.
+  const { list: staffList, setList: setStaffList } = useCloudBackedList(
+    'pos_staff_list',
+    EMPTY_STAFF_LIST
+  );
   const [selectedStaff, setSelectedStaff] = useState<string>(() => {
     return localStorage.getItem('pos_selected_staff') || '';
   });
@@ -145,44 +149,12 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
     localStorage.setItem('pos_tableId', tableId);
   }, [tableId]);
 
-  useEffect(() => {
-    localStorage.setItem('pos_tables_list', JSON.stringify(tables));
-    void persistSetting('pos_tables_list', JSON.stringify(tables));
-  }, [tables]);
-
-  useEffect(() => {
-    localStorage.setItem('pos_staff_list', JSON.stringify(staffList));
-    void persistSetting('pos_staff_list', JSON.stringify(staffList));
-  }, [staffList]);
+  // NOTE: the table and staff lists are NOT mirrored/pushed from an effect here.
+  // Effects run on mount, and a mount is not an edit — see useCloudBackedList.
 
   useEffect(() => {
     localStorage.setItem('pos_selected_staff', selectedStaff);
   }, [selectedStaff]);
-
-  // Live-sync the staff list across tills: settings hydrate rewrites
-  // localStorage; pick up changes made on another device without a reload.
-  useEffect(() => {
-    const readStaff = () => {
-      try {
-        const saved = localStorage.getItem('pos_staff_list');
-        const list: string[] = saved ? JSON.parse(saved) : [];
-        setStaffList(prev =>
-          JSON.stringify(prev) === JSON.stringify(list) ? prev : list
-        );
-      } catch {
-        // ignore malformed value
-      }
-    };
-    const onStorage = (e: StorageEvent) => {
-      if (e.key === 'pos_staff_list') readStaff();
-    };
-    window.addEventListener('storage', onStorage);
-    const timer = setInterval(readStaff, 15000);
-    return () => {
-      window.removeEventListener('storage', onStorage);
-      clearInterval(timer);
-    };
-  }, []);
 
   const handleAddTable = (tableNameToAdd?: string) => {
     const target = (tableNameToAdd || newTableName).trim();
@@ -203,7 +175,8 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
   };
 
   const handleResetTables = () => {
-    setTables(['1', '2', '3', '4', '5', '6', '7', '8']);
+    // Explicit operator action, so this one DOES upload the defaults.
+    setTables([...DEFAULT_TABLES]);
   };
 
 
