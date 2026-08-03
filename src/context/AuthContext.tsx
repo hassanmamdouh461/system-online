@@ -6,8 +6,41 @@ import {
   clearCloudSession,
   getSessionRole,
   isCloudConfigured,
+  getLastSessionMintOutcome,
 } from '../services/cloudConfig';
 import { clearRefundPin } from '../utils/refundPin';
+
+/**
+ * Turn a failed login into a message that describes what actually went wrong.
+ *
+ * Every failure used to surface as "كلمة المرور غير صحيحة". That is a lie for
+ * most of them: a cashier locked out by the Worker's per-IP rate limit (429), or
+ * hitting a Worker with no SESSION_SECRET (503), or with the network down, was
+ * told his password was wrong. During the busy hour he would then try other
+ * passwords and reset the credential — and each extra attempt extended the
+ * lockout, when all he had to do was wait a minute.
+ *
+ * Only a genuine refusal, or a purely local failure with no cloud attempt behind
+ * it, may claim the password is wrong.
+ */
+function describeLoginFailure(): string {
+  const outcome = getLastSessionMintOutcome();
+  switch (outcome.kind) {
+    case 'rate_limited':
+      return 'محاولات كتير أوي — استنى دقيقة وجرّب تاني (الباسورد ممكن يكون صح)';
+    case 'server_misconfigured':
+      return 'السيرفر مش مظبوط (SESSION_SECRET ناقص) — كلّم الدعم الفني';
+    case 'server_error':
+      return `السيرفر بيرجّع خطأ (${outcome.status}) — جرّب بعد شوية أو كلّم الدعم`;
+    case 'unreachable':
+      return 'مفيش اتصال بالسيرفر — لو الباسورد صح جرّب تاني لما النت يرجع';
+    case 'rejected':
+    case 'ok':
+    case 'no_attempt':
+    default:
+      return 'كلمة المرور غير صحيحة';
+  }
+}
 
 const LS_SESSION_KEY = 'auth_session_system_online';
 
@@ -108,7 +141,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     if (!isValid) {
-      throw new Error('كلمة المرور غير صحيحة');
+      // Distinguish the cause instead of always blaming the password. A mint that
+      // SUCCEEDED but returned the other role (cashier password typed on the
+      // manager screen) still reports "wrong password", which is correct: the
+      // outcome is 'ok' and only the role match failed.
+      throw new Error(describeLoginFailure());
     }
 
     const userData: User = isManager

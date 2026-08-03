@@ -232,6 +232,53 @@ interface MintResult {
   status?: number;
 }
 
+/**
+ * Why the last session mint failed.
+ *
+ * The login screen used to report EVERY failure as "كلمة المرور غير صحيحة",
+ * because ensureCloudSession() collapses every outcome into a boolean. A cashier
+ * locked out by the per-IP rate limit (429), or hitting a Worker with no
+ * SESSION_SECRET set (503), or simply offline, was told his password was wrong —
+ * so he would retry and reset it, and every retry extended the lockout. The mint
+ * already knows the status; it just never surfaced it.
+ */
+export type SessionMintOutcome =
+  /** Nothing was attempted (no worker URL configured, or no credential held). */
+  | { kind: 'no_attempt' }
+  | { kind: 'ok' }
+  /** The Worker refused the password (401/403). */
+  | { kind: 'rejected'; status: number }
+  /** Per-IP rate limit on POST /v1/session. Waiting is the fix, not a new password. */
+  | { kind: 'rate_limited'; status: number }
+  /** Worker reachable but refusing to mint — e.g. SESSION_SECRET unset (503). */
+  | { kind: 'server_misconfigured'; status: number }
+  | { kind: 'server_error'; status: number }
+  /** Network failure, offline, or the request never got an answer. */
+  | { kind: 'unreachable' };
+
+let lastMintOutcome: SessionMintOutcome = { kind: 'no_attempt' };
+
+function recordMintOutcome(outcome: SessionMintOutcome): void {
+  lastMintOutcome = outcome;
+}
+
+/** Classify an HTTP status from POST /v1/session. */
+function classifyMintStatus(status: number): SessionMintOutcome {
+  if (status === 429) return { kind: 'rate_limited', status };
+  if (status === 401 || status === 403) return { kind: 'rejected', status };
+  if (status === 503) return { kind: 'server_misconfigured', status };
+  if (status >= 500) return { kind: 'server_error', status };
+  return { kind: 'rejected', status };
+}
+
+/**
+ * Why the most recent session mint failed, so callers can tell the operator
+ * something true instead of blaming his password.
+ */
+export function getLastSessionMintOutcome(): SessionMintOutcome {
+  return lastMintOutcome;
+}
+
 function readMintResult(): MintResult | null {
   if (typeof window === 'undefined') return null;
   try {
@@ -288,10 +335,19 @@ export function ensureCloudSession(force = false): Promise<boolean> {
 
   const p = (async (): Promise<boolean> => {
     const base = getWorkerUrl();
-    if (!base) return false;
-    if (typeof navigator !== 'undefined' && !navigator.onLine) return false;
+    if (!base) {
+      recordMintOutcome({ kind: 'no_attempt' });
+      return false;
+    }
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      recordMintOutcome({ kind: 'unreachable' });
+      return false;
+    }
     // No credential ⇒ cannot mint (no anonymous sessions). Ride any existing cookie.
-    if (!sessionCredential) return false;
+    if (!sessionCredential) {
+      recordMintOutcome({ kind: 'no_attempt' });
+      return false;
+    }
 
     // One leader tab performs the actual mint; every other tab waits for its
     // result instead of firing a competing POST /v1/session (the burst that
@@ -307,6 +363,7 @@ export function ensureCloudSession(force = false): Promise<boolean> {
         if (!res.ok) {
           if (res.status === 429) advanceMintCooldownForRateLimit();
           else advanceMintCooldown();
+          recordMintOutcome(classifyMintStatus(res.status));
           writeMintResult({ ok: false, at: Date.now(), status: res.status });
           return false;
         }
@@ -322,11 +379,13 @@ export function ensureCloudSession(force = false): Promise<boolean> {
           // role/csrf are best-effort; cookie is what actually authenticates
         }
         resetMintCooldown();
+        recordMintOutcome({ kind: 'ok' });
         writeMintResult({ ok: true, at: Date.now(), status: res.status });
         return true;
       } catch (err) {
         console.warn('[cloud] session mint failed:', err);
         advanceMintCooldown();
+        recordMintOutcome({ kind: 'unreachable' });
         writeMintResult({ ok: false, at: Date.now() });
         return false;
       }
@@ -348,11 +407,22 @@ export function ensureCloudSession(force = false): Promise<boolean> {
                   // The peer minted the SHARED cookie — verify it actually landed
                   // for this tab before declaring the session established.
                   const role = await refreshCloudSessionRole();
+                  if (role !== null) recordMintOutcome({ kind: 'ok' });
+                  else recordMintOutcome({ kind: 'unreachable' });
                   return role !== null;
                 }
                 if (peer.status === 429) advanceMintCooldownForRateLimit();
+                // Inherit the leader tab's reason — this tab never sent a request
+                // of its own, so without this it would report a bare failure and
+                // the login screen would fall back to blaming the password.
+                recordMintOutcome(
+                  typeof peer.status === 'number'
+                    ? classifyMintStatus(peer.status)
+                    : { kind: 'unreachable' }
+                );
                 return false;
               }
+              recordMintOutcome({ kind: 'unreachable' });
               return false;
             }
             becameLeader = true;
