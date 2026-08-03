@@ -1,5 +1,7 @@
 import { useRef, useState } from 'react';
-import { Download, Upload, CloudDownload, Loader2 } from 'lucide-react';
+// `DownloadCloud` is the icon name exported by the pinned lucide-react (0.330).
+// The alias keeps the JSX below unchanged.
+import { Download, Upload, DownloadCloud as CloudDownload, Loader2 } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import {
   exportLocalBackup,

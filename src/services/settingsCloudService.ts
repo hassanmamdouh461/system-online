@@ -9,6 +9,7 @@ import {
   getBranchIdHeader,
   getSessionRole,
   isCloudConfigured,
+  refreshCloudSessionRole,
 } from './cloudConfig';
 import { withDB, enqueueWrite, SyncRecord } from '../repositories/indexeddb/db';
 import { syncService } from './syncService';
@@ -85,6 +86,101 @@ export function canPushSettingKey(key: string): boolean {
   return getSessionRole() === 'manager';
 }
 
+/**
+ * Async form of canPushSettingKey — use this on any real save path.
+ *
+ * The synchronous version reads the IN-MEMORY session role, which is null after
+ * every page reload: the 12h HttpOnly cookie survives a refresh but the role
+ * does not. A manager who reloaded and then edited the tax rate therefore hit
+ * `getSessionRole() === null` and the cloud push was skipped SILENTLY — the
+ * value stayed in localStorage, D1 kept the old copy, and the next hydrate
+ * reverted the field. Ask the Worker (GET /v1/session reads the cookie) before
+ * concluding that this session may not push.
+ */
+export async function ensureCanPushSettingKey(key: string): Promise<boolean> {
+  if (!MANAGER_ONLY_SETTING_KEYS.includes(key)) return true;
+  const known = getSessionRole();
+  if (known === 'manager') return true;
+  if (known === 'cashier') return false;
+  // Role not established in this page-load — probe the cookie instead of
+  // assuming the worst.
+  return (await refreshCloudSessionRole()) === 'manager';
+}
+
+/**
+ * How a persistSetting call actually ended up. The UI must be able to tell
+ * "saved everywhere" from "saved on this device only", because the two behave
+ * very differently on the next hydrate.
+ */
+export type PersistOutcome =
+  /** Written to D1 and confirmed. */
+  | 'synced'
+  /** Cloud write failed/deferred; the durable sync queue will retry it. */
+  | 'queued'
+  /** No cloud configured, or offline — localStorage only. */
+  | 'local_only'
+  /** This session's role may not write this key (manager-only). */
+  | 'forbidden';
+
+/**
+ * Timestamp of the last LOCAL write of a setting, per key.
+ *
+ * hydrateSettingsFromCloud used to overwrite localStorage with the cloud copy
+ * unconditionally. Combined with the 10s manager-dashboard refresh, a local edit
+ * that had not reached D1 yet was reverted within seconds, which is exactly what
+ * "the value changes back by itself" looked like. Keeping the local write time
+ * lets hydrate leave a newer local value alone.
+ */
+const LOCAL_WRITE_STAMP_PREFIX = 'brewmaster_setting_localts::';
+
+function markLocalSettingWrite(key: string): void {
+  try {
+    localStorage.setItem(LOCAL_WRITE_STAMP_PREFIX + key, new Date().toISOString());
+  } catch {
+    // ignore quota
+  }
+}
+
+function localSettingWriteAt(key: string): number {
+  try {
+    const raw = localStorage.getItem(LOCAL_WRITE_STAMP_PREFIX + key);
+    if (!raw) return 0;
+    const t = new Date(raw).getTime();
+    return Number.isFinite(t) ? t : 0;
+  } catch {
+    return 0;
+  }
+}
+
+/** Clear the local-write marker once the cloud has confirmed the value. */
+function clearLocalSettingWrite(key: string): void {
+  try {
+    localStorage.removeItem(LOCAL_WRITE_STAMP_PREFIX + key);
+  } catch {
+    // ignore
+  }
+}
+
+/** Setting keys with an unsynced row still sitting in the durable sync queue. */
+async function pendingSettingKeys(): Promise<Set<string>> {
+  const keys = new Set<string>();
+  try {
+    await withDB(async (db) => {
+      const all = await db.getAll('sync_queue');
+      for (const rec of all) {
+        if (rec.synced === 1) continue;
+        if (String(rec.type) !== 'settings') continue;
+        const key =
+          (rec.data && (rec.data.key as string)) || settingKeyFromDocId(rec.data?.id) || '';
+        if (key) keys.add(key);
+      }
+    });
+  } catch {
+    // ignore — an unreadable queue must not block hydration
+  }
+  return keys;
+}
+
 /** Recover the setting key from a namespaced sync-queue doc id (`global::<key>`). */
 function settingKeyFromDocId(id: unknown): string | null {
   if (!id) return null;
@@ -106,11 +202,11 @@ async function enqueueSettingSync(
   key: string,
   value: string,
   branchId?: string
-): Promise<void> {
+): Promise<PersistOutcome> {
   // Never enqueue a write the current role is forbidden from performing: it can
   // only 403 on the server and leave a dead sync-queue row behind. A manager
-  // device will own manager-only keys. See canPushSettingKey.
-  if (!canPushSettingKey(key)) return;
+  // device will own manager-only keys. See ensureCanPushSettingKey.
+  if (!(await ensureCanPushSettingKey(key))) return 'forbidden';
   const id = settingDocId(key, branchId);
   const now = new Date().toISOString();
   const data = {
@@ -141,10 +237,22 @@ async function enqueueSettingSync(
 
   // Immediate cloud-first attempt (cloudUpsert acks matching queue rows on success)
   const ok = await cloudUpsert('settings', id, data);
-  if (!ok) {
-    void cloudSyncNow({ type: 'settings', action: 'update', data, timestamp: now });
-    void syncService.syncPendingData();
+  if (ok) {
+    clearLocalSettingWrite(key);
+    return 'synced';
   }
+  const fallbackOk = await cloudSyncNow({
+    type: 'settings',
+    action: 'update',
+    data,
+    timestamp: now,
+  });
+  if (fallbackOk) {
+    clearLocalSettingWrite(key);
+    return 'synced';
+  }
+  void syncService.syncPendingData();
+  return 'queued';
 }
 
 /**
@@ -154,21 +262,26 @@ export async function persistSetting(
   key: string,
   value: string,
   branchId?: string
-): Promise<void> {
+): Promise<PersistOutcome> {
   try {
     if (typeof localStorage !== 'undefined') {
       localStorage.setItem(key, value);
+      // Stamp the local write BEFORE attempting the cloud round-trip so a
+      // concurrent hydrate cannot revert it mid-flight.
+      markLocalSettingWrite(key);
     }
   } catch {
     // ignore quota
   }
 
   if (!DURABLE_SETTING_KEYS.includes(key as DurableSettingKey)) {
-    return;
+    return 'local_only';
   }
 
-  if (!isCloudConfigured()) return;
-  void enqueueSettingSync(key, value, branchId);
+  if (!isCloudConfigured()) return 'local_only';
+  // Awaited (was fire-and-forget): the caller needs the real outcome to tell the
+  // operator whether the change actually left this device.
+  return await enqueueSettingSync(key, value, branchId);
 }
 
 /**
@@ -187,7 +300,7 @@ export async function removeSetting(key: string, branchId?: string): Promise<voi
   if (!isCloudConfigured()) return;
   // A cashier session cannot delete a manager-only setting on the server either
   // (same 403). Keep the local removal, skip the doomed cloud delete.
-  if (!canPushSettingKey(key)) return;
+  if (!(await ensureCanPushSettingKey(key))) return;
 
   const id = settingDocId(key, branchId);
   const now = new Date().toISOString();
@@ -241,16 +354,47 @@ export async function hydrateSettingsFromCloud(): Promise<number> {
       return tA - tB;
     });
 
+    // Never overwrite a local edit that is NEWER than the cloud copy, and never
+    // overwrite a key whose write is still waiting in the sync queue.
+    //
+    // This blind overwrite was the second half of the "settings revert by
+    // themselves" bug: hydrate runs on mount AND on every manager-dashboard
+    // refresh (10s), so a value the operator had just typed was replaced by the
+    // stale D1 row seconds later — silently, and even while its own sync-queue
+    // row was still pending.
+    const pending = await pendingSettingKeys();
+
     let n = 0;
+    let skipped = 0;
     for (const doc of durableDocs) {
       const key = String(doc.key);
       const value = doc.value == null ? '' : String(doc.value);
+      const cloudAt = new Date(
+        doc.updatedAt || doc.updated_at || doc.createdAt || 0
+      ).getTime();
+      const localAt = localSettingWriteAt(key);
+
+      if (pending.has(key)) {
+        skipped++;
+        continue;
+      }
+      if (localAt > 0 && Number.isFinite(cloudAt) && localAt > cloudAt) {
+        skipped++;
+        continue;
+      }
+
       try {
         localStorage.setItem(key, value);
+        // The cloud copy is authoritative for this key now, so the local-write
+        // marker has served its purpose.
+        if (localAt > 0) clearLocalSettingWrite(key);
         n++;
       } catch {
         // ignore
       }
+    }
+    if (skipped > 0) {
+      console.info('[settingsCloud] kept', skipped, 'newer/pending local setting keys');
     }
 
     // NOTE: the telegram config is intentionally NOT restored here. It is not
@@ -279,7 +423,7 @@ export async function pushAllLocalSettingsToCloud(branchId?: string): Promise<nu
     try {
       // Skip keys the current role cannot push — otherwise a cashier bootstrap
       // pushes manager-only keys and the server 403s every one of them.
-      if (!canPushSettingKey(key)) continue;
+      if (!(await ensureCanPushSettingKey(key))) continue;
       const value = localStorage.getItem(key);
       if (value === null) continue;
       await enqueueSettingSync(key, value, branchId);

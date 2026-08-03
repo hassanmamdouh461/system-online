@@ -32,9 +32,6 @@ export type SnapshotPayload = {
 let intervalId: ReturnType<typeof setInterval> | null = null;
 let running = false;
 
-/** localStorage keys whose values are JSON blobs rather than plain strings. */
-const JSON_SETTING_KEYS = new Set(['web_menu_recipes_store']);
-
 function collectLocalSettings(): Record<string, string> {
   const out: Record<string, string> = {};
   if (typeof localStorage === 'undefined') return out;
@@ -403,4 +400,3 @@ export function getLastSnapshotAt(): string | null {
     return null;
   }
 }
- JSON_SETTING_KEYS;

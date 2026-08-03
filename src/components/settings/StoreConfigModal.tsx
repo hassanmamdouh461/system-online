@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Store, Percent, ShieldCheck, MapPin, Phone, Type, Clock } from 'lucide-react';
+import { X, Store, Percent, ShieldCheck, MapPin, Phone, Type, Clock, AlertTriangle } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import {
   getTaxRate,
@@ -23,6 +23,8 @@ export function StoreConfigModal({ isOpen, onClose }: StoreConfigModalProps) {
   const [tagline, setTagline] = useState('');
   const [dayStartHour, setDayStartHour] = useState('0');
   const [success, setSuccess] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [warning, setWarning] = useState<string | null>(null);
 
   useEffect(() => {
     if (isOpen) {
@@ -34,29 +36,74 @@ export function StoreConfigModal({ isOpen, onClose }: StoreConfigModalProps) {
       setTagline(store.tagline || '');
       setDayStartHour(String(store.dayStartHour ?? 0));
       setSuccess(false);
+      setWarning(null);
+      setSaving(false);
     }
   }, [isOpen]);
 
-  const handleSave = () => {
-    const rate = parseFloat(taxInput);
-    if (!isNaN(rate) && rate >= 0) {
-      setTaxRate(rate / 100);
-    }
-    // Business-day start hour: clamp to 0–23, fall back to 0 (calendar midnight).
-    let startHour = parseInt(dayStartHour, 10);
-    if (isNaN(startHour) || startHour < 0 || startHour > 23) startHour = 0;
+  /**
+   * Save and REPORT WHAT ACTUALLY HAPPENED.
+   *
+   * This used to fire both writes without awaiting them and then always show
+   * "تم الحفظ بنجاح". A cloud write that was rejected (role not allowed to push a
+   * manager-only key) or that failed on the server therefore looked identical to
+   * a real save — and since the value only lived in localStorage, the next cloud
+   * hydrate reverted the field in front of the operator. Now the outcome decides
+   * the message, and the modal only auto-closes on a confirmed save.
+   */
+  const handleSave = async () => {
+    setSaving(true);
+    setWarning(null);
+    const ar = language === 'ar';
+    try {
+      const outcomes: string[] = [];
 
-    const current = getStoreConfig();
-    setStoreConfig({
-      ...current,
-      storeName: storeName.trim() || 'BrewMaster',
-      address: address.trim(),
-      phone: phone.trim(),
-      tagline: tagline.trim(),
-      dayStartHour: startHour,
-    });
-    setSuccess(true);
-    setTimeout(() => onClose(), 1000);
+      const rate = parseFloat(taxInput);
+      if (!isNaN(rate) && rate >= 0) {
+        outcomes.push(await setTaxRate(rate / 100));
+      }
+
+      // Business-day start hour: clamp to 0–23, fall back to 0 (calendar midnight).
+      let startHour = parseInt(dayStartHour, 10);
+      if (isNaN(startHour) || startHour < 0 || startHour > 23) startHour = 0;
+
+      const current = getStoreConfig();
+      outcomes.push(
+        await setStoreConfig({
+          ...current,
+          storeName: storeName.trim() || 'BrewMaster',
+          address: address.trim(),
+          phone: phone.trim(),
+          tagline: tagline.trim(),
+          dayStartHour: startHour,
+        })
+      );
+
+      if (outcomes.includes('forbidden')) {
+        setWarning(
+          ar
+            ? 'الإعدادات دي محتاجة صلاحية مدير. سجّل الدخول كمدير وجرّب تاني — القيمة محفوظة على الجهاز ده بس ومش هتتزامن.'
+            : 'These settings need manager access. Sign in as manager and retry — the value is saved on this device only and will not sync.'
+        );
+        return;
+      }
+      if (outcomes.includes('queued')) {
+        setWarning(
+          ar
+            ? 'تم الحفظ على الجهاز، لكن المزامنة مع السحابة لم تكتمل بعد — هيتم إعادة المحاولة تلقائياً.'
+            : 'Saved on this device, but the cloud sync has not completed yet — it will be retried automatically.'
+        );
+        return;
+      }
+
+      setSuccess(true);
+      setTimeout(() => onClose(), 1000);
+    } catch (err) {
+      console.error('[StoreConfigModal] save failed:', err);
+      setWarning(ar ? 'فشل الحفظ. جرّب تاني.' : 'Save failed. Please try again.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   if (!isOpen) return null;
@@ -167,11 +214,23 @@ export function StoreConfigModal({ isOpen, onClose }: StoreConfigModalProps) {
             </div>
           )}
 
+          {warning && (
+            <div className="flex items-start gap-2 text-amber-700 text-sm font-bold bg-amber-50 p-3 rounded-lg border border-amber-200">
+              <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+              <p className="leading-relaxed">{warning}</p>
+            </div>
+          )}
+
           <button
             onClick={handleSave}
-            className="w-full bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold py-3.5 rounded-xl transition-all shadow-sm"
+            disabled={saving}
+            className="w-full bg-emerald-600 hover:bg-emerald-700 active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed text-white font-bold py-3.5 rounded-xl transition-all shadow-sm"
           >
-            {t('Save Changes')}
+            {saving
+              ? language === 'ar'
+                ? 'جاري الحفظ…'
+                : 'Saving…'
+              : t('Save Changes')}
           </button>
         </div>
       </div>

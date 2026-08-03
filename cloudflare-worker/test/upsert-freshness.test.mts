@@ -23,6 +23,17 @@ import { dirname, resolve } from "node:path";
 const here = dirname(fileURLToPath(import.meta.url));
 const src = readFileSync(resolve(here, "../src/index.ts"), "utf8");
 
+/**
+ * Source text with comments stripped.
+ *
+ * This test greps the source, so PROSE that quotes SQL used to count as a code
+ * site — a doc comment explaining the upsert was enough to make the "exactly 2
+ * upsert sites" assertion fail. Scan code only.
+ */
+const code = src
+  .replace(/\/\*[\s\S]*?\*\//g, "")
+  .replace(/(^|[^:])\/\/.*$/gm, "$1");
+
 let passed = 0;
 function ok(cond: unknown, label: string) {
   assert.ok(cond, label);
@@ -32,28 +43,33 @@ function ok(cond: unknown, label: string) {
 
 console.log("\n1) upsert freshness guard is wired to UPDATED_AT_COLUMN");
 
-ok(src.includes("const updatedAtCol = UPDATED_AT_COLUMN[table]"), "looks up the table's updated-at column");
+ok(code.includes("const updatedAtCol = UPDATED_AT_COLUMN[table]"), "looks up the table's updated-at column");
 ok(
-  src.includes("WHERE excluded.${updatedAtCol} > ${table}.${updatedAtCol}"),
+  code.includes("WHERE excluded.${updatedAtCol} > ${table}.${updatedAtCol}"),
   "conflict update is gated on strictly-newer incoming updated_at"
 );
 
 console.log("\n2) both upsert paths carry the guard");
 
-// There are exactly two ON CONFLICT(id) DO UPDATE sites: /api/sync and REST POST.
-const conflictSites = src.match(/ON CONFLICT\(id\) DO UPDATE/g) || [];
-assert.equal(conflictSites.length, 2, "expected exactly 2 upsert sites");
-const freshnessSites = src.match(/UPDATED_AT_COLUMN\[table\]/g) || [];
+// There are exactly two GENERIC (table-driven) upsert sites: /api/sync and the
+// REST POST. Dedicated single-table statements — e.g. the atomic daily
+// order-sequence counter, `INSERT INTO settings ... ON CONFLICT(id) DO UPDATE
+// SET value = value + 1` — are not table-driven and are deliberately excluded:
+// they carry their own concurrency design and no freshness column.
+const conflictSites =
+  code.match(/INSERT INTO \$\{table\}[\s\S]{0,400}?ON CONFLICT\(id\) DO UPDATE/g) || [];
+assert.equal(conflictSites.length, 2, `expected exactly 2 table-driven upsert sites, found ${conflictSites.length}`);
+const freshnessSites = code.match(/UPDATED_AT_COLUMN\[table\]/g) || [];
 ok(freshnessSites.length >= 2, "freshness lookup present at both upsert sites");
 
 console.log("\n3) tables without an updated-at column stay unconditional");
 
 ok(
-  src.includes('const freshness = updatedAtCol\n') || src.includes("const freshness = updatedAtCol"),
+  code.includes("const freshness = updatedAtCol"),
   "freshness clause is conditional on the column existing"
 );
 // snapshots and inventory_transactions have no entry in UPDATED_AT_COLUMN.
-const updatedAtMap = src.match(/const UPDATED_AT_COLUMN[^=]*= \{([\s\S]*?)\};/);
+const updatedAtMap = code.match(/const UPDATED_AT_COLUMN[^=]*= \{([\s\S]*?)\};/);
 assert.ok(updatedAtMap, "UPDATED_AT_COLUMN map exists");
 ok(!updatedAtMap[1].includes("snapshots"), "snapshots has no updated-at column → unconditional upsert");
 ok(!updatedAtMap[1].includes("inventory_transactions"), "inventory_transactions has no updated-at column → unconditional upsert");
