@@ -74,6 +74,32 @@ export interface Order {
 }
 
 /**
+ * Is a stored `grandTotal` snapshot trustworthy?
+ *
+ * OT-007: the previous guard only rejected zero/negative values (the D1
+ * NULL→0 bug). Any positive number was trusted, so a corrupt row carrying
+ * subtotal 100 + tax 14 + grandTotal 50 was reported as 50 and the day's
+ * revenue was silently understated. A grand total can never be LESS than the
+ * subtotal it was computed from (tax is non-negative), so a value below the
+ * subtotal is corruption, not a discount — it is rejected and recomputed, with
+ * a warning so the bad rows can be found instead of swallowed.
+ */
+function isTrustworthyGrandTotal(
+  order: Pick<Order, 'totalAmount' | 'grandTotal'>
+): boolean {
+  if (!isMoney(order.grandTotal) || order.grandTotal <= 0) return false;
+  const subtotal = isMoney(order.totalAmount) ? roundMoney(order.totalAmount) : 0;
+  // Piaster tolerance: legitimate float drift must not trip the guard.
+  if (subtotal > 0 && roundMoney(order.grandTotal) < subtotal - 0.005) {
+    console.warn(
+      `[order] ignoring corrupt grandTotal ${order.grandTotal} — below subtotal ${subtotal}; recomputing`
+    );
+    return false;
+  }
+  return true;
+}
+
+/**
  * Resolve order grand total using frozen tax fields when available.
  *
  * All arithmetic routes through `utils/money` so historical orders whose stored
@@ -85,9 +111,10 @@ export function getOrderGrandTotal(
   order: Pick<Order, 'totalAmount' | 'taxAmount' | 'grandTotal' | 'taxRate'>,
   fallbackTaxRate = 0
 ): number {
-  // Only trust grandTotal when it's a real positive snapshot (null from D1 used to become 0)
-  if (isMoney(order.grandTotal) && order.grandTotal > 0) {
-    return roundMoneyNonNegative(order.grandTotal);
+  // Only trust grandTotal when it's a real, self-consistent snapshot
+  // (null from D1 used to become 0; corrupt rows can sit below the subtotal).
+  if (isTrustworthyGrandTotal(order)) {
+    return roundMoneyNonNegative(order.grandTotal as number);
   }
   const rate = isMoney(order.taxRate) ? order.taxRate : fallbackTaxRate;
   const tax = isMoney(order.taxAmount)
@@ -110,10 +137,9 @@ export function getOrderMoney(
   const taxAmount = isMoney(order.taxAmount)
     ? roundMoney(order.taxAmount)
     : calcTax(subtotal, taxRate);
-  const grandTotal =
-    isMoney(order.grandTotal) && order.grandTotal > 0
-      ? roundMoneyNonNegative(order.grandTotal)
-      : calcGrandTotal(subtotal, taxAmount);
+  const grandTotal = isTrustworthyGrandTotal(order)
+    ? roundMoneyNonNegative(order.grandTotal as number)
+    : calcGrandTotal(subtotal, taxAmount);
   return { subtotal, taxRate, taxAmount, grandTotal };
 }
 

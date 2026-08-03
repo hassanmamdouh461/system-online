@@ -199,6 +199,28 @@ export type RestoreCounts = {
 };
 
 /**
+ * Settings keys that carry a secret. These are never written by a restore —
+ * see the note in applySnapshotPayload (A-07).
+ */
+const CREDENTIAL_SETTING_KEYS: readonly string[] = [
+  'brewmaster_admin_creds_v2',
+  'brewmaster_manager_creds_v1',
+  'brewmaster_admin_pin',
+  'brewmaster_refund_pin',
+  'brewmaster_telegram_config',
+  'brewmaster_telegram_bot_token',
+  'brewmaster_telegram_chat_id',
+  'brewmaster_telegram_config_enc',
+];
+
+/** True when a settings key holds a credential/secret (namespaced or bare). */
+export function isCredentialSettingKey(key: string): boolean {
+  const raw = String(key || '').trim();
+  const bare = raw.includes('::') ? raw.slice(raw.indexOf('::') + 2).trim() : raw;
+  return CREDENTIAL_SETTING_KEYS.includes(bare);
+}
+
+/**
  * Write a snapshot payload back into IndexedDB + localStorage.
  *
  * Restore is MERGE-ONLY by id: live local rows are never cleared, so restoring
@@ -253,6 +275,14 @@ export async function applySnapshotPayload(payload: SnapshotPayload): Promise<Re
   if (typeof localStorage !== 'undefined') {
     for (const [key, value] of Object.entries(payload.settings || {})) {
       try {
+        // SECURITY (A-07): credentials are never restored from a snapshot.
+        // A snapshot row is writable by a cashier device (the backup scheduler
+        // runs unattended on every till), so its settings blob is attacker-
+        // influenced input. Installing a password hash / refund PIN / bot token
+        // from it would turn "manager restores a backup" into a privilege
+        // escalation. Operators re-enter these on the restored device; every
+        // other setting is restored normally.
+        if (isCredentialSettingKey(key)) continue;
         if (localStorage.getItem(key) === null) {
           localStorage.setItem(
             key,

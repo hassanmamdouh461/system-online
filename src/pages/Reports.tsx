@@ -16,7 +16,7 @@ import { inventoryService } from '../services/inventoryService';
 import { resolveInvItem } from '../utils/inventoryHelpers';
 import { menuService } from '../services/menuService';
 import { MenuItem } from '../types/menu';
-import { getIngredientBaseQty } from '../utils/units';
+import { getIngredientBaseQtySafe } from '../utils/units';
 import { RevenueAreaChart } from '../components/ui/RevenueAreaChart';
 import { safeMoney, addMoney, subtractMoney, multiplyMoney, divideMoney, sumMoneyBy, averageMoney, maxMoney, moneyRatio, moneyPercent, formatMoney } from '../utils/money';
 
@@ -77,7 +77,7 @@ export default function Reports() {
       const totalCost = sumMoneyBy(ingList, ing => {
         const invItem = resolveInvItem(ing.inventoryItemId, inventory);
         const cost = invItem ? safeMoney(invItem.costPerUnit) : 0;
-        const baseQty = getIngredientBaseQty(ing.quantity, ing.unit || '', invItem?.unit || '');
+        const baseQty = getIngredientBaseQtySafe(ing.quantity, ing.unit || '', invItem?.unit || '');
         return multiplyMoney(cost, baseQty);
       });
       menuTotalCostMap.set(mId, totalCost > 0 ? totalCost : 1);
@@ -112,7 +112,7 @@ export default function Reports() {
         const menuItem = menuMap.get(String(rec.menuItemId));
         const totalRecipeCost = menuTotalCostMap.get(String(rec.menuItemId)) || 1;
         if (menuItem && rec.quantity > 0) {
-          const baseQty = getIngredientBaseQty(rec.quantity, rec.unit || '', item.unit || '');
+          const baseQty = getIngredientBaseQtySafe(rec.quantity, rec.unit || '', item.unit || '');
           if (baseQty > 0) {
             const itemCostInRecipe = multiplyMoney(itemUnitCost, baseQty);
             // costShareFraction is a ratio (0-1), not money -> moneyRatio
@@ -162,7 +162,7 @@ export default function Reports() {
     for (const r of recipes) {
       const invItem = inventory.find(i => i.id === r.inventoryItemId);
       const itemCost = invItem ? invItem.costPerUnit : 0;
-      const baseQty = getIngredientBaseQty(r.quantity, r.unit || '', invItem?.unit || '');
+      const baseQty = getIngredientBaseQtySafe(r.quantity, r.unit || '', invItem?.unit || '');
       costMap[r.menuItemId] = addMoney(costMap[r.menuItemId] || 0, multiplyMoney(itemCost, baseQty));
     }
     return costMap;

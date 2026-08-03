@@ -1,6 +1,6 @@
 import { authenticate, handleSessionRoutes, verifyCsrf, timingSafeEqual } from "./auth.ts";
-import { can, canReadSettingKey, canReadTable, settingKeyFrom } from "./permissions.ts";
-import type { HttpMethod } from "./permissions.ts";
+import { can, canReadSettingKey, canReadTable, settingKeyFrom, sanitizeSnapshotPayload } from "./permissions.ts";
+import type { HttpMethod, Role } from "./permissions.ts";
 
 interface Env {
   DB: D1Database;
@@ -228,12 +228,17 @@ export default {
             { status: 200, headers: base }
           );
         } catch (err: any) {
+          // D-02: /api/health is deliberately UNAUTHENTICATED, so the response
+          // body is readable by anyone who can reach the Worker. Echoing D1's
+          // raw error handed them table names, constraint text and connection
+          // detail. The full error stays in the Worker log (operators can read
+          // it there); the caller only learns that the DB is down — which is
+          // the entire purpose of a liveness probe. Same shape /api/sync uses.
           console.error("[worker] health check failed:", err?.message || err);
           return new Response(
             JSON.stringify({
               ok: false,
               db: "error",
-              message: String(err?.message || err).slice(0, 200),
               checkedAt: new Date().toISOString()
             }),
             { status: 503, headers: base }
@@ -432,7 +437,7 @@ export default {
             const denied = await authorize({ table, method: "DELETE", docId });
             if (denied) return denied;
           } else {
-            const preview = sanitizeAndNormalize(table, data);
+            const preview = sanitizeAndNormalize(table, data, role);
             preview.id = docId;
             const denied = await authorize({ table, method: "PATCH", docId, submitted: preview });
             if (denied) return denied;
@@ -441,7 +446,7 @@ export default {
           if (action === "delete") {
             await env.DB.prepare(`DELETE FROM ${table} WHERE id = ?`).bind(docId).run();
           } else {
-            let normalized = sanitizeAndNormalize(table, data);
+            let normalized = sanitizeAndNormalize(table, data, role);
             normalized.id = docId;
             // Single-branch system: always stamp the one branch id.
             normalized.branch_id = MAIN_BRANCH_ID;
@@ -571,8 +576,10 @@ export default {
               status: 409, headers: { "Content-Type": "application/json", ...corsHeaders }
             });
           }
+          // A-14: same rule as /api/health — the raw D1 message never crosses
+          // the wire, even behind auth. Full detail goes to the Worker log.
           console.error('[Worker /api/report/claim Error]:', e);
-          return new Response(JSON.stringify({ error: "Claim Error", message: msg }), {
+          return new Response(JSON.stringify({ error: "Claim Error", message: "تعذر تنفيذ الطلب. حاول مرة أخرى." }), {
             status: 500, headers: { "Content-Type": "application/json", ...corsHeaders }
           });
         }
@@ -744,7 +751,7 @@ export default {
         const documentId = body.documentId;
         const rawData = body.data || {};
 
-        let data = sanitizeAndNormalize(table, rawData);
+        let data = sanitizeAndNormalize(table, rawData, role);
         data.id = documentId;
         // Single-branch system: always stamp the one branch id.
         data.branch_id = MAIN_BRANCH_ID;
@@ -830,7 +837,7 @@ export default {
 
         const body: any = await request.json();
         const rawData = body.data || {};
-        let data = sanitizeAndNormalize(table, rawData);
+        let data = sanitizeAndNormalize(table, rawData, role);
         // Harmless on an UPDATE (the value can only equal the id-derived key),
         // and it heals a legacy settings row whose key column is NULL.
         stampSettingKey(table, data, docId);
@@ -973,7 +980,7 @@ function getCorsHeaders(request: Request, env: Env) {
   };
 }
 
-function sanitizeAndNormalize(table: string, data: any) {
+function sanitizeAndNormalize(table: string, data: any, role?: Role) {
   const normalized = normalizeData(table, data);
   const allowed = ALLOWED_COLUMNS[table];
   if (!allowed) return normalized;
@@ -991,6 +998,13 @@ function sanitizeAndNormalize(table: string, data: any) {
   // `key` column change into SQL — even by accident from a stale client.
   if (table === "settings") {
     delete sanitized.key;
+  }
+  // A-07: a snapshot payload authored by a cashier must not be able to carry a
+  // forged manager credential / refund PIN / Telegram token that a later
+  // manager-run restore would install on every device. Business rows survive
+  // untouched, so unattended till backups keep working.
+  if (table === "snapshots" && role && "payload" in sanitized) {
+    sanitized.payload = sanitizeSnapshotPayload(role, sanitized.payload);
   }
   return sanitized;
 }

@@ -10,12 +10,32 @@ import { sumMoneyBy, roundMoney } from './money';
  */
 export { roundMoney };
 
+/**
+ * Minimum digits BOTH sides must carry before a suffix (country-code) match is
+ * allowed.
+ *
+ * SECURITY (AB-005): without this floor, `endsWith` made every short or partial
+ * record a suffix of every longer number — a customer saved with phone "8"
+ * inherited every OnAccount invoice whose number ends in 8. That is a money bug
+ * (foreign debt inside their balance) AND a privacy breach (their statement
+ * listed strangers' transactions). Suffix matching exists only to reconcile the
+ * SAME number written with and without a country code (+20 1012345678 vs
+ * 01012345678), and such a pair always shares at least 9 trailing digits.
+ */
+const MIN_SUFFIX_MATCH_DIGITS = 9;
+
 function phonesMatch(a?: string, b?: string): boolean {
   if (!a || !b) return false;
   const pa = a.replace(/[\s\-()]/g, '').trim();
   const pb = b.replace(/[\s\-()]/g, '').trim();
   if (!pa || !pb) return false;
-  return pa === pb || pa.endsWith(pb) || pb.endsWith(pa);
+  if (pa === pb) return true;
+
+  const da = pa.replace(/\D/g, '');
+  const db = pb.replace(/\D/g, '');
+  if (da.length < MIN_SUFFIX_MATCH_DIGITS || db.length < MIN_SUFFIX_MATCH_DIGITS) return false;
+
+  return pa.endsWith(pb) || pb.endsWith(pa);
 }
 
 function normalizePhone(p?: string): string {
