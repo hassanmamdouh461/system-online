@@ -57,6 +57,12 @@ export type RefundPushResult =
   | { kind: 'denied'; code: string | null; message: string | null }
   /** Session problem (401 / stale CSRF / clobbered cookie) — a re-mint may fix it. */
   | { kind: 'unauthenticated' }
+  /**
+   * The server's freshness guard discarded the write. `serverHasRefund` says
+   * whether the row D1 returned is nevertheless already refunded — the only case
+   * in which a discarded write is still a correct outcome.
+   */
+  | { kind: 'stale'; serverHasRefund: boolean }
   | { kind: 'unreachable' };
 
 export type RefundFlowDeps = {
@@ -88,7 +94,9 @@ const MSG = {
   offline:
     'تعذّر التأكد من الصلاحية — الاسترجاع يحتاج اتصال بالإنترنت حتى لا تختلف بيانات الأجهزة.',
   unreachableAfterAuth:
-    'تم قبول الصلاحية لكن تعذّر الوصول للسيرفر — حاول تاني لما النت يرجع.',
+    'لم يتم تسجيل الاسترجاع على السيرفر — الاتصال انقطع قبل التأكيد. الفاتورة لسه مدفوعة، حاول تاني لما النت يرجع.',
+  notConfirmed:
+    'لم يتم تأكيد الاسترجاع على السيرفر — الفاتورة لسه مدفوعة. حاول تاني.',
 };
 
 /**
@@ -153,15 +161,28 @@ export async function performRefund(
     throw new RefundRejectedError('refund_session_expired', MSG.notAuthorized);
   }
   if (push.kind === 'unreachable') {
-    // Authority WAS established, the network then failed. Refusing here would
-    // block a legitimate refund over a flaky link, so apply it locally and let
-    // the durable queue deliver it — the write is one the server has already
-    // agreed this session may make.
-    const updated = await deps.applyLocal();
-    await deps.restoreInventory();
-    deps.triggerSync();
-    console.warn('[refund] server unreachable after authorisation — queued:', MSG.unreachableAfterAuth);
-    return updated;
+    // The network failed before D1 confirmed the refund.
+    //
+    // This used to apply the refund locally and hand it to the retry queue,
+    // reporting full success to the operator. That is what actually lost the
+    // refunds reported on 2026-08-04: the queue lives in IndexedDB, so
+    // "clear browsing data" — or 15 failed attempts, which dead-letters the row
+    // — destroys the only copy of the refund that ever existed, while D1 still
+    // says Paid. The till showed Refunded until the cache was cleared, then the
+    // invoice came back as paid and the money was unaccounted for.
+    //
+    // Terminal money state is never recorded optimistically: refuse, leave the
+    // invoice exactly as it was on BOTH sides, and tell the operator to retry.
+    // A refund the operator must repeat is recoverable; one that silently
+    // vanishes is not.
+    throw new RefundRejectedError('refund_not_confirmed', MSG.unreachableAfterAuth);
+  }
+
+  // A freshness-guard rejection is only acceptable when D1 ALREADY holds the
+  // refund (a duplicate/retried submission). If the stored row is not refunded,
+  // our write was discarded and the refund did NOT happen — never mask that.
+  if (push.kind === 'stale' && !push.serverHasRefund) {
+    throw new RefundRejectedError('refund_discarded_by_server', MSG.notConfirmed);
   }
 
   const updated = await deps.applyLocal();

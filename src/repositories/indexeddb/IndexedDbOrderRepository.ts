@@ -352,16 +352,13 @@ export class IndexedDbOrderRepository implements IOrderRepository {
           taxAmount: typeof orderData.taxAmount === 'number' ? orderData.taxAmount : undefined,
           grandTotal: typeof orderData.grandTotal === 'number' ? orderData.grandTotal : undefined,
           createdAt: orderData.createdAt || now,
-          // MUST be stamped at creation, not only on update().
-          //
-          // The Worker's last-writer-wins guard is `WHERE excluded.updatedAt >
-          // orders.updatedAt`. An order inserted WITHOUT updatedAt lands in D1
-          // with updatedAt = NULL, and in SQL every comparison against NULL is
-          // NULL — never TRUE. So the conflict update never applied and the row
-          // froze forever: paying, refunding, cancelling or advancing the status
-          // all came back `200 {stale:true}` while D1 kept the original Unpaid
-          // copy. Money collected at the till never reached the cloud.
-          updatedAt: orderData.updatedAt || now,
+          // Stamp updatedAt AT CREATION. Leaving it undefined wrote a row with
+          // `updatedAt IS NULL` into D1, and the Worker's freshness guard
+          // (`excluded.updatedAt > orders.updatedAt`) then evaluated to SQL NULL
+          // for every later write to that order — so the payment and the refund
+          // were both silently discarded while the till believed it had saved
+          // them. See freshnessClause() in cloudflare-worker/src/index.ts.
+          updatedAt: orderData.createdAt || now,
           paidAt: orderData.paidAt,
           customerPhone: orderData.customerPhone,
           customerId: orderData.customerId,
