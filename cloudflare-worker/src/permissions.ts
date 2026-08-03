@@ -96,6 +96,18 @@ export const CASHIER_ALLOWED_SETTING_KEYS: readonly string[] = [
 ];
 
 /**
+ * Internal operational keys written ONLY by the Worker's own endpoints
+ * (the atomic daily order-sequence counter and the daily-report claim lock).
+ * Clients never write these through the settings sync path, so every role is
+ * blocked from touching them — a till must not be able to roll the day's
+ * invoice counter backwards or forge tomorrow's report claim.
+ */
+export const WORKER_OWNED_SETTING_KEYS: readonly string[] = [
+  "brewmaster_order_seq",
+  "brewmaster_daily_report_claim",
+];
+
+/**
  * Settings keys a cashier may never READ.
  *
  * This closes the leak the old worker left wide open. `permissions.can()` blocked
@@ -496,15 +508,6 @@ function canWriteInventory(ctx: AuthzContext): Decision {
   if (frozen.length > 0) {
     return deny(
       "cashier_inventory_field_forbidden",
-      "تعديل تكلفة أو بيانات صنف المخزون يحتاج صلاحية مدير."
-    );
-  }
-
-  // `stock` moves in both directions: deductStock on sale, restoreStock on
-  // order cancel. Both are legitimate cashier actions.
-  return ALLOW;
-}
-en",
       "تعديل تكلفة أو بيانات صنف المخزون يحتاج صلاحية مدير."
     );
   }
