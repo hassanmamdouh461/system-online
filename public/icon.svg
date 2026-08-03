@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="BrewMaster POS">
+  <rect width="512" height="512" rx="96" fill="#1f2937"/>
+  <g fill="none" stroke="#d6a469" stroke-width="26" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M136 188h200v104a100 100 0 0 1-100 100h0a100 100 0 0 1-100-100V188z"/>
+    <path d="M336 214h28a44 44 0 0 1 0 88h-28"/>
+    <path d="M150 132c14-16 28-16 42 0M222 132c14-16 28-16 42 0"/>
+  </g>
+</svg>

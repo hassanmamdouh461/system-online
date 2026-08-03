@@ -76,7 +76,11 @@ pre-v*.sql
 
 # gatsby files
 .cache/
-public/
+# NOTE: `public/` used to be ignored right here, as a leftover from a Gatsby
+# template. This is a VITE project, where public/ is SOURCE — static files copied
+# verbatim into the build — not build output. Ignoring it silently swallowed every
+# static asset placed there, which is part of why the service worker and web
+# manifest never existed. Do not re-add it.
 
 # vuepress build output
 .vuepress/dist

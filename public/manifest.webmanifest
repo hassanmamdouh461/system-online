@@ -1,0 +1,21 @@
+{
+  "name": "BrewMaster POS — نظام إدارة الكافيهات والمطاعم",
+  "short_name": "BrewMaster",
+  "description": "نظام كاشير للكافيهات والمطاعم بيشتغل أوفلاين",
+  "lang": "ar",
+  "dir": "rtl",
+  "start_url": "/orders",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#111827",
+  "theme_color": "#1f2937",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
