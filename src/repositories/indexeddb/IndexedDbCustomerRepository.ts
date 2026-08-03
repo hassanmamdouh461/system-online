@@ -1,4 +1,4 @@
-import { ICustomerRepository } from '../types';
+import { DeleteOutcome, ICustomerRepository } from '../types';
 import { Customer } from '../../types/customer';
 import { withDB, enqueueWrite } from './db';
 import { syncService } from '../../services/syncService';
@@ -252,7 +252,7 @@ export class IndexedDbCustomerRepository implements ICustomerRepository {
     });
   }
 
-  async delete(id: string): Promise<void> {
+  async delete(id: string): Promise<DeleteOutcome> {
     const tombstone: Customer = await enqueueWrite(async () => {
       return withDB(async (db) => {
         const now = new Date().toISOString();
@@ -294,16 +294,29 @@ export class IndexedDbCustomerRepository implements ICustomerRepository {
     // Push the tombstone to the cloud so it persists in D1 and every device
     // learns the customer was deleted. Do NOT hard-delete afterwards: that
     // would wipe the very tombstone we just wrote (same fix as inventory).
+    //
+    // The OUTCOME is returned rather than swallowed: a tombstone that never
+    // reached D1 exists only in this browser (IndexedDB + sync_queue), so
+    // clearing the cache loses the deletion and the next hydrate brings the
+    // customer back with his old points and receivables. The screen used to
+    // report «تم حذف العميل» in exactly that case.
     try {
-      const { cloudUpsert, ackSyncQueueForEntity } = await import('../../services/cloudConfig');
-      const ok = await cloudUpsert('customers', id, tombstone);
-      if (ok) {
+      const { cloudUpsertWithOutcome, ackSyncQueueForEntity, describeCloudWriteFailure } =
+        await import('../../services/cloudConfig');
+      const outcome = await cloudUpsertWithOutcome('customers', id, tombstone);
+      if (outcome.kind === 'ok') {
         await ackSyncQueueForEntity(id);
-      } else {
-        void syncService.syncPendingData();
+        return { synced: true };
       }
-    } catch {
       void syncService.syncPendingData();
+      return { synced: false, reason: describeCloudWriteFailure(outcome) };
+    } catch (err) {
+      console.warn('[customer] tombstone push failed:', err);
+      void syncService.syncPendingData();
+      return {
+        synced: false,
+        reason: 'تعذّر تأكيد الحذف على السحاب — العملية في طابور المزامنة.',
+      };
     }
   }
 }

@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback, use
 import { MenuItem } from '../types/menu';
 import { Order, OrderStatus } from '../types/order';
 import { menuRepository, orderRepository } from '../repositories';
+import type { DeleteOutcome } from '../repositories/types';
 import { useAuth } from './AuthContext';
 import { inventoryService } from '../services/inventoryService';
 import { getIngredientBaseQty } from '../utils/units';
@@ -27,7 +28,7 @@ interface MenuState {
   error: Error | null;
   addItem: (item: Omit<MenuItem, 'id'>) => Promise<MenuItem | null>;
   updateItem: (id: string, data: Partial<Omit<MenuItem, 'id'>>) => Promise<void>;
-  deleteItem: (id: string) => Promise<void>;
+  deleteItem: (id: string) => Promise<DeleteOutcome>;
   toggleAvailability: (id: string) => Promise<void>;
   refetch: () => Promise<void>;
 }
@@ -233,13 +234,18 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  const deleteItem = useCallback(async (id: string) => {
+  // Returns the delete outcome so the calling screen can distinguish a deletion
+  // confirmed by the cloud from one that only exists in this browser (which is
+  // undone the moment the operator clears browser data).
+  const deleteItem = useCallback(async (id: string): Promise<DeleteOutcome> => {
     try {
-      await menuRepository.delete(id);
+      const outcome = await menuRepository.delete(id);
       setMenuItems(prev => prev.filter(i => i.id !== id));
+      return outcome;
     } catch (err) {
       console.error('[DataContext] Failed to delete item in repository:', err);
       toast.error(err instanceof Error ? err.message : String(err));
+      return { synced: false, reason: err instanceof Error ? err.message : String(err) };
     }
   }, []);
 

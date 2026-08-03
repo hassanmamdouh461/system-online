@@ -988,6 +988,41 @@ export async function cloudUpsert(
   return (await cloudUpsertWithOutcome(collection, id, data)).kind === 'ok';
 }
 
+/**
+ * Operator-readable Arabic reason for a cloud write that did NOT land.
+ *
+ * WHY THIS EXISTS — the "deleted record comes back after clearing the cache" bug.
+ * A delete writes a local tombstone and then pushes it to D1. Every caller used
+ * to ignore the push result (`cloudUpsert(...)` → boolean → dropped on the
+ * floor), so the UI reported «تم الحذف» even when the tombstone never reached
+ * the cloud. The deletion then existed ONLY in IndexedDB + the local sync_queue;
+ * clearing the browser cache wiped both, and the next hydrate pulled the still-
+ * live row back from D1 — the record resurrected with its receivables and
+ * points. The operator had no way to know the delete was never confirmed.
+ *
+ * Returning a real reason lets the delete paths tell the truth: the record is
+ * hidden locally, the deletion is queued, and browser data must not be cleared
+ * until it syncs.
+ */
+export function describeCloudWriteFailure(outcome: CloudWriteOutcome): string {
+  switch (outcome.kind) {
+    case 'ok':
+      return '';
+    case 'denied':
+      return (
+        outcome.message ||
+        'السيرفر رفض العملية بصلاحيتك الحالية (403) — سجّل دخول بصلاحية مدير وأعد المحاولة.'
+      );
+    case 'unauthenticated':
+      return 'انتهت صلاحية جلسة الدخول — اعمل تسجيل خروج ثم دخول مرة أخرى لإتمام المزامنة.';
+    case 'stale':
+      return 'فيه نسخة أحدث من السجل على السحاب — حدّث الصفحة وأعد المحاولة.';
+    case 'unreachable':
+    default:
+      return 'مفيش اتصال بالسحاب — العملية في طابور المزامنة.';
+  }
+}
+
 /** Mark open sync_queue rows for an entity id as synced (after successful cloud write). */
 export async function ackSyncQueueForEntity(entityId: string): Promise<void> {
   if (!entityId || typeof window === 'undefined') return;

@@ -74,8 +74,18 @@ export default function Menu() {
   const handleExecuteDelete = async () => {
     if (!deleteTargetId) return;
     try {
-      await deleteItem(deleteTargetId);
-      toast.success(t('Item deleted successfully'));
+      const outcome = await deleteItem(deleteTargetId);
+      // Only claim the item is gone when the cloud confirmed the tombstone: an
+      // unconfirmed deletion lives only in this browser and comes back as soon
+      // as browser data is cleared.
+      if (outcome.synced) {
+        toast.success(t('Item deleted successfully'));
+      } else {
+        toast.warning(
+          `${t('Hidden on this device, but the deletion is not confirmed in the cloud yet.')} ${outcome.reason || ''}`,
+          t('Deletion pending sync')
+        );
+      }
     } catch (error) {
       console.error('Failed to delete item:', error);
       toast.error(t('Failed to delete item'));

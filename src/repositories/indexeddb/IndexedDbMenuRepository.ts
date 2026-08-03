@@ -1,14 +1,17 @@
-import { IMenuRepository } from '../types';
+import { DeleteOutcome, IMenuRepository } from '../types';
 import { MenuItem } from '../../types/menu';
 import { withDB, enqueueWrite } from './db';
 import { syncService } from '../../services/syncService';
 import {
   cloudGetCollection,
   cloudUpsert,
+  cloudUpsertWithOutcome,
+  describeCloudWriteFailure,
   getCloudSyncSince,
   setCloudSyncSince,
   newestRemoteTimestamp,
   getSessionRole,
+  refreshCloudSessionRole,
 } from '../../services/cloudConfig';
 
 function mapRemoteMenu(doc: any): MenuItem {
@@ -34,18 +37,41 @@ function mapRemoteMenu(doc: any): MenuItem {
  * Mirrors canPushSettingKey in settingsCloudService: menu_items (and recipes)
  * are in the Worker's CASHIER_READONLY_TABLES, so any cashier write can only
  * 403 on the server and leave a dead sync-queue row that poisons the queue
- * ("failed" badge, blocked retries). A cashier session — or one that has not
- * minted a role yet (null) — skips the push entirely; a manager device owns
- * the menu write. The local IndexedDB write still happens (the caller), we
- * only suppress the doomed cloud round-trip.
+ * ("failed" badge, blocked retries). A cashier session skips the push entirely;
+ * a manager device owns the menu write. The local IndexedDB write still happens
+ * (the caller), we only suppress the doomed cloud round-trip.
+ *
+ * A session whose role is not known YET is resolved against the Worker before
+ * deciding — see the comment inside.
  */
-function canPushMenuWrite(): boolean {
-  return getSessionRole() === 'manager';
+async function canPushMenuWrite(): Promise<boolean> {
+  const role = getSessionRole();
+  if (role) return role === 'manager';
+
+  // UNKNOWN role (null) is RESOLVED, not assumed.
+  //
+  // getSessionRole() is in-memory, so it is null after every page reload until
+  // something probes the session. Treating null as "not a manager" silently
+  // dropped a manager's menu delete in that window: no cloud push AND no
+  // sync-queue row, so the deletion existed only in this browser's IndexedDB and
+  // clearing the cache brought the item straight back. Treating null as "is a
+  // manager" would be just as wrong — it revives the doomed cashier round-trip
+  // this gate exists to prevent. Ask the Worker who we are instead (the 12h
+  // session cookie answers without a password), then decide.
+  const resolved = await refreshCloudSessionRole();
+  return resolved === 'manager';
 }
 
-async function pushMenuImmediate(item: MenuItem, action: 'create' | 'update' | 'delete') {
-  // Cashier devices never enqueue/push menu writes (see canPushMenuWrite).
-  if (!canPushMenuWrite()) return;
+async function pushMenuImmediate(
+  item: MenuItem,
+  action: 'create' | 'update' | 'delete'
+): Promise<DeleteOutcome> {
+  if (!(await canPushMenuWrite())) {
+    return {
+      synced: false,
+      reason: 'تعديل المنيو يحتاج صلاحية مدير — لم تتم المزامنة مع السحاب.',
+    };
+  }
   try {
     if (action === 'delete') {
       const now = item.deletedAt || new Date().toISOString();
@@ -58,21 +84,20 @@ async function pushMenuImmediate(item: MenuItem, action: 'create' | 'update' | '
       // item was deleted. Do NOT hard-delete afterwards: that would wipe the
       // very tombstone we just wrote, letting a competing device UPDATE
       // resurrect the deleted item (same fix as inventory/customers/companies).
-      const ok = await cloudUpsert('menu_items', item.id, tombstone);
-      if (!ok) {
-        await withDB(async (db) => {
-          await db.put('sync_queue', {
-            id: `sync_menu_del_${item.id}_${Date.now()}`,
-            type: 'menu',
-            action: 'update',
-            data: tombstone,
-            timestamp: now,
-            synced: 0,
-          });
+      const outcome = await cloudUpsertWithOutcome('menu_items', item.id, tombstone);
+      if (outcome.kind === 'ok') return { synced: true };
+      await withDB(async (db) => {
+        await db.put('sync_queue', {
+          id: `sync_menu_del_${item.id}_${Date.now()}`,
+          type: 'menu',
+          action: 'update',
+          data: tombstone,
+          timestamp: now,
+          synced: 0,
         });
-        void syncService.syncPendingData();
-      }
-      return;
+      });
+      void syncService.syncPendingData();
+      return { synced: false, reason: describeCloudWriteFailure(outcome) };
     }
 
     const ok = await cloudUpsert('menu_items', item.id, item);
@@ -88,10 +113,16 @@ async function pushMenuImmediate(item: MenuItem, action: 'create' | 'update' | '
         });
       });
       void syncService.syncPendingData();
+      return { synced: false, reason: 'العملية في طابور المزامنة.' };
     }
+    return { synced: true };
   } catch (e) {
     console.warn('[menu] immediate cloud push failed:', e);
     void syncService.syncPendingData();
+    return {
+      synced: false,
+      reason: 'تعذّر تأكيد العملية على السحاب — العملية في طابور المزامنة.',
+    };
   }
 }
 
@@ -201,7 +232,7 @@ export class IndexedDbMenuRepository implements IMenuRepository {
   async bootstrapPushAll(items?: MenuItem[]): Promise<number> {
     // Cashier devices never push menu writes (see canPushMenuWrite): the server
     // would 403 every row and fill the queue with dead records.
-    if (!canPushMenuWrite()) return 0;
+    if (!(await canPushMenuWrite())) return 0;
     const list =
       items || ((await withDB((db) => db.getAll('menu_items'))) as MenuItem[]);
     if (!list.length) return 0;
@@ -273,7 +304,7 @@ export class IndexedDbMenuRepository implements IMenuRepository {
     });
   }
 
-  async delete(id: string): Promise<void> {
+  async delete(id: string): Promise<DeleteOutcome> {
     const now = new Date().toISOString();
     // Soft-delete: write a tombstone row (deletedAt) locally AND push it to the cloud.
     // The tombstone propagates to every device and prevents the item from coming back
@@ -301,9 +332,12 @@ export class IndexedDbMenuRepository implements IMenuRepository {
 
     // Push the FULL tombstone (carrying the NOT NULL columns name/price/category)
     // so the worker upsert does not 500 and the tombstone actually persists in D1.
-    if (tombstoneItem) {
-      await pushMenuImmediate(tombstoneItem, 'delete');
+    // The outcome is returned so the screen can tell the operator when the
+    // deletion is local-only (and would be undone by clearing browser data).
+    if (!tombstoneItem) {
+      return { synced: false, reason: 'الصنف غير موجود محلياً.' };
     }
+    return await pushMenuImmediate(tombstoneItem, 'delete');
   }
 
   async resetToDefaults(defaults: Omit<MenuItem, 'id'>[], branchId?: string): Promise<MenuItem[]> {
