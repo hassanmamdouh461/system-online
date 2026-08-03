@@ -24,7 +24,7 @@ function ok(cond: unknown, label: string) {
  * real menu_items table has — so the test proves the worker only selects the
  * safe ones (if the query were still SELECT *, the extra fields would appear).
  */
-function makeStubDB(captured: { sql: string | null }) {
+function makeStubDB(captured: { sql: string | null }, rowsOverride?: any[]) {
   return {
     prepare(sql: string) {
       if (/FROM menu_items/i.test(sql)) captured.sql = sql;
@@ -37,6 +37,7 @@ function makeStubDB(captured: { sql: string | null }) {
         },
         async all() {
           if (/FROM menu_items/i.test(sql)) {
+            if (rowsOverride) return { results: rowsOverride };
             // Even though the SELECT lists explicit columns, return a full-fat
             // row here: denormalizeData must have nothing extra to pass through.
             return {
@@ -99,6 +100,35 @@ async function main() {
   // row, and the row came from our stub. The SELECT no longer fetches it, so a
   // real D1 would return undefined. Assert the query guarantees absence.
   ok(!/SELECT[^)]*\bavailable\b/i.test(captured.sql!.split("FROM")[0]), "query does NOT select available");
+
+  console.log("\n3) items stay flagged available even though the SELECT omits the column");
+  // Regression: real D1 returns exactly the six projected columns, so the row
+  // has no `available` key at all. denormalizeData used to turn that into
+  // available:false, the QR page filtered every item out, and the customer-
+  // facing menu rendered permanently empty while the manager UI showed the
+  // item as in stock. Presence in this payload means available.
+  const captured2: { sql: string | null } = { sql: null };
+  const env2: any = {
+    DB: makeStubDB(captured2, [
+      {
+        id: "m2",
+        name: "Espresso",
+        price: 50,
+        category: "مشروبات ساخنه|Bar",
+        description: "دبل شوت",
+        image: "https://img.example/espresso.png",
+      },
+    ]),
+    ALLOWED_ORIGINS: "https://pos.engaz.tech",
+  };
+  const res2 = await worker.fetch(
+    new Request("https://api.engaz.tech/public/menu", { headers: { Origin: "https://pos.engaz.tech" } }),
+    env2
+  );
+  ok(res2.status === 200, `status 200 (got ${res2.status})`);
+  const body2: any = await res2.json();
+  ok(body2.documents.length === 1, "one document returned for the projected-row stub");
+  ok(body2.documents[0].available === true, "available is true despite the column being absent from the row");
 
   console.log(`\n✅ public-menu-minimal.test: ${passed} assertions passed\n`);
 }
