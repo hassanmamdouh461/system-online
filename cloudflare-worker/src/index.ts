@@ -1195,7 +1195,7 @@ function getCorsHeaders(request: Request, env: Env) {
       // is a specific (non-"*") allowlisted value.
       "Access-Control-Allow-Credentials": "true",
       "Access-Control-Allow-Methods": "GET, POST, PATCH, PUT, DELETE, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Branch-ID, X-Device-ID, X-API-Key, X-CSRF-Token, X-Refund-PIN",
+      "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Branch-ID, X-Device-ID, X-API-Key, X-CSRF-Token, X-Refund-PIN, X-Role-Intent",
       "Access-Control-Max-Age": "86400",
       "Vary": "Origin"
     };
@@ -1211,7 +1211,7 @@ function getCorsHeaders(request: Request, env: Env) {
     // See note above: mandatory for the cookie to be stored + replayed.
     "Access-Control-Allow-Credentials": "true",
     "Access-Control-Allow-Methods": "GET, POST, PATCH, PUT, DELETE, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Branch-ID, X-Device-ID, X-API-Key, X-CSRF-Token, X-Refund-PIN",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Branch-ID, X-Device-ID, X-API-Key, X-CSRF-Token, X-Refund-PIN, X-Role-Intent",
     "Access-Control-Max-Age": "86400",
     "Vary": "Origin"
   };
