@@ -19,6 +19,7 @@ import {
   getSessionRole,
   refreshCloudSessionRole,
   SESSION_EXPIRED_EVENT,
+  ROLE_MISMATCH_EVENT,
 } from './services/cloudConfig';
 
 // Direct eager imports for 100% instant navigation without chunk pauses or splash screens
@@ -224,12 +225,53 @@ function SessionExpiryWatcher() {
   return null;
 }
 
+/**
+ * Tell the operator when the server session carries a DIFFERENT role than the
+ * one he is signed in as — the failure that made a manager's menu edits vanish.
+ *
+ * Cookies are per-DOMAIN, so a cashier sign-in in another tab (or a lapsed
+ * manager cookie after a reload, with no password in memory to re-mint with)
+ * could leave the manager dashboard writing as a cashier. Every catalog write
+ * then came back 403 "تعديل المنيو والوصفات غير مسموح لصلاحية الكاشير" — visible
+ * only in the F12 console, while the screen showed the change as if it had been
+ * saved. cloudConfig tries to repair the session silently first
+ * (reconcileSessionRole) and only emits this event when it truly needs the
+ * password again.
+ */
+function RoleMismatchWatcher() {
+  const { isAuthenticated, logout } = useAuth();
+  const toast = useToast();
+  const authedRef = useRef(isAuthenticated);
+  useEffect(() => {
+    authedRef.current = isAuthenticated;
+  }, [isAuthenticated]);
+
+  useEffect(() => {
+    const onMismatch = (event: Event) => {
+      if (!authedRef.current) return;
+      const detail = (event as CustomEvent)?.detail || {};
+      const actual = detail.actual === 'cashier' ? 'كاشير' : detail.actual === 'manager' ? 'مدير' : 'غير معروفة';
+      toast.error(
+        `صلاحية الجلسة على السيرفر (${actual}) مختلفة عن اللي إنت داخل بيها — أي تعديل مش هيتسجل على السحابة. ` +
+          'سجّل الدخول من جديد بكلمة سر المدير.',
+        'صلاحية الجلسة مختلفة'
+      );
+      logout();
+    };
+    window.addEventListener(ROLE_MISMATCH_EVENT, onMismatch);
+    return () => window.removeEventListener(ROLE_MISMATCH_EVENT, onMismatch);
+  }, [toast, logout]);
+
+  return null;
+}
+
 function ProtectedRoute() {
   const { isAuthenticated } = useAuth();
   const location = useLocation();
   if (!isAuthenticated) return <Navigate to="/login" state={{ from: location }} replace />;
   return (
     <DataProvider>
+      <RoleMismatchWatcher />
       <DefaultPasswordBanner />
       <BackupHealthBanner />
       <Outlet />

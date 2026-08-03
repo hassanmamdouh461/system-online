@@ -7,7 +7,9 @@ import {
   getSessionRole,
   isCloudConfigured,
   getLastSessionMintOutcome,
+  setRoleIntent,
 } from '../services/cloudConfig';
+import { syncService } from '../services/syncService';
 import { clearRefundPin } from '../utils/refundPin';
 
 /**
@@ -128,6 +130,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // is authoritative. Both sides use the same KDF (PBKDF2-100k), so they never
     // disagree on a password that is actually correct.
     if (!isValid && isCloudConfigured()) {
+      // Declare WHICH role-scoped session we mean to use before minting, so the
+      // Worker sets/reads this role's own cookie instead of the shared one that
+      // a sibling tab could overwrite.
+      setRoleIntent(isManager ? 'manager' : 'cashier');
       setSessionCredential(password);
       const minted = await ensureCloudSession(true);
       const serverRole = getSessionRole();
@@ -185,12 +191,41 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Await the mint and confirm the role matches the login intent: a stale
     // cashier cookie must never survive a manager login (it would 403 every
     // manager-only setting write, e.g. the tax rate).
+    setRoleIntent(isManager ? 'manager' : 'cashier');
     setSessionCredential(password);
     const minted = await ensureCloudSession(true);
     const cloudRole = getSessionRole();
-    if (minted && isManager && cloudRole !== 'manager') {
-      console.warn('[auth] manager login but cloud session role is', cloudRole, '— dropping mismatched session');
-      void clearCloudSession();
+    if (isManager && cloudRole !== 'manager') {
+      // Covers BOTH failure shapes:
+      //   • the mint returned the wrong role, and
+      //   • the mint did not happen at all (offline / rate-limited / 503).
+      // The second case used to fall through silently and leave whatever cookie
+      // the browser already held — often a cashier session minted by the till
+      // tab. The dashboard then looked like a manager while every catalog write
+      // came back 403 "تعديل المنيو والوصفات غير مسموح لصلاحية الكاشير" and was
+      // retired by the sync queue, so the menu edit vanished. Dropping the
+      // mismatched session makes the failure visible instead of silent.
+      console.warn(
+        '[auth] manager login but cloud session role is',
+        cloudRole,
+        minted ? '' : '(mint did not succeed)',
+        '— dropping mismatched session'
+      );
+      await clearCloudSession();
+      setRoleIntent('manager');
+    } else if (minted && isManager) {
+      // Writes that were retired as permanent 403s while this browser was
+      // (wrongly) authenticated as a cashier are legitimate for a manager. Re-arm
+      // them so the queued menu/recipe/settings changes finally reach D1.
+      try {
+        const revived = await syncService.resetDeadRecords();
+        if (revived > 0) {
+          console.info('[auth] re-armed', revived, 'sync record(s) refused under the previous role');
+          void syncService.syncPendingData();
+        }
+      } catch (err) {
+        console.warn('[auth] could not re-arm refused sync records:', err);
+      }
     }
 
     return userData;
@@ -203,8 +238,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Drop any held refund escalation PIN — a till is a shared device, and the
     // next operator must not inherit this operator's refund authority.
     clearRefundPin();
-    // Drop the server session cookie + in-memory credential.
-    void clearCloudSession();
+    // Drop the server session cookie + in-memory credential, then forget which
+    // role this browser was acting as.
+    void clearCloudSession().finally(() => setRoleIntent(null));
   };
 
   return (

@@ -261,9 +261,82 @@ function parseCookies(header: string | null): Record<string, string> {
   return out;
 }
 
-function readSessionCookie(request: Request): string | null {
+/**
+ * ROLE-SCOPED COOKIES — why a single `pos_session` cookie was a bug
+ * -----------------------------------------------------------------
+ * A cookie is scoped to the DOMAIN, not to a tab. A shop routinely runs the
+ * till and the manager dashboard in the same browser (two tabs on
+ * pos.engaz.tech). With ONE cookie name, whichever tab minted last owned the
+ * role for BOTH: a cashier login silently overwrote the manager's cookie, and
+ * from that moment every manager write — menu edits included — came back
+ *   403 cashier_catalog_readonly ("تعديل المنيو والوصفات غير مسموح لصلاحية الكاشير")
+ * even though the operator was signed in as manager on the dashboard. The
+ * manager's own tab still believed it was a manager (the role is cached in
+ * memory at mint), so the client never re-minted and the writes were retired
+ * as permanent denials — the menu delete never reached D1, which is also why
+ * the cashier device never saw the change.
+ *
+ * The fix: one cookie PER ROLE. Both sessions can coexist in the same browser,
+ * and a request declares WHICH of them it wants to use via `X-Role-Intent`.
+ * That header only SELECTS among cookies the browser already holds — the role
+ * itself still comes from the HMAC-signed cookie, so a client cannot claim a
+ * role it was never granted (forging one still requires SESSION_SECRET).
+ */
+export const SESSION_COOKIE_BY_ROLE: Record<Role, string> = {
+  manager: "pos_session_manager",
+  cashier: "pos_session_cashier",
+};
+
+/** Header a client uses to pick which role-scoped session to authenticate with. */
+export const ROLE_INTENT_HEADER = "X-Role-Intent";
+
+/** The role the caller wants to act as, when it stated one. */
+export function readRoleIntent(request: Request): Role | null {
+  const raw = (request.headers.get(ROLE_INTENT_HEADER) || "").trim().toLowerCase();
+  if (raw === "manager" || raw === "cashier") return raw;
+  return null;
+}
+
+/**
+ * Pick the session token to authenticate this request with.
+ *
+ * Preference order:
+ *   1. The cookie for the stated role intent (the tab knows who it is).
+ *   2. The legacy single-name cookie, so tills that have not re-minted since
+ *      this change keep working through the rollout.
+ *   3. Any other role cookie present — a browser holding only one session
+ *      should still authenticate when no intent was declared.
+ *
+ * Only VERIFIABLE tokens are considered, so an expired or tampered cookie for
+ * the intended role falls through to the next candidate instead of 401-ing a
+ * browser that also holds a good one.
+ */
+export async function selectSessionToken(
+  request: Request,
+  env: AuthEnv
+): Promise<{ token: string; payload: SessionPayload } | null> {
   const cookies = parseCookies(request.headers.get("Cookie"));
-  return cookies[SESSION_COOKIE] || null;
+  const intent = readRoleIntent(request);
+
+  const candidates: string[] = [];
+  if (intent) candidates.push(SESSION_COOKIE_BY_ROLE[intent]);
+  candidates.push(SESSION_COOKIE);
+  for (const name of Object.values(SESSION_COOKIE_BY_ROLE)) {
+    if (!candidates.includes(name)) candidates.push(name);
+  }
+
+  for (const name of candidates) {
+    const token = cookies[name];
+    if (!token) continue;
+    const payload = await verifySessionToken(token, env);
+    if (!payload) continue;
+    // A role cookie must carry its own role; a mismatch means a hand-edited or
+    // mis-set cookie, and trusting it would defeat the per-role separation.
+    if (name !== SESSION_COOKIE && SESSION_COOKIE_BY_ROLE[payload.role] !== name) continue;
+    return { token, payload };
+  }
+
+  return null;
 }
 
 /**
@@ -275,13 +348,19 @@ function readSessionCookie(request: Request): string | null {
  * cookie on cross-site requests, CSRF is closed separately (see index.ts: strict
  * Origin allowlist + double-submit token).
  */
-export function buildSetCookie(token: string, maxAge: number = SESSION_TTL_SECONDS): string {
-  return `${SESSION_COOKIE}=${token}; Path=/; Max-Age=${maxAge}; HttpOnly; Secure; SameSite=None`;
+export function buildSetCookie(
+  token: string,
+  maxAge: number = SESSION_TTL_SECONDS,
+  role?: Role
+): string {
+  const name = role ? SESSION_COOKIE_BY_ROLE[role] : SESSION_COOKIE;
+  return `${name}=${token}; Path=/; Max-Age=${maxAge}; HttpOnly; Secure; SameSite=None`;
 }
 
-/** Build the Set-Cookie that clears the session (logout). */
-export function buildClearCookie(): string {
-  return `${SESSION_COOKIE}=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=None`;
+/** Build the Set-Cookie that clears a session cookie (logout / legacy eviction). */
+export function buildClearCookie(role?: Role): string {
+  const name = role ? SESSION_COOKIE_BY_ROLE[role] : SESSION_COOKIE;
+  return `${name}=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=None`;
 }
 
 // ─── Credential → role resolution ────────────────────────────────────────────
@@ -434,10 +513,12 @@ export async function authenticate(
   request: Request,
   env: AuthEnv
 ): Promise<{ role: Role; sid: string | null; viaCookie: boolean } | null> {
-  const cookieToken = readSessionCookie(request);
-  if (cookieToken) {
-    const payload = await verifySessionToken(cookieToken, env);
-    if (payload) return { role: payload.role, sid: payload.sid, viaCookie: true };
+  // Role-scoped cookie selection (see selectSessionToken): the caller's
+  // X-Role-Intent picks WHICH session in this browser to use, so a manager tab
+  // is no longer downgraded by a cashier login in a sibling tab.
+  const selected = await selectSessionToken(request, env);
+  if (selected) {
+    return { role: selected.payload.role, sid: selected.payload.sid, viaCookie: true };
   }
 
   // Header-key callers (headless scripts, monitoring, migrations). The gate must
@@ -471,10 +552,12 @@ export async function authenticate(
  * header cross-origin — so this only guards the cookie path.
  */
 export async function verifyCsrf(request: Request, env: AuthEnv): Promise<boolean> {
-  const cookieToken = readSessionCookie(request);
-  if (!cookieToken) return false;
-  const payload = await verifySessionToken(cookieToken, env);
-  if (!payload) return false;
+  // Use the SAME session the request authenticates with (role-scoped selection),
+  // otherwise a browser holding both a manager and a cashier cookie could
+  // authenticate on one and be CSRF-checked against the other's sid.
+  const selected = await selectSessionToken(request, env);
+  if (!selected) return false;
+  const payload = selected.payload;
 
   const presented = (request.headers.get(CSRF_HEADER) || "").trim();
   if (!presented) return false;
@@ -692,17 +775,34 @@ export async function handleSessionRoutes(
     // client stores it and echoes it as X-CSRF-Token on every write.
     const csrfToken = await csrfTokenFor(minted.sid, env);
 
+    // Set the ROLE-SCOPED cookie and evict the legacy single-name one in the
+    // same response. Without the eviction the old `pos_session` cookie would
+    // keep shadowing this mint for callers that don't declare an intent, which
+    // is exactly the cross-tab role bleed this change removes.
+    const headers = new Headers(jsonHeaders as Record<string, string>);
+    headers.append("Set-Cookie", buildSetCookie(minted.token, undefined, role));
+    headers.append("Set-Cookie", buildClearCookie());
+
     return new Response(JSON.stringify({ ok: true, role, expiresAt: minted.exp, csrfToken }), {
       status: 200,
-      headers: { ...jsonHeaders, "Set-Cookie": buildSetCookie(minted.token) },
+      headers,
     });
   }
 
   if (request.method === "DELETE") {
-    return new Response(JSON.stringify({ ok: true }), {
-      status: 200,
-      headers: { ...jsonHeaders, "Set-Cookie": buildClearCookie() },
-    });
+    // Log out only the session the caller is actually using. A manager signing
+    // out of the dashboard must not kill the till's cashier session in the same
+    // browser (and vice-versa). With no stated intent, clear everything.
+    const intent = readRoleIntent(request);
+    const headers = new Headers(jsonHeaders as Record<string, string>);
+    headers.append("Set-Cookie", buildClearCookie());
+    if (intent) {
+      headers.append("Set-Cookie", buildClearCookie(intent));
+    } else {
+      headers.append("Set-Cookie", buildClearCookie("manager"));
+      headers.append("Set-Cookie", buildClearCookie("cashier"));
+    }
+    return new Response(JSON.stringify({ ok: true }), { status: 200, headers });
   }
 
   if (request.method === "GET") {
