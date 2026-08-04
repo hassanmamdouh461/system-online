@@ -29,7 +29,12 @@ function describeLoginFailure(): string {
   const outcome = getLastSessionMintOutcome();
   switch (outcome.kind) {
     case 'rate_limited':
-      return 'محاولات كتير أوي — استنى دقيقة وجرّب تاني (الباسورد ممكن يكون صح)';
+      // Reachable only after the Worker's brute-force backstop trips (40
+      // REJECTED passwords from one IP in 10 minutes) — successes and the
+      // client's background re-mints no longer spend budget. A mistyped
+      // password, or five, is answered immediately with "wrong password" and
+      // the operator can retry at once; nobody is told to wait a minute.
+      return 'الدخول اتقفل مؤقتًا بعد محاولات خاطئة كتير جدًا — كلّم الدعم الفني';
     case 'server_misconfigured':
       return 'السيرفر مش مظبوط (SESSION_SECRET ناقص) — كلّم الدعم الفني';
     case 'server_error':
