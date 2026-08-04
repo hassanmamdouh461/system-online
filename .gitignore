@@ -121,3 +121,9 @@ Thumbs.db
 *.zip
 *.bin
 
+
+# Prebuilt bundles must never be committed — a stale one got deployed
+# over a newer build and rolled the live site back three commits.
+dist-deploy.zip
+build/
+
