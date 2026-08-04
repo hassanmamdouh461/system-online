@@ -395,6 +395,43 @@ export function settingKeyFrom(
   return null;
 }
 
+/**
+ * Row-id prefixes the Worker reserves for its own bookkeeping. These rows are
+ * day-scoped (`order_seq::2026-08-04`), so their derived "key" is a date and a
+ * key-NAME check can never recognise them — match the id prefix instead.
+ */
+const WORKER_OWNED_SETTING_ID_PREFIXES: readonly string[] = [
+  "order_seq::",
+  "report_claim::",
+];
+
+/**
+ * True when this settings row belongs to the Worker's internal bookkeeping and
+ * must never be written by a client, whatever its role.
+ *
+ * Checks three ways in, because the same logical row is addressable by more
+ * than one shape: the day-scoped id prefix the Worker actually writes, the
+ * stored `key` column on the current row, and the plain key name (covering a
+ * legacy `global::brewmaster_order_seq` style id).
+ */
+export function isWorkerOwnedSettingRow(
+  docId?: string | null,
+  current?: Record<string, any> | null
+): boolean {
+  const id = String(docId ?? "").trim();
+  if (id && WORKER_OWNED_SETTING_ID_PREFIXES.some((p) => id.startsWith(p))) {
+    return true;
+  }
+
+  const storedKey = current?.key;
+  if (storedKey && WORKER_OWNED_SETTING_KEYS.includes(String(storedKey).trim())) {
+    return true;
+  }
+
+  const derived = settingKeyFrom(null, docId, current);
+  return !!derived && WORKER_OWNED_SETTING_KEYS.includes(derived);
+}
+
 export interface AuthzContext {
   role: Role;
   table: string;
@@ -425,6 +462,41 @@ export function can(ctx: AuthzContext): Decision {
   // authorizes a write comes from the docId (or the stored row), so a body
   // whose `key` field disagrees with that is either a spoofing attempt or a
   // corrupted client — either way the write must not proceed. See Blocker 1.
+  // Worker-owned settings rows are refused for EVERY role, manager included,
+  // on every mutating method (DELETE included).
+  //
+  // Two separate bugs met here:
+  //
+  // 1. The guard lived in canWriteSetting(), which sits BELOW the
+  //    `if (role === "manager") return ALLOW` short-circuit, so it only ever
+  //    ran for cashiers — the documented intent ("every role is blocked") was
+  //    not what the code did.
+  // 2. It matched on the KEY NAME (`brewmaster_order_seq`), but the Worker
+  //    stores these rows under day-scoped ids — `order_seq::2026-08-04`,
+  //    `report_claim::2026-08-04` — whose derived key is the DATE. So the
+  //    name check never matched the real rows for any role; a cashier was
+  //    stopped only incidentally, by the fail-closed unknown-key rule.
+  //
+  // Net effect: a manager session could POST (or DELETE) `order_seq::<day>`
+  // through the ordinary settings sync path and roll the day's invoice counter
+  // backwards, after which the next order re-issues a ticket number already
+  // printed on a customer receipt. This needs no malicious manager — a
+  // front-end bug or an import of an old settings backup reaches the same
+  // endpoint, and duplicate invoice numbers are a real accounting problem
+  // under e-invoicing.
+  //
+  // These rows are written exclusively by the Worker's own endpoints
+  // (/api/orders/next-seq and /api/report/claim), so refusing the client sync
+  // path costs no legitimate flow.
+  if (table === "settings" && method !== "GET") {
+    if (isWorkerOwnedSettingRow(ctx.docId, ctx.current)) {
+      return deny(
+        "worker_owned_setting",
+        "هذا الإعداد تديره المنظومة داخلياً ولا يمكن تعديله من الأجهزة."
+      );
+    }
+  }
+
   if (table === "settings" && method !== "GET" && method !== "DELETE") {
     const fromDoc = settingKeyFrom(null, ctx.docId, ctx.current);
     const submittedKey = ctx.submitted?.key;
@@ -548,7 +620,22 @@ function canWriteCustomerOrCompany(ctx: AuthzContext): Decision {
   const current = ctx.current || null;
 
   // Creating a new row is fine — a cashier adds walk-in customers every shift.
-  if (!current) return ALLOW;
+  // It is NOT fine to create one that arrives already tombstoned: the update
+  // path below refuses `deleted_at`, and a create that carries it reaches the
+  // same end state through the door left open. The blast radius is small (the
+  // row did not exist, so no ledger is lost) but the inconsistency is real —
+  // a row written straight to invisible is a write the cashier is not allowed
+  // to make, and it desyncs every other device's customer list silently.
+  if (!current) {
+    const tombstone = submitted.deleted_at ?? submitted.deletedAt;
+    if (tombstone !== null && tombstone !== undefined && String(tombstone).trim() !== "") {
+      return deny(
+        "cashier_soft_delete_forbidden",
+        "حذف العميل أو الشركة غير مسموح لصلاحية الكاشير — تحتاج صلاحية مدير."
+      );
+    }
+    return ALLOW;
+  }
 
   const changed = changedFields(submitted, current);
   if (changed.includes("deleted_at")) {

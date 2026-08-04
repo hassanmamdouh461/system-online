@@ -103,6 +103,61 @@ function pureMatrix() {
     "cashier writing manager creds → denied"
   );
 
+  // Worker-owned settings rows: refused for EVERY role, on every mutating
+  // method. Regression for the invoice-counter reset — the guard used to sit
+  // below `if (role === "manager") return ALLOW` AND matched on the key name
+  // while the real rows are day-scoped ids (`order_seq::<day>`), so a manager
+  // session could roll the day's ticket counter back to zero through the
+  // ordinary settings sync path and re-issue printed invoice numbers.
+  for (const role of ["manager", "cashier"] as const) {
+    for (const docId of ["order_seq::2026-08-04", "report_claim::2026-08-04"]) {
+      for (const method of ["POST", "PATCH", "PUT", "DELETE"] as const) {
+        const d = can({
+          role,
+          table: "settings",
+          method,
+          docId,
+          submitted: { value: "0" },
+          current: null,
+        });
+        ok(!d.allowed, `${role} ${method} ${docId} → denied`);
+        ok(
+          d.code === "worker_owned_setting",
+          `${role} ${method} ${docId} → worker_owned_setting (got ${d.code})`
+        );
+      }
+    }
+    // Legacy id shape addressing the same counter by key name.
+    ok(
+      !can({
+        role,
+        table: "settings",
+        method: "POST",
+        docId: "global::brewmaster_order_seq",
+        submitted: { value: "0" },
+        current: null,
+      }).allowed,
+      `${role} POST global::brewmaster_order_seq → denied`
+    );
+    // Reads must stay open — hydration pulls the settings table wholesale.
+    ok(
+      can({ role, table: "settings", method: "GET", docId: "order_seq::2026-08-04" }).allowed,
+      `${role} GET order_seq row → allowed`
+    );
+  }
+  // The guard must not spill onto ordinary settings a manager legitimately writes.
+  ok(
+    can({
+      role: "manager",
+      table: "settings",
+      method: "POST",
+      docId: "global::brewmaster_tax_rate",
+      submitted: { value: "14" },
+      current: null,
+    }).allowed,
+    "manager writing an ordinary setting → still allowed"
+  );
+
   // Blocker 1 regression: a SPOOFED submitted.key must never launder a write to
   // a sensitive document. Before the fix, settingKeyFrom read submitted.key
   // first, so claiming "brewmaster_language" (cashier-allowed) on the
