@@ -483,7 +483,38 @@ async function passwordMatches(
     return ok;
   }
   // Legacy plaintext credential (pre-hashing installs).
-  if (creds.password) return timingSafeEqual(password, creds.password);
+  //
+  // The upgrade path above only fires when the row ALREADY carries a hash, so a
+  // row that never had one stayed plaintext forever: the Worker kept accepting
+  // it and never converted it, leaving a readable POS password sitting in D1
+  // for the lifetime of the install. Convert it here, on the first successful
+  // login, which is the only moment we legitimately hold the cleartext.
+  if (creds.password) {
+    const ok = timingSafeEqual(password, creds.password);
+    if (ok) {
+      try {
+        const salt = bytesToHex(crypto.getRandomValues(new Uint8Array(16)));
+        const hash = await derivePasswordHashHex(password, salt);
+        const { password: _drop, ...rest } = creds;
+        // Same shape as the strip-plaintext update above: address the row by
+        // id. A value-equality guard is not usable here — `creds` has been
+        // through JSON.parse, so re-serialising it would not match the stored
+        // text byte-for-byte (whitespace) and the update would silently no-op.
+        await env.DB.prepare("UPDATE settings SET value = ? WHERE id = ?")
+          .bind(
+            JSON.stringify({ ...rest, hash, salt }),
+            `${GLOBAL_SETTING_ID_PREFIX}${settingsKey}`
+          )
+          .run();
+        console.warn(`[worker] upgraded legacy plaintext password to PBKDF2 for ${settingsKey}`);
+      } catch (e) {
+        // Never fail the login on a migration error — the operator still
+        // authenticated correctly; the next successful login retries.
+        console.warn(`[worker] failed to upgrade plaintext password for ${settingsKey}:`, e);
+      }
+    }
+    return ok;
+  }
   return false;
 }
 
