@@ -79,10 +79,13 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   // any refetch is suppressed so typing is never wiped by a re-render.
   const isEditingRef = useRef(false);
 
-  // Daily-ticket renumbering is a ONE-TIME cleanup, not a per-poll task. This
-  // guard guarantees renumberIfNeeded() runs at most once per mount so the 10s
-  // auto-refresh can never turn it into a generator of sync_queue rows.
+  // Daily-ticket renumbering is an EVENT-driven cleanup, not a per-poll task.
+  // This guard keeps renumberIfNeeded() off the 10s auto-refresh so it can
+  // never turn into a generator of sync_queue rows; it is cleared deliberately
+  // when the network returns (see the reconnect effect below).
   const renumberedRef = useRef(false);
+  /** Wall-clock of the last renumber pass — throttles a flapping connection. */
+  const lastRenumberAtRef = useRef(0);
 
   // Mirror of ordersList so mutation callbacks can read the latest orders
   // without depending on [ordersList] (avoids re-creating callbacks each tick
@@ -151,6 +154,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       const isManagerDevice = branch?.branchId === 'manager';
       if (opts?.renumber && !renumberedRef.current && !isManagerDevice) {
         renumberedRef.current = true;
+        lastRenumberAtRef.current = Date.now();
         try {
           if (typeof orderRepository.renumberIfNeeded === 'function') {
             const changed = await orderRepository.renumberIfNeeded();
@@ -208,6 +212,38 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       clearInterval(refreshInterval);
     };
   }, [fetchMenu, fetchOrders, branch?.branchId]);
+
+  // ── Reconnect: repair ticket numbers issued during the outage ────────────────
+  //
+  // This is the other half of the offline-duplicate fix. While the till is
+  // offline it cannot reach the Worker's atomic counter, so it numbers from its
+  // own local max + 1 — and a second till does exactly the same, handing #5 to
+  // two different customers. Nothing at issue time can prevent that.
+  //
+  // Renumbering used to run ONCE per mount, which meant a till left open right
+  // through the outage and the reconnect never repaired anything: the duplicate
+  // survived until someone happened to reload the page. Re-running it when the
+  // connection returns is what closes the loop — by then the cloud merge inside
+  // getAll() has pulled the other till's orders in, so the pass can finally SEE
+  // both #5s and lay the day back down in issue order.
+  //
+  // Throttled, and still never on the manager phone (it must not move numbers).
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const RENUMBER_MIN_GAP_MS = 60_000;
+
+    const onOnline = () => {
+      if (branch?.branchId === 'manager') return;
+      // A flapping connection fires `online` repeatedly; one pass a minute is
+      // plenty and keeps the sync queue from being refilled on every blip.
+      if (Date.now() - lastRenumberAtRef.current < RENUMBER_MIN_GAP_MS) return;
+      renumberedRef.current = false;
+      void fetchOrders({ renumber: true });
+    };
+
+    window.addEventListener('online', onOnline);
+    return () => window.removeEventListener('online', onOnline);
+  }, [fetchOrders, branch?.branchId]);
 
   // ── Menu mutations ────────────────────────────────────────────────────────────
 

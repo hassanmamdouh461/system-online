@@ -97,22 +97,79 @@ export function formatOrderNumber(
 }
 
 /**
- * Build a collision-free ticket label for `base`. If the plain number is already
- * taken, append a letter suffix (-A, -B, …). This lets a conflicting (unprinted)
- * order take a suffixed number INSTEAD of forcing a full-day renumber that would
- * shift already-printed tickets. `taken` holds display labels already assigned.
+ * Smallest positive ticket number not already claimed in `takenBase`.
+ *
+ * Replaces the old `suffixedTicket` letter scheme (16-A, 16-B …). That scheme
+ * never reached the customer: `formatOrderNumber` below strips non-digits, so
+ * "16" and "16-A" both PRINTED as 16 — the suffix separated the two orders
+ * inside IndexedDB while the two receipts stayed identical, which is the only
+ * place the collision actually mattered. Tickets are plain integers now; a
+ * conflict is resolved by MOVING a number, not by decorating it.
  */
-export function suffixedTicket(base: number, taken: Set<string>): string {
-  const plain = String(base);
-  if (!taken.has(plain)) return plain;
-  for (let i = 0; i < 26; i++) {
-    const cand = `${base}-${String.fromCharCode(65 + i)}`; // 16-A … 16-Z
-    if (!taken.has(cand)) return cand;
+export function nextFreeTicket(takenBase: Set<number>, from = 1): number {
+  let n = Math.max(1, Math.floor(from));
+  while (takenBase.has(n)) n++;
+  return n;
+}
+
+type TicketOrder = { id?: string; orderNumber?: string; createdAt?: string };
+
+/**
+ * Do two orders in this set print the SAME ticket number?
+ *
+ * Compared on the parsed base rather than the raw label, because the base is
+ * what the customer's receipt shows: `formatOrderNumber` strips non-digits, so
+ * "7" and a legacy "7-A" are one and the same ticket on paper.
+ */
+export function hasDuplicateTickets(orders: TicketOrder[]): boolean {
+  const seen = new Set<number>();
+  for (const o of orders) {
+    const n = parseOrderSeq(o.orderNumber);
+    if (n === null) continue;
+    if (seen.has(n)) return true;
+    seen.add(n);
   }
-  let k = 1;
-  let cand = `${base}-${k}`;
-  while (taken.has(cand)) cand = `${base}-${++k}`;
-  return cand;
+  return false;
+}
+
+/** Issue order: creation time, with id as a stable tie-break. */
+export function byIssueTime(a: TicketOrder, b: TicketOrder): number {
+  const ta = a.createdAt ? new Date(a.createdAt).getTime() : NaN;
+  const tb = b.createdAt ? new Date(b.createdAt).getTime() : NaN;
+  const va = Number.isFinite(ta) ? ta : 0;
+  const vb = Number.isFinite(tb) ? tb : 0;
+  if (va !== vb) return va - vb;
+  // Same millisecond: fall back to id so every device computes the SAME
+  // sequence from the same set of orders. Convergence depends on this.
+  return String(a.id ?? '').localeCompare(String(b.id ?? ''));
+}
+
+/**
+ * Lay a day's tickets back down as 1..N in issue order.
+ *
+ * Used to repair the offline collision: two tills with no network each number
+ * from their own local max + 1, so both hand out #5. On reconnect the merged
+ * day is renumbered by issue time — the earlier sale keeps the lower number.
+ *
+ * Deliberately a PURE function of the day's orders so two devices that have
+ * merged the same set produce identical numbering and converge, instead of
+ * each pushing its own answer at the other.
+ *
+ * Returns only the orders whose number actually changes.
+ */
+export function planIssueOrderTickets(
+  dayOrders: TicketOrder[]
+): Array<{ id: string; orderNumber: string }> {
+  const changes: Array<{ id: string; orderNumber: string }> = [];
+  const sorted = [...dayOrders].sort(byIssueTime);
+  let ticket = 1;
+  for (const o of sorted) {
+    const target = String(ticket++);
+    if (String(o.orderNumber ?? '') !== target) {
+      changes.push({ id: String(o.id ?? ''), orderNumber: target });
+    }
+  }
+  return changes;
 }
 
 /** Sort key for ascending ticket order. */
@@ -130,10 +187,32 @@ export function orderSeqSortValue(order: { orderNumber?: string; createdAt?: str
  */
 export function preferTicketNumber(
   localNum?: string | null,
-  remoteNum?: string | null
+  remoteNum?: string | null,
+  stamps?: { localUpdatedAt?: string; remoteUpdatedAt?: string }
 ): string {
   const localSeq = parseOrderSeq(localNum);
   const remoteSeq = parseOrderSeq(remoteNum);
+
+  // Outage reconciliation must be able to PROPAGATE.
+  //
+  // When two tills issue the same ticket offline, the reconnect pass renumbers
+  // the day by issue time and stamps a fresh updatedAt. Without this branch the
+  // "both daily-sized → keep local" rule below reverted that on the other
+  // device, which pushed its old number back and undid the fix — the two
+  // devices then ping-ponged the same order between two numbers forever.
+  // A renumber is a deliberate, newer decision: let the newer updatedAt win.
+  if (localSeq !== null && remoteSeq !== null && localSeq !== remoteSeq) {
+    const l = stamps?.localUpdatedAt ? new Date(stamps.localUpdatedAt).getTime() : NaN;
+    const r = stamps?.remoteUpdatedAt ? new Date(stamps.remoteUpdatedAt).getTime() : NaN;
+    if (Number.isFinite(l) && Number.isFinite(r) && l !== r) {
+      // Still refuse an inflated legacy counter, however fresh it claims to be.
+      const winner = r > l ? remoteSeq : localSeq;
+      const loser = r > l ? localSeq : remoteSeq;
+      if (!(winner > DAILY_TICKET_SOFT_MAX && loser <= DAILY_TICKET_SOFT_MAX)) {
+        return String(winner);
+      }
+    }
+  }
 
   if (localSeq !== null && remoteSeq !== null) {
     // After local renumber (1..N), cloud often still has 1000-series — keep local.
@@ -166,7 +245,10 @@ export function preferTicketNumber(
 export function mergeOrderRecords(local: OrderLike | undefined, remote: OrderLike): OrderLike {
   if (!local) return remote;
 
-  const orderNumber = preferTicketNumber(local.orderNumber, remote.orderNumber);
+  const orderNumber = preferTicketNumber(local.orderNumber, remote.orderNumber, {
+    localUpdatedAt: local.updatedAt,
+    remoteUpdatedAt: remote.updatedAt,
+  });
 
   // Resolve soft-delete tombstone: whichever side has a NEWER deletedAt wins.
   const localDeletedAt = local.deletedAt;

@@ -6,6 +6,9 @@ import {
   nextOrderSeq,
   preferTicketNumber,
   mergeOrderRecords,
+  hasDuplicateTickets,
+  planIssueOrderTickets,
+  nextFreeTicket,
 } from './orderNumber';
 
 type OrderLike = Parameters<typeof mergeOrderRecords>[1];
@@ -232,5 +235,126 @@ describe('nextOrderSeq ceiling (ON-005)', () => {
     const next = nextOrderSeq([{ orderNumber: '99999', createdAt: now.toISOString() }], now);
     expect(next).toBe(1);
     expect(parseOrderSeq(String(next))).not.toBeNull();
+  });
+});
+
+describe('outage reconciliation — ticket numbers must converge, not ping-pong', () => {
+  it('lets the newer updatedAt win when two daily tickets disagree', () => {
+    // The reconnect renumber stamps a fresh updatedAt. Without this the
+    // "keep local" rule reverted the repair on the other device.
+    expect(
+      preferTicketNumber('5', '6', {
+        localUpdatedAt: '2026-08-04T10:00:00Z',
+        remoteUpdatedAt: '2026-08-04T10:05:00Z',
+      })
+    ).toBe('6');
+    expect(
+      preferTicketNumber('6', '5', {
+        localUpdatedAt: '2026-08-04T10:05:00Z',
+        remoteUpdatedAt: '2026-08-04T10:00:00Z',
+      })
+    ).toBe('6');
+  });
+
+  it('still refuses an inflated legacy counter even when it is newer', () => {
+    expect(
+      preferTicketNumber('5', '1005', {
+        localUpdatedAt: '2026-08-04T10:00:00Z',
+        remoteUpdatedAt: '2026-08-04T23:00:00Z',
+      })
+    ).toBe('5');
+  });
+
+  it('keeps the old behaviour when no timestamps are supplied', () => {
+    expect(preferTicketNumber('10', '12')).toBe('10');
+  });
+
+  it('propagates a renumber through mergeOrderRecords', () => {
+    const merged = mergeOrderRecords(
+      ol({ id: 'o1', orderNumber: '5', updatedAt: '2026-08-04T10:00:00Z' }),
+      ol({ id: 'o1', orderNumber: '2', updatedAt: '2026-08-04T10:09:00Z' })
+    );
+    expect(merged.orderNumber).toBe('2');
+  });
+});
+
+describe('offline duplicate repair — renumber the day by issue time', () => {
+  it('detects two tills that issued the same ticket while offline', () => {
+    expect(
+      hasDuplicateTickets([
+        { id: 'a', orderNumber: '4', createdAt: '2026-08-04T09:00:00Z' },
+        { id: 'b', orderNumber: '5', createdAt: '2026-08-04T09:05:00Z' },
+        { id: 'c', orderNumber: '5', createdAt: '2026-08-04T09:06:00Z' },
+      ])
+    ).toBe(true);
+  });
+
+  it('treats a legacy letter-suffixed ticket as the same printed number', () => {
+    // "5-A" prints as plain 5 — on paper it IS a duplicate.
+    expect(
+      hasDuplicateTickets([
+        { id: 'a', orderNumber: '5', createdAt: '2026-08-04T09:00:00Z' },
+        { id: 'b', orderNumber: '5-A', createdAt: '2026-08-04T09:01:00Z' },
+      ])
+    ).toBe(true);
+  });
+
+  it('does not flag a clean day', () => {
+    expect(
+      hasDuplicateTickets([
+        { id: 'a', orderNumber: '1', createdAt: '2026-08-04T09:00:00Z' },
+        { id: 'b', orderNumber: '2', createdAt: '2026-08-04T09:05:00Z' },
+      ])
+    ).toBe(false);
+  });
+
+  it('renumbers 1..N in issue order, earliest sale keeping the lowest number', () => {
+    const day = [
+      { id: 'c', orderNumber: '5', createdAt: '2026-08-04T09:06:00Z' },
+      { id: 'a', orderNumber: '4', createdAt: '2026-08-04T09:00:00Z' },
+      { id: 'b', orderNumber: '5', createdAt: '2026-08-04T09:05:00Z' },
+    ];
+    const plan = planIssueOrderTickets(day);
+    const final = new Map(day.map((o) => [o.id, o.orderNumber]));
+    for (const c of plan) final.set(c.id, c.orderNumber);
+
+    expect(final.get('a')).toBe('1'); // 09:00 — earliest
+    expect(final.get('b')).toBe('2'); // 09:05
+    expect(final.get('c')).toBe('3'); // 09:06
+    expect(new Set(final.values()).size).toBe(3); // no duplicates left
+  });
+
+  it('never emits a letter suffix', () => {
+    const plan = planIssueOrderTickets([
+      { id: 'a', orderNumber: '5', createdAt: '2026-08-04T09:00:00Z' },
+      { id: 'b', orderNumber: '5', createdAt: '2026-08-04T09:01:00Z' },
+    ]);
+    for (const c of plan) expect(c.orderNumber).toMatch(/^[0-9]+$/);
+  });
+
+  it('is deterministic across devices, including a same-millisecond tie', () => {
+    const day = [
+      { id: 'zz', orderNumber: '3', createdAt: '2026-08-04T09:00:00Z' },
+      { id: 'aa', orderNumber: '3', createdAt: '2026-08-04T09:00:00Z' },
+    ];
+    // Two devices holding the same set in different array order must agree.
+    const a = planIssueOrderTickets(day);
+    const b = planIssueOrderTickets([...day].reverse());
+    expect(a).toEqual(b);
+  });
+
+  it('returns no changes when the day is already in issue order', () => {
+    expect(
+      planIssueOrderTickets([
+        { id: 'a', orderNumber: '1', createdAt: '2026-08-04T09:00:00Z' },
+        { id: 'b', orderNumber: '2', createdAt: '2026-08-04T09:05:00Z' },
+      ])
+    ).toEqual([]);
+  });
+
+  it('nextFreeTicket skips claimed numbers', () => {
+    expect(nextFreeTicket(new Set([1, 2, 3]))).toBe(4);
+    expect(nextFreeTicket(new Set([5]), 5)).toBe(6);
+    expect(nextFreeTicket(new Set(), 7)).toBe(7);
   });
 });

@@ -9,7 +9,10 @@ import {
   parseOrderSeq,
   mergeOrderRecords,
   dayKeyFromIso,
-  suffixedTicket,
+  nextFreeTicket,
+  hasDuplicateTickets,
+  byIssueTime,
+  planIssueOrderTickets,
 } from '../../utils/orderNumber';
 
 const DAILY_TICKET_SOFT_MAX = 500;
@@ -189,10 +192,37 @@ export class IndexedDbOrderRepository implements IOrderRepository {
         for (const [, dayOrders] of byDay) {
           if (!dayNeedsRenumber(dayOrders)) continue;
 
+          // ── Outage reconciliation ──────────────────────────────────────────
+          // Offline, each till numbers from its OWN local max + 1, so two tills
+          // both issue #5 to different customers. Nothing can prevent that at
+          // issue time without a shared counter, and the till has no network by
+          // definition — so the collision is repaired on reconnect instead:
+          // order the whole day by issue time and lay the tickets down 1..N.
+          //
+          // Printed tickets are NOT exempt in this branch. The freeze below
+          // exists so a routine cleanup never moves a number a customer already
+          // holds on paper — but when two customers hold paper #5 there is no
+          // assignment that keeps both, and a day that stays duplicated is
+          // re-detected as dirty on every pass and never settles. Issue-time
+          // order is the tie-break the operator expects: the earlier sale keeps
+          // the lower number.
+          //
+          // The result is a pure function of the day's orders (sorted by
+          // createdAt, id as tie-break), so every device that merges the same
+          // set computes the SAME numbering and they converge instead of
+          // fighting. mergeOrderRecords lets the newer updatedAt win the ticket
+          // field, which is what carries this decision between devices.
+          if (hasDuplicateTickets(dayOrders)) {
+            const byId = new Map(dayOrders.map((o) => [o.id, o]));
+            for (const change of planIssueOrderTickets(dayOrders)) {
+              const order = byId.get(change.id);
+              if (order) plan.push({ order, newNumber: change.orderNumber });
+            }
+            continue;
+          }
+
           // createdAt order = the order tickets were actually issued in.
-          const sorted = [...dayOrders].sort(
-            (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-          );
+          const sorted = [...dayOrders].sort(byIssueTime);
 
           const taken = new Set<string>();     // display labels already claimed
           const takenBase = new Set<number>(); // numeric bases claimed by a holder
@@ -224,14 +254,12 @@ export class IndexedDbOrderRepository implements IOrderRepository {
               target = String(n);
               takenBase.add(n);
               taken.add(target);
-            } else if (n !== null && takenBase.has(n)) {
-              // CONFLICT with an already-claimed (usually printed) number →
-              // give THIS order a -A suffix instead of shifting anyone else.
-              target = suffixedTicket(n, taken);
-              taken.add(target);
             } else {
-              // Junk / empty / inflated legacy counter → next free sequential.
-              while (takenBase.has(seq)) seq++;
+              // Junk, empty, inflated legacy counter, or a clash with a number
+              // a printed ticket already holds → take the next free sequential.
+              // (A same-day duplicate is handled by the reconciliation branch
+              // above and never reaches here; this is the no-letters fallback.)
+              seq = nextFreeTicket(takenBase, seq);
               target = String(seq);
               takenBase.add(seq);
               taken.add(target);
@@ -331,13 +359,19 @@ export class IndexedDbOrderRepository implements IOrderRepository {
         // computed base collides with a printed ticket, take a -A suffix instead
         // (nextOrderSeq normally returns max+1, so this only guards edge reuses).
         const todayKey = dayKeyFromIso(orderData.createdAt || now) ?? dayKeyFromIso(now);
-        const printedToday = new Set<string>();
+        const printedToday = new Set<number>();
         for (const o of allOrders) {
           if (o.printedAt && dayKeyFromIso(o.createdAt) === todayKey) {
-            printedToday.add(String(o.orderNumber));
+            const n = parseOrderSeq(o.orderNumber);
+            if (n !== null) printedToday.add(n);
           }
         }
-        const cleanNum = suffixedTicket(base, printedToday);
+        // Move to the next free number rather than decorating this one with a
+        // letter: "5-A" printed as plain "5" anyway, so the suffix hid the
+        // clash from the code without ever resolving it on the receipt.
+        const cleanNum = String(
+          printedToday.has(base) ? nextFreeTicket(printedToday, base) : base
+        );
 
         const newOrder: Order = {
           id,
