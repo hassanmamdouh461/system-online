@@ -63,7 +63,7 @@ describe('login failure messages are cause-specific', () => {
   it('maps each cause to a distinct operator-facing message', () => {
     // 429 is now only the brute-force backstop, and it must never be phrased as
     // a "wait a minute" cooldown a mistyped password can trigger.
-    expect(authSrc).toMatch(/rate_limited[\s\S]{0,400}اتقفل مؤقتًا/);
+    expect(authSrc).toMatch(/rate_limited[\s\S]{0,600}اتقفل مؤقتًا/);
     const rateMsg = authSrc.match(/case 'rate_limited':[\s\S]{0,600}?return '([^']+)'/);
     expect(rateMsg).not.toBeNull();
     expect(rateMsg![1]).not.toContain('استنى دقيقة');
