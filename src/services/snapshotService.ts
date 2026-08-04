@@ -466,48 +466,13 @@ export async function restoreFromSnapshotIfNeeded(_hydrateResult: {
   }
 }
 
-/**
- * Manual cloud restore (Settings → Restore). Manager-only. Unlike the
- * automatic path above this runs unconditionally: the manager explicitly asked
- * for the latest snapshot to be merged over the current local data.
- */
-export async function restoreLatestSnapshotNow(): Promise<RestoreCounts | null> {
-  const latest = await getLatestSnapshot();
-  if (!latest || !isValidSnapshotPayload(latest)) return null;
-  return applySnapshotPayload(latest);
-}
-
-/** Download the CURRENT local data as a JSON backup file (works offline). */
-export async function exportLocalBackup(): Promise<void> {
-  const payload = await buildSnapshotPayload();
-  const blob = new Blob([JSON.stringify(payload, null, 2)], {
-    type: 'application/json',
-  });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `system-online-backup-${new Date().toISOString().slice(0, 10)}.json`;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
-
-/**
- * Restore from a user-supplied JSON backup file (works offline — no cloud
- * involved). Returns merge counts, or null when the file is not a snapshot.
- */
-export async function importBackupFromFile(file: File): Promise<RestoreCounts | null> {
-  const text = await file.text();
-  let payload: any;
-  try {
-    payload = JSON.parse(text);
-  } catch {
-    return null;
-  }
-  if (!isValidSnapshotPayload(payload)) return null;
-  return applySnapshotPayload(payload as SnapshotPayload);
-}
+// The three MANUAL backup entry points that used to live here —
+// restoreLatestSnapshotNow, exportLocalBackup and importBackupFromFile — are
+// gone along with the Settings card that was their only caller. Backups
+// themselves are untouched: createSnapshot still runs on the scheduler, and
+// restoreFromSnapshotIfNeeded still rescues a device that boots with an empty
+// database. What is gone is the operator-facing export / import / restore-now
+// UI, at the operator's request.
 
 export function startSnapshotScheduler() {
   if (typeof window === 'undefined') return;
