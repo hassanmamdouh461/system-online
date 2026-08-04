@@ -61,8 +61,12 @@ describe('login failure messages are cause-specific', () => {
   });
 
   it('maps each cause to a distinct operator-facing message', () => {
-    // 429 must tell the operator to WAIT and must not assert the password is wrong.
-    expect(authSrc).toMatch(/rate_limited[\s\S]{0,200}استنى دقيقة/);
+    // 429 is now only the brute-force backstop, and it must never be phrased as
+    // a "wait a minute" cooldown a mistyped password can trigger.
+    expect(authSrc).toMatch(/rate_limited[\s\S]{0,400}اتقفل مؤقتًا/);
+    const rateMsg = authSrc.match(/case 'rate_limited':[\s\S]{0,600}?return '([^']+)'/);
+    expect(rateMsg).not.toBeNull();
+    expect(rateMsg![1]).not.toContain('استنى دقيقة');
     // 503 must point at server configuration, not the operator.
     expect(authSrc).toMatch(/server_misconfigured[\s\S]{0,200}SESSION_SECRET/);
     // Network failure must not be reported as a credential problem.
@@ -72,7 +76,7 @@ describe('login failure messages are cause-specific', () => {
   });
 
   it('the rate-limit message never claims the password is wrong', () => {
-    const rateLimitCase = authSrc.match(/case 'rate_limited':[\s\S]{0,200}?return '([^']+)'/);
+    const rateLimitCase = authSrc.match(/case 'rate_limited':[\s\S]{0,600}?return '([^']+)'/);
     expect(rateLimitCase).not.toBeNull();
     expect(rateLimitCase![1]).not.toContain('غير صحيحة');
   });
