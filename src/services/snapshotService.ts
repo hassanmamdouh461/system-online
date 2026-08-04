@@ -6,6 +6,8 @@ import {
   cloudGetCollection,
   cloudUpsert,
   getBranchIdHeader,
+  getCsrfToken,
+  getRoleIntent,
   isCloudConfigured,
   normalizeBranchId,
 } from './cloudConfig';
@@ -13,6 +15,14 @@ import { withDB } from '../repositories/indexeddb/db';
 import { DURABLE_SETTING_KEYS } from './settingsCloudService';
 
 const INTERVAL_MS = 2 * 60 * 60 * 1000;
+/**
+ * Floor between two AUTOMATIC snapshots, enforced across every tab on this
+ * origin (the stamp lives in localStorage). The 2h interval alone did not bound
+ * anything: each tab owns its own timer and each reload restarts the 30s
+ * post-boot fire, so a till with the POS, the manager dashboard and the QR menu
+ * open wrote several backups a minute. Manual snapshots ignore this.
+ */
+const MIN_AUTO_SNAPSHOT_GAP_MS = 30 * 60 * 1000;
 const LS_LAST_SNAPSHOT = 'brewmaster_last_snapshot_at';
 
 export type SnapshotPayload = {
@@ -113,6 +123,47 @@ export async function buildSnapshotPayload(branchId?: string): Promise<SnapshotP
   };
 }
 
+/** True when the payload carries no business rows at all. */
+function isEmptySnapshotPayload(p: SnapshotPayload): boolean {
+  return (
+    (p.orders?.length || 0) === 0 &&
+    (p.menu_items?.length || 0) === 0 &&
+    (p.customers?.length || 0) === 0 &&
+    (p.companies?.length || 0) === 0 &&
+    (p.inventory?.length || 0) === 0
+  );
+}
+
+/**
+ * Is there a cloud session this device can actually write with?
+ *
+ * `isCloudConfigured()` only says a Worker URL exists — it says nothing about
+ * whether we are signed in. An automatic snapshot fired before login has no
+ * session to write with, so it can only ever produce a 401/403.
+ */
+function hasWritableSession(): boolean {
+  return !!getRoleIntent() && !!getCsrfToken();
+}
+
+function readLastSnapshotTime(): number {
+  try {
+    const raw = localStorage.getItem(LS_LAST_SNAPSHOT);
+    const t = raw ? new Date(raw).getTime() : 0;
+    return Number.isFinite(t) ? t : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function writeLastSnapshotStamp(iso: string | null): void {
+  try {
+    if (iso === null) localStorage.removeItem(LS_LAST_SNAPSHOT);
+    else localStorage.setItem(LS_LAST_SNAPSHOT, iso);
+  } catch {
+    // ignore — the cooldown degrades to per-tab only
+  }
+}
+
 export async function createSnapshot(
   kind: 'auto' | 'manual' = 'auto',
   branchId?: string
@@ -122,9 +173,51 @@ export async function createSnapshot(
     return { ok: false, error: 'offline' };
   }
   if (running) return { ok: false, error: 'already running' };
+
+  // An automatic backup is a background nicety, never worth a failed request.
+  // Before this guard the scheduler fired 30s after boot in EVERY branch of the
+  // App bootstrap — including the not-signed-in one — so the very first thing a
+  // freshly loaded tab did was POST a snapshot with no session behind it. That
+  // is the 403 the operator saw in the console on both the cashier and the
+  // manager screen. A manual snapshot is an explicit operator action and is
+  // allowed to try (and to report a real error) even if this looks unpromising.
+  if (kind === 'auto' && !hasWritableSession()) {
+    return { ok: false, error: 'no session' };
+  }
+
+  // Cross-tab cooldown. LS_LAST_SNAPSHOT is shared by every tab on this origin,
+  // so this collapses the storm that three open tabs (or three reloads) used to
+  // produce: D1 keeps only the last 10 snapshots per branch, and a burst of
+  // near-identical backups evicts genuinely older restore points for nothing.
+  const previousStamp = (() => {
+    try {
+      return localStorage.getItem(LS_LAST_SNAPSHOT);
+    } catch {
+      return null;
+    }
+  })();
+  if (kind === 'auto') {
+    const since = Date.now() - readLastSnapshotTime();
+    if (since < MIN_AUTO_SNAPSHOT_GAP_MS) return { ok: false, error: 'too soon' };
+  }
+
   running = true;
+  // Claim the slot up front so a sibling tab firing milliseconds later backs off
+  // instead of racing us. Rolled back below if this attempt does not land.
+  writeLastSnapshotStamp(new Date().toISOString());
   try {
     const payload = await buildSnapshotPayload(branchId);
+
+    // Never upload an empty backup. A tab that snapshots before the cloud
+    // hydrate has populated IndexedDB produces a ~200-byte payload with no
+    // rows in it; because restoreFromSnapshotIfNeeded restores the LATEST
+    // snapshot, letting those through means a fresh device can "restore" a
+    // backup that contains nothing while the real ones age out of the ring.
+    if (isEmptySnapshotPayload(payload)) {
+      writeLastSnapshotStamp(previousStamp);
+      return { ok: false, error: 'empty' };
+    }
+
     const id = `snap_${payload.branchId}_${Date.now()}`;
     const doc = {
       id,
@@ -135,16 +228,15 @@ export async function createSnapshot(
     };
     const ok = await cloudUpsert('snapshots', id, doc);
     if (ok) {
-      try {
-        localStorage.setItem(LS_LAST_SNAPSHOT, payload.createdAt);
-      } catch {
-        // ignore
-      }
+      writeLastSnapshotStamp(payload.createdAt);
       console.info('[snapshot] saved', id, kind);
       return { ok: true, id };
     }
+    // Failed upload must not consume the cooldown — the next tick should retry.
+    writeLastSnapshotStamp(previousStamp);
     return { ok: false, error: 'upload failed' };
   } catch (err: any) {
+    writeLastSnapshotStamp(previousStamp);
     console.warn('[snapshot] failed:', err);
     return { ok: false, error: err?.message || String(err) };
   } finally {
@@ -430,14 +522,11 @@ export function startSnapshotScheduler() {
     void createSnapshot('auto');
   }, INTERVAL_MS);
 
-  // Best-effort snapshot when tab is hidden for a while
+  // Best-effort snapshot when the tab is hidden. The cross-tab cooldown inside
+  // createSnapshot is what keeps this from firing on every tab switch.
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') {
-      const last = localStorage.getItem(LS_LAST_SNAPSHOT);
-      const lastT = last ? new Date(last).getTime() : 0;
-      if (Date.now() - lastT > 30 * 60_000) {
-        void createSnapshot('auto');
-      }
+      void createSnapshot('auto');
     }
   });
 }

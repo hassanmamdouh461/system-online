@@ -108,7 +108,7 @@ function isClosingError(err: unknown): boolean {
 function attachLifecycle(db: IDBPDatabase<BrewMasterDBSchema>) {
   // When another tab/version wants upgrade, close so upgrade can proceed
   db.addEventListener('versionchange', () => {
-    console.warn('[IDB] versionchange — closing connection for upgrade');
+    console.debug('[IDB] versionchange — closing connection so the upgrade can run');
     try {
       db.close();
     } catch {
@@ -120,8 +120,13 @@ function attachLifecycle(db: IDBPDatabase<BrewMasterDBSchema>) {
     }
   });
 
+  // Logged at debug, not warn. A connection closing is ordinary lifecycle —
+  // a reload, a second tab upgrading, the browser reclaiming an idle handle —
+  // and `withDB` reopens transparently on the next call. Shouting about it in
+  // production only trained operators to ignore the console, which is where the
+  // errors that DO matter live.
   db.addEventListener('close', () => {
-    console.warn('[IDB] connection closed');
+    console.debug('[IDB] connection closed — will reopen on next use');
     if (dbInstance === db) {
       dbInstance = null;
       openPromise = null;
@@ -131,9 +136,17 @@ function attachLifecycle(db: IDBPDatabase<BrewMasterDBSchema>) {
 
 async function openDatabase(): Promise<IDBPDatabase<BrewMasterDBSchema>> {
   if (dbInstance) {
-    // Quick health probe — dead connections throw on transaction()
+    // Quick health probe — dead connections throw on transaction(). The probe
+    // transaction is aborted immediately: leaving it to be garbage-collected
+    // left an idle read transaction open on every getDB() call, which is enough
+    // to make a browser hold the connection longer than it needs to.
     try {
-      dbInstance.transaction('orders', 'readonly');
+      const probe = dbInstance.transaction('orders', 'readonly');
+      try {
+        probe.abort();
+      } catch {
+        // already settled — nothing to release
+      }
       return dbInstance;
     } catch {
       dbInstance = null;
@@ -186,7 +199,7 @@ async function openDatabase(): Promise<IDBPDatabase<BrewMasterDBSchema>> {
       },
       blocking() {
         // We hold a connection that blocks someone else's upgrade — close ourselves
-        console.warn('[IDB] blocking other connection — closing');
+        console.debug('[IDB] blocking another tab’s upgrade — closing this connection');
         try {
           dbInstance?.close();
         } catch {
@@ -196,7 +209,10 @@ async function openDatabase(): Promise<IDBPDatabase<BrewMasterDBSchema>> {
         openPromise = null;
       },
       terminated() {
-        console.warn('[IDB] terminated unexpectedly');
+        // Same reasoning as the 'close' listener: the browser dropping the
+        // handle is recoverable and recovered from. Kept at debug so it is
+        // still there when someone is actually debugging storage.
+        console.debug('[IDB] connection terminated by the browser — will reopen');
         dbInstance = null;
         openPromise = null;
       },
@@ -235,7 +251,7 @@ export async function withDB<T>(fn: (db: IDBPDatabase<BrewMasterDBSchema>) => Pr
     return await fn(db);
   } catch (err) {
     if (!isClosingError(err)) throw err;
-    console.warn('[IDB] connection closing — reopening and retrying');
+    console.debug('[IDB] connection closing — reopening and retrying');
     dbInstance = null;
     openPromise = null;
     const db = await getDB();
