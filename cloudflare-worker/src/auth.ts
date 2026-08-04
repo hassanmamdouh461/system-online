@@ -620,6 +620,16 @@ export async function verifyCsrf(request: Request, env: AuthEnv): Promise<boolea
  */
 const memoryRateLimit = new Map<string, number[]>();
 
+/**
+ * Brute-force backstop for POST /v1/session, counted over FAILED logins only.
+ *
+ * 40 rejected passwords in 10 minutes from one IP is not a person at a till who
+ * fat-fingered his PIN — it is a script. A human typo (or five) never gets near
+ * this, which is the whole point: the operator must never be told to wait.
+ */
+const FAILED_LOGIN_MAX = 40;
+const FAILED_LOGIN_WINDOW_SECONDS = 600;
+
 function checkMemoryRateLimit(key: string, maxAttempts: number, windowSeconds: number): boolean {
   const now = Math.floor(Date.now() / 1000);
   const cutoff = now - windowSeconds;
@@ -689,6 +699,95 @@ export function __resetMemoryRateLimit(): void {
   memoryRateLimit.clear();
 }
 
+/**
+ * Read-only check: is this key already over its limit? Unlike checkRateLimit it
+ * does NOT consume budget.
+ *
+ * The login limiter used to consume a slot on EVERY POST /v1/session — including
+ * the ones that succeeded, and including the background re-mints the client
+ * fires on hydrate/reload/multi-tab. Five of those in a minute and a manager
+ * typing the CORRECT password was told to wait. Budget is now spent only by a
+ * genuinely rejected credential (see recordRateLimitAttempt), so an honest
+ * operator can retry a typo as fast as he can type.
+ */
+export async function peekRateLimit(
+  env: AuthEnv,
+  key: string,
+  maxAttempts: number,
+  windowSeconds: number
+): Promise<boolean> {
+  const now = Math.floor(Date.now() / 1000);
+  const id = `global::rate_limit::${key}`;
+  try {
+    const row = (await env.DB.prepare("SELECT value FROM settings WHERE id = ?")
+      .bind(id)
+      .first()) as { value?: string } | null;
+    let attempts: number[] = [];
+    if (row?.value) {
+      try {
+        const parsed = JSON.parse(row.value);
+        if (Array.isArray(parsed)) attempts = parsed;
+      } catch {
+        attempts = [];
+      }
+    }
+    const cutoff = now - windowSeconds;
+    return attempts.filter((t) => t > cutoff).length < maxAttempts;
+  } catch (e) {
+    console.warn("[worker] rate limit peek failed, falling back to in-memory window:", e);
+    const cutoff = now - windowSeconds;
+    const attempts = (memoryRateLimit.get(key) || []).filter((t) => t > cutoff);
+    return attempts.length < maxAttempts;
+  }
+}
+
+/** Spend one slot. Called ONLY after a credential was actually rejected. */
+export async function recordRateLimitAttempt(
+  env: AuthEnv,
+  key: string,
+  windowSeconds: number
+): Promise<void> {
+  const now = Math.floor(Date.now() / 1000);
+  const id = `global::rate_limit::${key}`;
+  try {
+    const row = (await env.DB.prepare("SELECT value FROM settings WHERE id = ?")
+      .bind(id)
+      .first()) as { value?: string } | null;
+    let attempts: number[] = [];
+    if (row?.value) {
+      try {
+        const parsed = JSON.parse(row.value);
+        if (Array.isArray(parsed)) attempts = parsed;
+      } catch {
+        attempts = [];
+      }
+    }
+    attempts = attempts.filter((t) => t > now - windowSeconds);
+    attempts.push(now);
+    await env.DB.prepare(
+      "INSERT INTO settings (id, key, value, branch_id, updated_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at"
+    )
+      .bind(id, `rate_limit::${key}`, JSON.stringify(attempts), "main_branch", new Date().toISOString())
+      .run();
+  } catch (e) {
+    console.warn("[worker] rate limit record failed, using in-memory window:", e);
+    const attempts = (memoryRateLimit.get(key) || []).filter((t) => t > now - windowSeconds);
+    attempts.push(now);
+    if (memoryRateLimit.size > 1000 && !memoryRateLimit.has(key)) memoryRateLimit.clear();
+    memoryRateLimit.set(key, attempts);
+  }
+}
+
+/** Wipe the window. A successful login proves this IP is not an attacker. */
+export async function clearRateLimit(env: AuthEnv, key: string): Promise<void> {
+  memoryRateLimit.delete(key);
+  try {
+    await env.DB.prepare("DELETE FROM settings WHERE id = ?").bind(`global::rate_limit::${key}`).run();
+  } catch (e) {
+    console.warn("[worker] rate limit clear failed:", e);
+  }
+}
+
 // ─── Session endpoints ───────────────────────────────────────────────────────
 /**
  * Session lifecycle routes. Returns a Response for a session route, or null to
@@ -723,16 +822,26 @@ export async function handleSessionRoutes(
       );
     }
 
-    // Rate limit: 5 password-mint attempts per IP per minute. The endpoint does a
-    // real PBKDF2-100k verify per attempt; without a cap an attacker can brute-
-    // force the POS password online. Keyed by CF-Connecting-IP, falling back to a
-    // shared bucket when the header is absent (local dev).
+    // Brute-force backstop — NOT a lockout for humans.
+    //
+    // The old rule was 5 mints per IP per minute, counted on every POST: on
+    // successes, on the client's background re-mints, on multi-tab reload
+    // storms. A manager who mistyped his password twice was then told "استنى
+    // دقيقة" even when the third try was correct, which is what this endpoint
+    // is now built to never do.
+    //
+    // Two changes make that impossible:
+    //   1. Only a REJECTED credential spends budget (recorded below). Successes
+    //      and background re-mints are free, and a success wipes the window.
+    //   2. The ceiling is high enough that no human at a till reaches it, while
+    //      still capping a scripted online brute-force against PBKDF2-100k.
     const clientIp = request.headers.get("CF-Connecting-IP") || "unknown";
-    const allowed = await checkRateLimit(env, `session_mint:${clientIp}`, 5, 60);
-    if (!allowed) {
-      console.warn(`[worker] rate limit exceeded for session mint from ${clientIp}`);
+    const rateKey = `session_mint:${clientIp}`;
+    const underLimit = await peekRateLimit(env, rateKey, FAILED_LOGIN_MAX, FAILED_LOGIN_WINDOW_SECONDS);
+    if (!underLimit) {
+      console.warn(`[worker] brute-force backstop tripped for session mint from ${clientIp}`);
       return new Response(
-        JSON.stringify({ error: "Too Many Requests", message: "Too many attempts. Try again later." }),
+        JSON.stringify({ error: "Too Many Requests", message: "Too many failed attempts. Try again later." }),
         { status: 429, headers: jsonHeaders }
       );
     }
@@ -757,11 +866,17 @@ export async function handleSessionRoutes(
     }
 
     if (!role) {
+      // Only a genuine rejection spends brute-force budget.
+      await recordRateLimitAttempt(env, rateKey, FAILED_LOGIN_WINDOW_SECONDS);
       return new Response(
         JSON.stringify({ error: "Unauthorized", message: "Valid credentials required to start a session." }),
         { status: 401, headers: jsonHeaders }
       );
     }
+
+    // A correct credential proves this IP is an operator, not an attacker —
+    // forgive every earlier typo so the next login is never held back.
+    await clearRateLimit(env, rateKey);
 
     const minted = await mintSessionToken(env, role);
     if (!minted) {
