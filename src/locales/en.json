@@ -521,5 +521,9 @@
   "Hidden on this device, but the deletion is not confirmed in the cloud yet.": "Hidden on this device, but the deletion is not confirmed in the cloud yet.",
   "Deletion pending sync": "Deletion pending sync",
   "Do not clear browser data before it syncs, or the record will come back.": "Do not clear browser data before it syncs, or the record will come back.",
-  "Item deleted successfully": "Item deleted successfully"
+  "Item deleted successfully": "Item deleted successfully",
+  "Change pending sync": "Change pending sync",
+  "Changed on this device, but not confirmed in the cloud yet.": "Changed on this device, but not confirmed in the cloud yet.",
+  "Not permitted": "Not permitted",
+  "This change requires a manager account — sign in as manager and try again.": "This change requires a manager account — sign in as manager and try again."
 }
