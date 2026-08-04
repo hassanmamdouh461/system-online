@@ -237,7 +237,12 @@ export default function ManagerDashboard() {
       // then merge into IndexedDB so a fresh manager browser sees cashier sales.
       try {
         const { hydrateFromCloud } = await import('../services/cloudHydrate');
-        await hydrateFromCloud(true);
+        // Force a fresh D1 read only on an explicit operator refresh. The 10s
+        // background poll passes force=false so it rides cloudHydrate's 30s
+        // dedupe window instead of re-pulling all seven collections three times
+        // a minute — that storm is what filled the console and hammered the
+        // Worker while the dashboard just sat open.
+        await hydrateFromCloud(showToast);
       } catch (hydrateErr) {
         console.warn('[ManagerDashboard] cloud hydrate failed, using local/remote merge:', hydrateErr);
       }
