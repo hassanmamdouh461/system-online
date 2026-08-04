@@ -143,6 +143,13 @@ VITE_CLOUDFLARE_WORKER_URL=https://system-online-backend.YOUR_SUBDOMAIN.workers.
 
 > The app works fully offline without this variable. Sync simply stays local until a Worker URL is configured.
 
+`.env` covers `npm run dev`. Production builds read **`.env.production`**, which is committed and
+currently points at `https://api.engaz.tech`. It holds no secret — the Worker URL ships inside the
+public JS bundle either way — but it makes the backend an explicit build input instead of the
+hardcoded fallback in `src/services/cloudConfig.ts`. Without it every production page load logged
+`[cloudConfig] VITE_CLOUDFLARE_WORKER_URL was not set at build time`. **Change it before the first
+build when deploying to a different Worker.**
+
 ### Run (Web)
 
 ```bash
@@ -223,6 +230,29 @@ npx wrangler d1 execute system-online-db --remote --file=../seed-credentials.sql
 ```
 
 Then set `VITE_CLOUDFLARE_WORKER_URL` to the deployed Worker URL and rebuild the frontend.
+
+### Handing the system to a new operator
+
+A handover has to clear both halves of the storage, or the data comes back:
+
+```bash
+cd cloudflare-worker
+npx wrangler d1 export  system-online-db --remote --output=backup.sql      # 1. back up first
+npx wrangler d1 execute system-online-db --remote --file=./reset-business-data.sql   # 2. wipe D1
+```
+
+3. **Clear every device that used the POS** — DevTools → Application → Storage → *Clear site data*.
+   Each till keeps a full copy in IndexedDB plus a pending sync queue, so a device that still holds
+   the old rows will push them straight back into the freshly cleaned database.
+4. **Rotate the passwords.** `reset-business-data.sql` deliberately keeps the two credential rows so
+   the system stays loginable; re-seed them with the new operator's passwords using
+   `scripts/seed-manager-credential.mjs` (see above).
+5. Point `.env.production`, `routes` and `ALLOWED_ORIGINS` (`cloudflare-worker/wrangler.toml`) and
+   the `database_id` at the new operator's own Cloudflare resources, then rebuild and redeploy.
+
+Note that `orders` cannot be deleted through the app or the API by any role — voiding a sale is a
+refund, which keeps the record. That is why the handover runs as SQL underneath the Worker rather
+than by relaxing the rule.
 
 API surface:
 - `POST/GET/DELETE /v1/session` — mint / probe / clear the session cookie (mint requires a valid credential)
