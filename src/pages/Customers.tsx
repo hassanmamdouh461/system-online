@@ -254,7 +254,7 @@ export default function CustomersPage(_props: CustomersPageProps) {
       return;
     }
     try {
-      await customersService.save(
+      const outcome = await customersService.saveWithOutcome(
         {
           id: editingCustomer?.id,
           name: cForm.name.trim() || cForm.phone.trim(),
@@ -268,7 +268,36 @@ export default function CustomersPage(_props: CustomersPageProps) {
       );
       setCustomerFormOpen(false);
       setProfileCustomer(null);
-      toast.success(language === 'ar' ? 'تم حفظ العميل بنجاح' : 'Customer saved successfully');
+
+      // This phone belonged to a customer that was deleted. Re-using the number
+      // does NOT bring that account back: a new customer is created, points
+      // start at zero, and the old OnAccount receivables stay attached to the
+      // deleted record. Saying so is not optional — the operator would otherwise
+      // read the empty ledger as data loss.
+      if (outcome.startedNewIdentity) {
+        toast.warning(
+          language === 'ar'
+            ? 'الرقم ده كان لعميل محذوف، فاتعمل عميل جديد بنقاط صفر. المديونيات والنقاط القديمة فاضلة على السجل المحذوف ومش هتظهر هنا.'
+            : 'This number belonged to a deleted customer, so a NEW customer was created with zero points. The old balance and receivables stay with the deleted record.',
+          language === 'ar' ? 'تم إنشاء عميل جديد' : 'New customer created'
+        );
+      }
+
+      // A save is only DONE when the cloud confirmed it. Until then the customer
+      // exists solely in this browser's IndexedDB + sync queue, so clearing
+      // browser data loses him entirely.
+      if (outcome.synced) {
+        if (!outcome.startedNewIdentity) {
+          toast.success(language === 'ar' ? 'تم حفظ العميل بنجاح' : 'Customer saved successfully');
+        }
+      } else {
+        toast.warning(
+          language === 'ar'
+            ? `تم الحفظ على هذا الجهاز، لكنه لم يتأكد على السحاب بعد. ${outcome.reason || ''} لا تمسح بيانات المتصفح قبل نجاح المزامنة وإلا هيضيع العميل.`
+            : `Saved on this device, but not confirmed in the cloud yet. ${outcome.reason || ''} Do not clear browser data before it syncs, or the customer will be lost.`,
+          language === 'ar' ? 'الحفظ في انتظار المزامنة' : 'Save pending sync'
+        );
+      }
       await load();
     } catch (err) {
       console.error(err);
