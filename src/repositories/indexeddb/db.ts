@@ -142,6 +142,13 @@ async function openDatabase(): Promise<IDBPDatabase<BrewMasterDBSchema>> {
     // to make a browser hold the connection longer than it needs to.
     try {
       const probe = dbInstance.transaction('orders', 'readonly');
+      // `idb` builds tx.done eagerly and rejects it with an AbortError the
+      // moment we abort. Nobody awaits this probe, so that rejection surfaced
+      // as "Uncaught (in promise) AbortError" on EVERY getDB() call — hundreds
+      // of console errors per session. Claim the rejection before aborting.
+      probe.done.catch(() => {
+        // expected: we abort the probe on purpose
+      });
       try {
         probe.abort();
       } catch {
