@@ -50,7 +50,27 @@ describe('manager navigation after removing the desktop top strip', () => {
   });
 
   it('the mobile header offset is applied for every role', () => {
+    // Unchanged in purpose: on a phone the MobileHeader is fixed, so the content
+    // below it needs a 68px clearance for EVERY role.
+    //
+    // What changed is WHERE the class lives. It used to sit on <main>; it moved
+    // up to the wrapper that holds both <main> and CloudSessionBanner, because a
+    // sibling of <main> would otherwise be rendered underneath the fixed header
+    // and be invisible on exactly the device the cashier uses. The assertion
+    // still fails if the clearance is dropped or role-gated.
     expect(layout).toContain('pt-[68px] sm:pt-3');
+    expect(layout).not.toMatch(/isManager[^\n]*pt-\[68px\]/);
+  });
+
+  it('the cloud-session banner is outside <main>, so it cannot be scrolled away', () => {
+    // The banner reports that this device has stopped saving to the cloud. If it
+    // lived inside the scrolling <main> it could be scrolled out of view during
+    // service, which is the whole failure it exists to prevent.
+    expect(layout).toContain('<CloudSessionBanner />');
+    const mainIndex = layout.indexOf('<main');
+    const bannerIndex = layout.indexOf('<CloudSessionBanner />');
+    expect(bannerIndex).toBeGreaterThan(-1);
+    expect(bannerIndex).toBeLessThan(mainIndex);
   });
 
   it('the mobile header still offers logout', () => {

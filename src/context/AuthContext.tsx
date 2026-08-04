@@ -9,6 +9,7 @@ import {
   getLastSessionMintOutcome,
 } from '../services/cloudConfig';
 import { clearRefundPin } from '../utils/refundPin';
+import { resetCloudSessionState } from '../services/cloudSessionState';
 
 /**
  * Turn a failed login into a message that describes what actually went wrong.
@@ -64,6 +65,12 @@ interface AuthContextType {
   branch: BranchSession | null;
   /** Pass role explicitly — preferred over URL heuristics */
   login: (password: string, role?: LoginRole) => Promise<User>;
+  /**
+   * Renew the expired cloud session cookie in place, without ending the local
+   * session. Used by the "cloud session lost" banner — see the implementation
+   * for why a forced logout was rejected.
+   */
+  refreshCloudSession: (password: string) => Promise<boolean>;
   logout: () => void;
   isAuthenticated: boolean;
 }
@@ -196,6 +203,47 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return userData;
   };
 
+  /**
+   * Re-mint the cloud session cookie WITHOUT ending the local session.
+   *
+   * THE PROBLEM THIS SOLVES
+   * The Worker cookie lasts 12 hours; the password that mints it is kept in
+   * memory only, so it is gone after any refresh (see ensureCloudSession:
+   * "No credential ⇒ cannot mint"). Meanwhile the localStorage session here has
+   * no expiry, so the operator stays "logged in" while every cloud write 401s.
+   *
+   * The deliberate choice is NOT to force a logout when that happens: a cashier
+   * must be able to keep selling offline, and dumping him at the login screen
+   * mid-order would cost real sales to fix a background sync problem. Instead
+   * the banner asks him to re-enter his password, and this re-establishes the
+   * cookie in place — same user, same shift, same open order.
+   *
+   * Returns false on a wrong password or an unreachable Worker; the caller shows
+   * the reason from getLastSessionMintOutcome().
+   */
+  const refreshCloudSession = async (password: string): Promise<boolean> => {
+    if (!password) return false;
+    const isManager = session?.user?.role === 'manager';
+    const valid = isManager
+      ? await verifyManagerCredentials('manager', password)
+      : await verifyAdminCredentials('admin', password);
+    if (!valid) return false;
+
+    setSessionCredential(password);
+    const minted = await ensureCloudSession(true);
+    if (!minted) return false;
+
+    // Same guard as login: never keep a cookie whose role contradicts the
+    // operator we believe is signed in, or every manager-only write would 403.
+    const cloudRole = getSessionRole();
+    if (isManager && cloudRole !== 'manager') {
+      console.warn('[auth] re-auth minted a', cloudRole, 'session for a manager — dropping it');
+      void clearCloudSession();
+      return false;
+    }
+    return true;
+  };
+
   const logout = () => {
     setSession(null);
     localStorage.removeItem(LS_SESSION_KEY);
@@ -205,6 +253,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     clearRefundPin();
     // Drop the server session cookie + in-memory credential.
     void clearCloudSession();
+    // Forget any "session lost" verdict: the next operator starts clean, and a
+    // stale banner must not greet him on the login screen.
+    resetCloudSessionState();
   };
 
   return (
@@ -213,6 +264,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         user: session?.user ?? null,
         branch: session?.branch ?? null,
         login,
+        refreshCloudSession,
         logout,
         isAuthenticated: !!session,
       }}
