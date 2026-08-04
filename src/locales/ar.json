@@ -521,5 +521,9 @@
   "Hidden on this device, but the deletion is not confirmed in the cloud yet.": "تم الإخفاء على هذا الجهاز، لكن الحذف لم يتأكد على السحاب بعد.",
   "Deletion pending sync": "الحذف في انتظار المزامنة",
   "Do not clear browser data before it syncs, or the record will come back.": "لا تمسح بيانات المتصفح قبل نجاح المزامنة وإلا سيرجع السجل.",
-  "Item deleted successfully": "تم حذف الصنف بنجاح"
+  "Item deleted successfully": "تم حذف الصنف بنجاح",
+  "Change pending sync": "التعديل في انتظار المزامنة",
+  "Changed on this device, but not confirmed in the cloud yet.": "تم التعديل على هذا الجهاز، لكنه لم يتأكد على السحاب بعد.",
+  "Not permitted": "العملية مرفوضة",
+  "This change requires a manager account — sign in as manager and try again.": "التعديل ده محتاج صلاحية مدير — سجّل دخول كمدير وأعد المحاولة."
 }

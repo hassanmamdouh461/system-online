@@ -19,7 +19,18 @@ const BOOTSTRAP_PASSWORD = '123';
 const LS_STORE_CONFIG_KEY = 'brewmaster_store_config';
 const LS_TELEGRAM_CONFIG_KEY = 'brewmaster_telegram_config';
 
-/** Fire-and-forget durable cloud persist (never blocks UI) */
+/**
+ * Fire-and-forget durable cloud persist (never blocks UI).
+ *
+ * WHY DISCARDING THE OUTCOME IS ACCEPTABLE HERE, AND ONLY HERE
+ * The remaining callers (credentials, branch config, the hashed admin PIN) are
+ * write-through mirrors of a value that is ALSO the local source of truth, and
+ * each already reports its own success from the surrounding form. Nothing is
+ * deleted, so a lost push cannot resurrect a record — the worst case is that
+ * another device keeps the older copy until the sync queue drains, which the
+ * queue is built to do. Anything that DELETES, or that the operator would read
+ * as "gone everywhere", must use cloudPersistAwait below instead.
+ */
 function cloudPersist(key: string, value: string) {
   try {
     void import('../services/settingsCloudService').then((m) =>

@@ -7,6 +7,16 @@
  *    only the second one is uploaded;
  *  - a device that has never seen the cloud copy and has no local copy either
  *    stays read-only, because anything it uploads would be invented data.
+ *
+ * NOTE ON THE `act(() => { void result.current.setList(x); })` SHAPE
+ * `setList` used to return void and these were written as
+ * `act(() => result.current.setList(x))`. It now resolves with the real
+ * `PersistOutcome` — the fix for "a deleted table comes back after clearing the
+ * cache", where the push result was discarded so every delete looked
+ * successful. An arrow body would hand act() that Promise, which React then
+ * treats as an async act that must be awaited. The call is wrapped in a block
+ * body so act() stays synchronous. Every assertion below is unchanged; the
+ * outcome itself is asserted in useCloudBackedList.outcome.test.tsx.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, cleanup, renderHook } from '@testing-library/react';
@@ -81,7 +91,9 @@ describe('useCloudBackedList', () => {
     const { result } = mount();
     act(() => markSettingsHydrationSettled(true));
 
-    act(() => result.current.setList([]));
+    act(() => {
+      void result.current.setList([]);
+    });
 
     expect(result.current.list).toEqual([]);
     expect(pushes()).toEqual([[STAFF_KEY, []]]);
@@ -92,7 +104,9 @@ describe('useCloudBackedList', () => {
     const { result } = mount();
     act(() => markSettingsHydrationSettled(true));
 
-    act(() => result.current.setList([...CLOUD_STAFF]));
+    act(() => {
+      void result.current.setList([...CLOUD_STAFF]);
+    });
 
     expect(pushes()).toEqual([]);
   });
@@ -102,7 +116,9 @@ describe('useCloudBackedList', () => {
     const { result } = mount();
     act(() => markSettingsHydrationSettled(true));
 
-    act(() => result.current.setList((prev) => [...prev, 'منى']));
+    act(() => {
+      void result.current.setList((prev) => [...prev, 'منى']);
+    });
 
     expect(pushes()).toEqual([[STAFF_KEY, [...CLOUD_STAFF, 'منى']]]);
   });
@@ -113,7 +129,9 @@ describe('useCloudBackedList', () => {
     act(() => markSettingsHydrationSettled(false));
     expect(result.current.canSync).toBe(false);
 
-    act(() => result.current.setList(['أحمد']));
+    act(() => {
+      void result.current.setList(['أحمد']);
+    });
 
     // Kept locally for the operator, but never uploaded: a device that has
     // never seen the cloud copy must not invent one over it.
@@ -125,7 +143,9 @@ describe('useCloudBackedList', () => {
   it('flushes that pending edit onto the cloud list once a hydrate succeeds', () => {
     const { result } = mount();
     act(() => markSettingsHydrationSettled(false));
-    act(() => result.current.setList(['منى']));
+    act(() => {
+      void result.current.setList(['منى']);
+    });
     expect(pushes()).toEqual([]);
 
     act(() => {
@@ -144,7 +164,9 @@ describe('useCloudBackedList', () => {
     act(() => markSettingsHydrationSettled(false));
     expect(result.current.canSync).toBe(true);
 
-    act(() => result.current.setList([...CLOUD_STAFF, 'منى']));
+    act(() => {
+      void result.current.setList([...CLOUD_STAFF, 'منى']);
+    });
     // Queued by persistSetting's own sync queue — the point is that we tried.
     expect(pushes()).toEqual([[STAFF_KEY, [...CLOUD_STAFF, 'منى']]]);
   });
@@ -154,7 +176,9 @@ describe('useCloudBackedList', () => {
     const { result } = mount();
 
     expect(result.current.canSync).toBe(true);
-    act(() => result.current.setList(['أحمد']));
+    act(() => {
+      void result.current.setList(['أحمد']);
+    });
     expect(pushes()).toEqual([[STAFF_KEY, ['أحمد']]]);
   });
 

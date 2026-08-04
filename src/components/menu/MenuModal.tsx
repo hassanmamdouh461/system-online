@@ -9,6 +9,7 @@ import { InventoryItem } from '../../types/inventory';
 import { useEditingGuard } from '../../hooks/useEditingGuard';
 import { getIngredientBaseQtySafe } from '../../utils/units';
 import { persistSetting } from '../../services/settingsCloudService';
+import { describePersistOutcome } from '../../services/persistOutcomeReport';
 import { useToast } from '../ui/Toast';
 import { addMoney, formatMoney, moneyPercent, multiplyMoney, subtractMoney } from '../../utils/money';
 
@@ -22,7 +23,7 @@ interface MenuModalProps {
 }
 
 export function MenuModal({ isOpen, onClose, onSave, initialData, existingItems }: MenuModalProps) {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const toast = useToast();
   const setEditing = useEditingGuard();
   const [activeTab, setActiveTab] = useState<'general' | 'recipe'>('general');
@@ -109,16 +110,35 @@ export function MenuModal({ isOpen, onClose, onSave, initialData, existingItems 
     return list.filter(cat => !removedCategories.includes(cat.value));
   }, [existingItems, removedCategories]);
 
-  const handleRemoveCategory = (catValue: string, e: React.MouseEvent) => {
+  /**
+   * Hiding a menu category writes the 'removed_menu_categories' list to D1.
+   * The push result used to be `void`-ed away and discarded, so the
+   * category disappeared from this screen and the operator assumed it was gone
+   * everywhere. When the write had only queued — or was refused because this is
+   * a cashier session — the category was still listed on every other till, and
+   * clearing site data brought it back here too. Await the outcome and say so.
+   */
+  const handleRemoveCategory = async (catValue: string, e: React.MouseEvent) => {
     e.stopPropagation();
     const updated = [...removedCategories, catValue];
     setRemovedCategories(updated);
     localStorage.setItem('removed_menu_categories', JSON.stringify(updated));
-    void persistSetting('removed_menu_categories', JSON.stringify(updated));
+    // Re-point the form BEFORE awaiting the network: the local edit is already
+    // applied and the operator should not watch a frozen dropdown.
     // If the removed category was the selected one, reset to first available
     if (formData.category === catValue) {
       const remaining = availableCategories.filter(c => c.value !== catValue);
       setFormData(prev => ({ ...prev, category: remaining.length > 0 ? remaining[0].value : '' }));
+    }
+
+    const outcome = await persistSetting(
+      'removed_menu_categories',
+      JSON.stringify(updated)
+    );
+    const report = describePersistOutcome(outcome, language);
+    if (report) {
+      if (report.tone === 'error') toast.error(report.message, report.title);
+      else toast.warning(report.message, report.title);
     }
   };
 

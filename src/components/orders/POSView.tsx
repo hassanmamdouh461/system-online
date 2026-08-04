@@ -26,6 +26,8 @@ import { Company } from '../../types/company';
 import { companiesService } from '../../services/companiesService';
 import { PaymentMethod, BilledToType, PaymentStatus } from '../../types/order';
 import { useCloudBackedList } from '../../hooks/useCloudBackedList';
+import { describePersistOutcome } from '../../services/persistOutcomeReport';
+import type { PersistOutcome } from '../../services/settingsCloudService';
 
 /** Fallback table layout for a till that has never seen a real list. */
 const DEFAULT_TABLES = ['1', '2', '3', '4', '5', '6', '7', '8'] as const;
@@ -159,27 +161,75 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
     localStorage.setItem('pos_selected_staff', selectedStaff);
   }, [selectedStaff]);
 
-  const handleAddTable = (tableNameToAdd?: string) => {
+  /**
+   * Report a cloud-backed list edit that did not reach D1.
+   *
+   * Only a 'synced' outcome may be shown in green. The other three ('queued',
+   * 'local_only', 'forbidden') all mean the change lives in this browser alone,
+   * and a cache clear undoes it — the failure operators described as "I removed
+   * the table, cleared the cache, and it came back".
+   */
+  const reportListOutcome = (outcome: PersistOutcome, successMessage: string) => {
+    const report = describePersistOutcome(outcome, language);
+    if (!report) {
+      toast.success(successMessage);
+      return;
+    }
+    if (report.tone === 'error') toast.error(report.message, report.title);
+    else toast.warning(report.message, report.title);
+  };
+
+  /**
+   * Add one table name and surface the push outcome. An addition that never
+   * reaches D1 is less destructive than a deletion, but it is still invisible on
+   * every other till and dies with the cache — so it is not reported as done.
+   */
+  const addTableName = async (cleanName: string) => {
+    const outcome = await setTables(prev => [...prev, cleanName]);
+    const report = describePersistOutcome(outcome, language);
+    if (!report) return;
+    if (report.tone === 'error') toast.error(report.message, report.title);
+    else toast.warning(report.message, report.title);
+  };
+
+  const handleAddTable = async (tableNameToAdd?: string) => {
     const target = (tableNameToAdd || newTableName).trim();
     if (!target) return;
     const cleanName = target.replace(/^T(?=\d+$)/i, '');
     if (!tables.includes(cleanName)) {
-      setTables(prev => [...prev, cleanName]);
+      await addTableName(cleanName);
     }
     setTableId(cleanName);
     setNewTableName('');
   };
 
-  const handleDeleteTable = (num: string) => {
-    setTables(prev => prev.filter(t => t !== num));
+  /**
+   * Removing a table is a DELETE against a durable, cloud-backed list, so it
+   * carries the same hazard as deleting a customer: the row leaves the screen
+   * and localStorage at once, but if the D1 write queued or was refused the
+   * table is still alive in the cloud and returns on the next hydrate. The
+   * outcome used to be discarded, so this always looked like it worked.
+   */
+  const handleDeleteTable = async (num: string) => {
+    const outcome = await setTables(prev => prev.filter(t => t !== num));
     if (tableId === num) {
       setTableId('');
     }
+    reportListOutcome(
+      outcome,
+      language === 'ar' ? `تم حذف ترابيزة ${num}` : `Table ${num} deleted`
+    );
   };
 
-  const handleResetTables = () => {
-    // Explicit operator action, so this one DOES upload the defaults.
-    setTables([...DEFAULT_TABLES]);
+  const handleResetTables = async () => {
+    // Explicit operator action, so this one DOES upload the defaults. It is also
+    // a mass REPLACEMENT of the shop's real table names, so a silent failure
+    // here is as costly as a delete.
+    const outcome = await setTables([...DEFAULT_TABLES]);
+    reportListOutcome(
+      outcome,
+      language === 'ar' ? 'تمت إعادة ضبط الترابيزات' : 'Tables reset'
+    );
   };
 
 
@@ -951,14 +1001,14 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
                   onBlur={() => {
                     const clean = tableId.trim().replace(/^T(?=\d+$)/i, '');
                     if (clean && !tables.includes(clean)) {
-                      setTables(prev => [...prev, clean]);
+                      void addTableName(clean);
                     }
                   }}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') {
                       const clean = tableId.trim().replace(/^T(?=\d+$)/i, '');
                       if (clean && !tables.includes(clean)) {
-                        setTables(prev => [...prev, clean]);
+                        void addTableName(clean);
                       }
                     }
                   }}
@@ -1200,9 +1250,20 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
                         </button>
                         <button
                           type="button"
-                          onClick={() => {
-                            setStaffList(prev => prev.filter(n => n !== name));
+                          onClick={async () => {
+                            // A removed staff name that never reaches D1 is back
+                            // on the next hydrate, and every other till never
+                            // stopped showing it. Report the real outcome.
+                            const outcome = await setStaffList(prev =>
+                              prev.filter(n => n !== name)
+                            );
                             if (selectedStaff === name) setSelectedStaff('');
+                            reportListOutcome(
+                              outcome,
+                              language === 'ar'
+                                ? `تم حذف ${name}`
+                                : `${name} removed`
+                            );
                           }}
                           className="absolute -top-1.5 -end-1.5 bg-white text-red-500 hover:text-red-700 border border-red-200 rounded-full p-0.5 shadow-sm opacity-0 group-hover:opacity-100 transition-opacity"
                           title={isRtl ? 'حذف الاسم' : 'Remove'}
@@ -1222,7 +1283,12 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
                   const clean = newStaffName.trim();
                   if (!clean) return;
                   if (!staffList.includes(clean)) {
-                    setStaffList(prev => [...prev, clean]);
+                    void setStaffList(prev => [...prev, clean]).then(outcome => {
+                      const report = describePersistOutcome(outcome, language);
+                      if (!report) return;
+                      if (report.tone === 'error') toast.error(report.message, report.title);
+                      else toast.warning(report.message, report.title);
+                    });
                   }
                   setSelectedStaff(clean);
                   setNewStaffName('');

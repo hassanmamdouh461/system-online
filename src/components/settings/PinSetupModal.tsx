@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { X, Lock, ShieldCheck, KeyRound, AlertCircle } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { hashPin } from '../../utils/settingsConfig';
+import { describePersistOutcome } from '../../services/persistOutcomeReport';
 
 interface PinSetupModalProps {
   isOpen: boolean;
@@ -10,7 +11,7 @@ interface PinSetupModalProps {
 }
 
 export function PinSetupModal({ isOpen, onClose }: PinSetupModalProps) {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const [pin, setPin] = useState('');
   const [confirmPin, setConfirmPin] = useState('');
   const [error, setError] = useState('');
@@ -44,6 +45,11 @@ export function PinSetupModal({ isOpen, onClose }: PinSetupModalProps) {
 
     if (pin === '') {
       localStorage.removeItem('brewmaster_admin_pin');
+      // `removeSetting` reports no outcome (it returns void by design: it queues
+      // a delete and lets the queue own the retry). Removing the PIN is
+      // fail-safe in the direction that matters — this device stops asking for
+      // it immediately, and a PIN that lingers in D1 only means another device
+      // keeps prompting until the queue drains. It cannot resurrect data.
       void import('../../services/settingsCloudService').then((m) =>
         m.removeSetting('brewmaster_admin_pin')
       );
@@ -53,10 +59,22 @@ export function PinSetupModal({ isOpen, onClose }: PinSetupModalProps) {
       // Store PBKDF2-hashed PIN — never persist plaintext.
       const hashed = await hashPin(pin);
       localStorage.setItem('brewmaster_admin_pin', hashed);
-      void import('../../services/settingsCloudService').then((m) =>
-        m.persistSetting('brewmaster_admin_pin', hashed)
-      );
-      setSuccess(t('PIN has been successfully updated'));
+      // A NEW pin that never reaches D1 is a real trap: this device enforces it
+      // while every other till still accepts the old one, and clearing site data
+      // reverts this device too. Await the push and only claim success on a
+      // confirmed write.
+      const m = await import('../../services/settingsCloudService');
+      const outcome = await m.persistSetting('brewmaster_admin_pin', hashed);
+      const report = describePersistOutcome(outcome, language);
+      if (report) {
+        // Deliberately the alert box, not the emerald "success" box: a PIN that
+        // only exists in this browser is not a saved PIN, and green would hide
+        // exactly the state the operator needs to act on.
+        setSuccess('');
+        setError(`${report.title} — ${report.message}`);
+      } else {
+        setSuccess(t('PIN has been successfully updated'));
+      }
       setHasExistingPin(true);
     }
 
