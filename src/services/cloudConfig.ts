@@ -4,6 +4,9 @@
  */
 
 import { getRefundPin } from '../utils/refundPin';
+// One-way dependency: cloudSessionState imports nothing, so recording session
+// evidence from here cannot create an import cycle.
+import { reportCloudSessionAlive, reportCloudSessionLost } from './cloudSessionState';
 
 const PLACEHOLDER_MARKERS = [
   'YOUR_SUBDOMAIN',
@@ -249,6 +252,8 @@ export async function refreshCloudSessionRole(): Promise<'manager' | 'cashier' |
     const role = json?.role;
     if (role === 'manager' || role === 'cashier') {
       sessionRole = role;
+      // The cookie answered with a real role — the session is alive.
+      reportCloudSessionAlive();
       return role;
     }
     return null;
@@ -456,6 +461,8 @@ export function ensureCloudSession(force = false): Promise<boolean> {
         }
         resetMintCooldown();
         recordMintOutcome({ kind: 'ok' });
+        // A fresh cookie was just minted: any earlier 401 is history.
+        reportCloudSessionAlive();
         writeMintResult({ ok: true, at: Date.now(), status: res.status });
         return true;
       } catch (err) {
@@ -928,7 +935,14 @@ export async function cloudUpsertWithOutcome(
     if (!res) return { kind: 'unreachable', status: null };
     if (!res.ok) {
       console.warn(`[cloud] UPSERT ${collection}/${id} failed: HTTP ${res.status}`);
-      if (res.status === 401) return { kind: 'unauthenticated', status: 401 };
+      if (res.status === 401) {
+        // Hard evidence that the 12h cookie is gone and this tab cannot re-mint
+        // (the password lives in memory only and does not survive a refresh).
+        // Recording it is what lets the layout raise a persistent banner instead
+        // of letting every write fail silently into IndexedDB.
+        reportCloudSessionLost();
+        return { kind: 'unauthenticated', status: 401 };
+      }
       if (res.status === 403) {
         // A CSRF-stale 403 is a retryable session problem, not a permission
         // decision — the Worker flags it with X-CSRF-Failed.
@@ -967,6 +981,8 @@ export async function cloudUpsertWithOutcome(
     } catch {
       // Non-JSON / empty body — nothing to inspect; treat the 200 as success.
     }
+    // A confirmed write is proof the session is alive again; clear any banner.
+    reportCloudSessionAlive();
     // Best-effort: clear pending queue rows for this entity so SyncStatus stays honest
     void ackSyncQueueForEntity(id);
     return { kind: 'ok' };
