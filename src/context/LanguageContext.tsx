@@ -34,6 +34,10 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
       const next = prev === 'ar' ? 'en' : 'ar';
       try {
         localStorage.setItem('brewmaster_language', next);
+        // Outcome deliberately ignored: the UI language is a per-device display
+        // preference, localStorage is its source of truth, and the toggle's own
+        // effect is the confirmation. A failed push loses nothing and can
+        // resurrect nothing — unlike a delete, which must always be reported.
         void import('../services/settingsCloudService').then((m) =>
           m.persistSetting('brewmaster_language', next)
         );

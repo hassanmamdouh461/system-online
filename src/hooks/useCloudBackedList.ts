@@ -23,7 +23,7 @@
  * once that arrives — see utils/listRebase.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { persistSetting } from '../services/settingsCloudService';
+import { persistSetting, type PersistOutcome } from '../services/settingsCloudService';
 import { isCloudConfigured } from '../services/cloudConfig';
 import {
   getSettingsHydrationState,
@@ -65,8 +65,16 @@ function writeLocal(key: string, list: readonly string[]): void {
 export type CloudBackedList = {
   /** Current list. */
   list: string[];
-  /** Apply an OPERATOR edit. Accepts a value or an updater, like setState. */
-  setList: (next: string[] | ((prev: string[]) => string[])) => void;
+  /**
+   * Apply an OPERATOR edit. Accepts a value or an updater, like setState.
+   *
+   * Resolves with how the edit actually ended up, so a delete screen can tell
+   * "gone from D1" from "queued on this device only" from "your role may not do
+   * this". Awaiting it is optional — an addition rarely needs the ceremony — but
+   * any REMOVAL should await it, because a removal that never reaches the cloud
+   * comes back on the next hydrate.
+   */
+  setList: (next: string[] | ((prev: string[]) => string[])) => Promise<PersistOutcome>;
   /** May this device push to the cloud yet? (Useful for disabling UI/tests.) */
   canSync: boolean;
 };
@@ -108,13 +116,30 @@ export function useCloudBackedList(
   const canSyncRef = useRef(openAtMount);
   const [canSync, setCanSync] = useState(openAtMount);
 
-  /** Commit a new value. `persist` decides whether it also leaves the device. */
+  /**
+   * Commit a new value. `persist` decides whether it also leaves the device.
+   *
+   * WHY THIS RETURNS AN OUTCOME INSTEAD OF void
+   * `persistSetting` has always reported a real `PersistOutcome`, but this line
+   * used to `void` the call and throw the result away before anyone could read
+   * it. Deleting a table or a staff member therefore printed a green "done"
+   * unconditionally: the row was gone from the
+   * screen and from localStorage, while the cloud write had queued, failed, or
+   * been refused outright. `enqueueSettingSync` returns 'forbidden' for a
+   * cashier touching a manager-only key, which is a CERTAIN failure — and even
+   * that was discarded. Clearing site data then dropped the local copy and the
+   * queue, and the next hydrate pulled the deleted table straight back from D1.
+   *
+   * Returning the outcome is what lets the calling screen say which of the four
+   * things actually happened instead of guessing the happy one.
+   */
   const commit = useCallback(
-    (next: string[], persist: boolean) => {
+    async (next: string[], persist: boolean): Promise<PersistOutcome> => {
       listRef.current = next;
       setListState(next);
       writeLocal(key, next);
-      if (persist) void persistSetting(key, JSON.stringify(next));
+      if (!persist) return 'local_only';
+      return await persistSetting(key, JSON.stringify(next));
     },
     [key]
   );
@@ -140,7 +165,9 @@ export function useCloudBackedList(
         if (!seedPresentRef.current || canSyncRef.current) return;
         canSyncRef.current = true;
         setCanSync(true);
-        if (editedRef.current) commit(listRef.current, true);
+        // Hydration replay, not a live operator action: there is no open dialog
+        // to report into. The durable sync queue still owns the retry.
+        if (editedRef.current) void commit(listRef.current, true);
         return;
       }
 
@@ -158,7 +185,7 @@ export function useCloudBackedList(
         // The cloud genuinely has no copy of this list. Do not invent one —
         // only a real edit may create it.
         baselineRef.current = current;
-        if (wasEdited && gateWasClosed) commit(current, true);
+        if (wasEdited && gateWasClosed) void commit(current, true);
         return;
       }
 
@@ -169,9 +196,9 @@ export function useCloudBackedList(
 
       const needsPush = wasEdited && gateWasClosed && !listsEqual(merged, stored.list);
       if (!listsEqual(merged, current)) {
-        commit(merged, needsPush);
+        void commit(merged, needsPush);
       } else if (needsPush) {
-        commit(merged, true);
+        void commit(merged, true);
       }
     };
 
@@ -205,11 +232,14 @@ export function useCloudBackedList(
    * precisely because a human triggered it.
    */
   const setList = useCallback(
-    (next: string[] | ((prev: string[]) => string[])) => {
+    async (next: string[] | ((prev: string[]) => string[])): Promise<PersistOutcome> => {
       const resolved = typeof next === 'function' ? next(listRef.current) : next;
-      if (listsEqual(resolved, listRef.current)) return;
+      // A no-op edit never reached the cloud before and must not claim it did.
+      if (listsEqual(resolved, listRef.current)) return 'local_only';
       editedRef.current = true;
-      commit(resolved, canSyncRef.current);
+      // The gate being shut is itself a "this stayed on the device" answer: the
+      // edit is held for the hydration replay, not written to D1 right now.
+      return await commit(resolved, canSyncRef.current);
     },
     [commit]
   );

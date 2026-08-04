@@ -1,4 +1,4 @@
-import { DeleteOutcome, ICustomerRepository } from '../types';
+import { DeleteOutcome, ICustomerRepository, SaveOutcome } from '../types';
 import { Customer } from '../../types/customer';
 import { withDB, enqueueWrite } from './db';
 import { syncService } from '../../services/syncService';
@@ -138,15 +138,23 @@ export class IndexedDbCustomerRepository implements ICustomerRepository {
 
     return withDB(async (db) => {
       let customer = await db.getFromIndex('customers', 'by-phone', cleanPhone);
-      if (!customer) {
+      // A phone number can now legitimately match MORE THAN ONE row: the
+      // tombstone of a deleted customer, plus the fresh customer created when
+      // the same number was re-added (see `save`). The 'by-phone' index returns
+      // an arbitrary one of them, so landing on the dead row is a coin flip.
+      // Returning early on that row would report "no such customer" while the
+      // live account sits right next to it — the till would then keep creating
+      // duplicates on every lookup. Rescan and prefer the live row.
+      if (!customer || customer.deletedAt) {
         const all = await db.getAll('customers');
-        customer = all.find((c) => {
+        const matches = all.filter((c) => {
           const p = (c.phone || '').replace(/[\s\-()]/g, '').trim();
           return (
             p === cleanPhone ||
             (p && cleanPhone && (p.endsWith(cleanPhone) || cleanPhone.endsWith(p)))
           );
         });
+        customer = matches.find((c) => !c.deletedAt) || customer || matches[0];
       }
       if (!customer) return null;
       // A soft-deleted customer must not be returned to callers (it would be
@@ -161,20 +169,69 @@ export class IndexedDbCustomerRepository implements ICustomerRepository {
     customerData: Partial<Customer> & { phone: string },
     branchId?: string
   ): Promise<Customer> {
+    return (await this.saveWithOutcome(customerData, branchId)).record;
+  }
+
+  async saveWithOutcome(
+    customerData: Partial<Customer> & { phone: string },
+    branchId?: string
+  ): Promise<SaveOutcome<Customer>> {
     return enqueueWrite(async () => {
       return withDB(async (db) => {
         const cleanPhone = (customerData.phone || '').replace(/[\s\-()]/g, '').trim();
         let existing: Customer | undefined;
         if (cleanPhone) {
           existing = await db.getFromIndex('customers', 'by-phone', cleanPhone);
-          if (!existing) {
+          // A phone can match several rows once a deleted customer's number has
+          // been re-added: the tombstone plus the new customer. The index hands
+          // back an arbitrary one, so always prefer a LIVE row — otherwise a
+          // second save on the same number would see the tombstone again and
+          // mint yet another customer.
+          if (!existing || existing.deletedAt) {
             const all = await db.getAll('customers');
-            existing = all.find((c) => {
+            const matches = all.filter((c) => {
               const p = (c.phone || '').replace(/[\s\-()]/g, '').trim();
               return p === cleanPhone;
             });
+            existing = matches.find((c) => !c.deletedAt) || existing || matches[0];
           }
         }
+
+        /**
+         * RE-ADDING A DELETED CUSTOMER'S PHONE STARTS A NEW CUSTOMER.
+         *
+         * This block used to do the opposite: any save that landed on a
+         * tombstoned row with a real name simply CLEARED `deletedAt`. The row
+         * came back to life under its original id, carrying its original
+         * `points` and `createdAt` — and, far worse, every OnAccount receivable
+         * and every historical order still pointed at that id. So typing an old
+         * customer's phone into the POS silently reopened a debt ledger that
+         * belonged to a deleted account, and handed the walk-in whoever now owns
+         * that number a stranger's loyalty balance.
+         *
+         * A deletion is a statement that this account is over. Honouring it
+         * means the number may be reused, but the IDENTITY may not: mint a new
+         * id, start points at zero, and leave the tombstone exactly where it is
+         * (both locally and in D1) so the old orders and debts stay attached to
+         * the dead id and never surface on the new customer.
+         *
+         * Two saves must still target the dead row rather than fork:
+         *  - `deletedAt` in the payload — that IS the delete path writing the
+         *    tombstone.
+         *  - an explicit `id` — the caller is addressing one specific row, e.g.
+         *    customersService.lookupByPhone caching a live D1 doc by its id.
+         *    Forking there would duplicate the cloud's own record.
+         */
+        const explicitlyAddressed =
+          customerData.id !== undefined || customerData.deletedAt !== undefined;
+        const startedNewIdentity = !!existing?.deletedAt && !explicitlyAddressed;
+        if (startedNewIdentity) {
+          // Dropping `existing` is what makes the rest of this function build a
+          // brand-new customer: fresh id, points 0, fresh createdAt, no
+          // tombstone, and a 'create' sync row instead of an 'update'.
+          existing = undefined;
+        }
+
         const now = new Date().toISOString();
         const id =
           existing?.id ||
@@ -210,20 +267,18 @@ export class IndexedDbCustomerRepository implements ICustomerRepository {
           branchId: branchId || customerData.branchId || existing?.branchId,
           createdAt: existing?.createdAt || now,
           updatedAt: now,
-          // Tombstone handling:
-          // - lookupByPhone never saves a tombstoned cloud doc (it skips them),
-          //   so any save that hits an existing tombstone is a real re-create
-          //   from the UI (e.g. "delete customer by mistake, re-add same phone").
-          //   Clear the tombstone so the re-added customer is visible again.
+          // Tombstone handling. NOTE: a save that lands on a tombstone no longer
+          // clears it — the re-add forked into a new id above, and this row is
+          // that new customer, which has no tombstone to begin with. The old
+          // expression cleared `deletedAt` in place, which is precisely how a
+          // deleted account came back with its points and its OnAccount debts.
           // - An explicit deletedAt in the payload (the delete path) wins.
-          // - Otherwise preserve an existing tombstone so a stray cache write
-          //   cannot resurrect a deleted record.
+          // - Otherwise preserve any existing tombstone, so a stray cache write
+          //   or a hydrate of the dead doc cannot resurrect a deleted record.
           deletedAt:
             customerData.deletedAt !== undefined
               ? customerData.deletedAt
-              : existing?.deletedAt && !isPlaceholderName(name) && !!customerData.name
-                ? undefined
-                : existing?.deletedAt,
+              : existing?.deletedAt,
           isSynced: false,
         };
 
@@ -240,14 +295,33 @@ export class IndexedDbCustomerRepository implements ICustomerRepository {
         } catch (e) {
           console.warn('[customer] sync_queue failed:', e);
         }
-        void import('../../services/cloudConfig')
-          .then(({ cloudUpsert }) =>
-            cloudUpsert('customers', customer.id, customer).then((ok) => {
-              if (!ok) void syncService.syncPendingData();
-            })
-          )
-          .catch(() => void syncService.syncPendingData());
-        return customer;
+
+        // Confirm the write against D1 rather than firing and forgetting it —
+        // same rule as the delete path. A customer that exists only in this
+        // browser is lost when site data is cleared, and for a re-add that is
+        // especially misleading: the operator was just told "this is a NEW
+        // customer, points start at zero", and after a cache clear the till
+        // would find nothing at all for that number.
+        let synced = false;
+        let reason: string | undefined;
+        try {
+          const { cloudUpsertWithOutcome, describeCloudWriteFailure } = await import(
+            '../../services/cloudConfig'
+          );
+          const outcome = await cloudUpsertWithOutcome('customers', customer.id, customer);
+          synced = outcome.kind === 'ok';
+          if (!synced) {
+            reason = describeCloudWriteFailure(outcome);
+            // Leave the queue row pending and let the durable queue retry it.
+            // Never ack a write that did not land.
+            void syncService.syncPendingData();
+          }
+        } catch {
+          reason = 'مفيش اتصال بالسحاب — العملية في طابور المزامنة.';
+          void syncService.syncPendingData();
+        }
+
+        return { record: customer, synced, reason, startedNewIdentity };
       });
     });
   }

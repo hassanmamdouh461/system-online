@@ -1,6 +1,6 @@
 import { Customer } from '../types/customer';
 import { customerRepository } from '../repositories';
-import type { DeleteOutcome } from '../repositories/types';
+import type { DeleteOutcome, SaveOutcome } from '../repositories/types';
 import { cloudGetCollection, isCloudConfigured } from './cloudConfig';
 
 function normalizePhone(phone: string): string {
@@ -99,15 +99,34 @@ export const customersService = {
   },
 
   async save(customer: Partial<Customer> & { phone: string }, branchId?: string): Promise<Customer> {
+    return (await this.saveWithOutcome(customer, branchId)).record;
+  },
+
+  /**
+   * Save a customer and report what actually happened.
+   *
+   * Two things the plain `save` cannot tell the caller, and both matter on
+   * screen:
+   *  - `synced` — whether D1 confirmed the row. Same rule as the delete path: a
+   *    customer that lives only in this browser dies with the site data.
+   *  - `startedNewIdentity` — whether this phone number belonged to a DELETED
+   *    customer, so a brand-new customer was created instead of reviving the old
+   *    one. The operator must be told, because the points shown are zero and the
+   *    old account's receivables are deliberately not attached.
+   */
+  async saveWithOutcome(
+    customer: Partial<Customer> & { phone: string },
+    branchId?: string
+  ): Promise<SaveOutcome<Customer>> {
     const payload = {
       ...customer,
       phone: normalizePhone(customer.phone),
     };
-    try {
-      return await customerRepository.save(payload, branchId);
-    } catch (error) {
-      return await customerRepository.save(payload, branchId);
-    }
+    // NOTE: no catch-and-retry here. The previous `save` repeated the identical
+    // failing call from its catch block, which cannot succeed for a
+    // deterministic failure and only hid the real error. The repository already
+    // owns queueing and retrying the cloud push.
+    return await customerRepository.saveWithOutcome(payload, branchId);
   },
 
   /**

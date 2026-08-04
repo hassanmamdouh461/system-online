@@ -96,6 +96,38 @@ describe('persistSetting call-site audit', () => {
     // from setList (a human) or the hydration replay (a human's earlier edit).
     const pushes = src.match(/persistSetting\(/g) || [];
     expect(pushes).toHaveLength(1);
-    expect(src).toContain('if (persist) void persistSetting(key, JSON.stringify(next));');
+    // The exact statement changed shape: it used to be
+    //   `if (persist) void persistSetting(key, JSON.stringify(next));`
+    // and the `void` was the bug — it discarded the PersistOutcome, so a delete
+    // that only queued (or was refused with 'forbidden') still reported success.
+    // The ORIGINAL PURPOSE of this assertion is unchanged and still enforced
+    // above and below: exactly ONE push exists, and it is gated behind
+    // `persist`. Only the return handling was rewritten, so the literal is
+    // matched in two parts instead of one.
+    expect(src).toContain('if (!persist) return');
+    expect(src).toContain('return await persistSetting(key, JSON.stringify(next));');
+  });
+
+  it('the hook hands the push outcome back instead of swallowing it', () => {
+    const src = readFileSync(join(SRC, 'hooks/useCloudBackedList.ts'), 'utf8');
+    // Regression guard for the "deleted table comes back after clearing the
+    // cache" report: `commit` and `setList` must resolve to a PersistOutcome.
+    // If either reverts to void, every delete screen silently goes back to
+    // printing an unconditional green success.
+    expect(src).toContain('Promise<PersistOutcome>');
+    expect(src).not.toContain('void persistSetting(');
+  });
+
+  it('the list-delete screens report the outcome instead of assuming success', () => {
+    // POSView (tables + staff) and MenuModal (menu categories) are the three
+    // screens that DELETE from a cloud-backed settings list. Each must consult
+    // describePersistOutcome; without it a queued/forbidden delete is invisible.
+    for (const file of ['components/orders/POSView.tsx', 'components/menu/MenuModal.tsx']) {
+      const src = readFileSync(join(SRC, file), 'utf8');
+      expect(src, `${file} reports its persist outcome`).toContain('describePersistOutcome');
+      expect(src, `${file} no longer discards the persist result`).not.toContain(
+        'void persistSetting('
+      );
+    }
   });
 });

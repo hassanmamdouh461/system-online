@@ -228,11 +228,32 @@ export function CustomerLookupStep({
     setSaving(true);
     setError('');
     try {
-      const customer = await customersService.save(
+      const outcome = await customersService.saveWithOutcome(
         { name: rawName, phone: rawPhone, points: 0 },
         branchId
       );
-      onResolved({ customer, company: null, skipped: false });
+
+      // Registering a number that belonged to a DELETED customer creates a new
+      // customer rather than reviving the old one, so the till is not silently
+      // reopening a closed account's debt ledger. Warn at the point of sale,
+      // where the cashier can still stop and call the manager if the walk-in
+      // claims to be the same person with an outstanding balance.
+      if (outcome.startedNewIdentity) {
+        setError(
+          language === 'ar'
+            ? 'الرقم ده كان لعميل محذوف — اتعمل عميل جديد بنقاط صفر، والمديونيات القديمة مش مربوطة بيه.'
+            : 'This number belonged to a deleted customer — a new customer was created with zero points; the old receivables are not attached.'
+        );
+      } else if (!outcome.synced) {
+        // Not confirmed by D1: the customer exists only in this browser.
+        setError(
+          language === 'ar'
+            ? `تم التسجيل على هذا الجهاز فقط ولم يتأكد على السحاب. ${outcome.reason || ''}`
+            : `Registered on this device only, not confirmed in the cloud. ${outcome.reason || ''}`
+        );
+      }
+
+      onResolved({ customer: outcome.record, company: null, skipped: false });
     } catch (err) {
       console.error(err);
       setError(language === 'ar' ? 'فشل تسجيل العميل' : 'Failed to register customer');
