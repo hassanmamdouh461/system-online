@@ -43,27 +43,38 @@ function ok(cond: unknown, label: string) {
 
 console.log("\n1) upsert freshness guard is wired to UPDATED_AT_COLUMN");
 
-ok(code.includes("const updatedAtCol = UPDATED_AT_COLUMN[table]"), "looks up the table's updated-at column");
+ok(code.includes("function freshnessClause("), "the guard is built by a single shared helper");
+ok(
+  code.includes("freshnessClause(table, UPDATED_AT_COLUMN[table]"),
+  "both upsert sites build the clause from UPDATED_AT_COLUMN"
+);
 ok(
   code.includes("excluded.${col} > ${table}.${col}"),
   "conflict update is gated on strictly-newer incoming updated_at"
 );
 
-// The guard MUST be NULL-safe. `excluded.col > table.col` alone evaluates to
-// NULL (never TRUE) when the stored value is NULL, so any row inserted without
-// an updated-at became permanently unwritable: payments, refunds, cancellations
-// and status changes all answered 200 {stale:true} while D1 kept the old copy.
+console.log("\n1b) the guard is NULL-SAFE (the refund-loss bug, 2026-08-04)");
+
+// A stored NULL updated-at used to make `excluded.x > table.x` evaluate to SQL
+// NULL, so the conflict update was skipped and the row was frozen FOREVER: the
+// payment and then the refund were both discarded while the till believed it had
+// saved them. A stored NULL means "oldest", so an incoming stamped row must win.
 ok(
   code.includes("${table}.${col} IS NULL OR"),
-  "stored NULL updated_at does not freeze the row (NULL-safe clause)"
+  "a stored NULL updated-at loses to an incoming stamped row"
+);
+// An INCOMING null is still discarded — that is a stale device re-upload.
+ok(
+  code.includes("excluded.${col} IS NOT NULL"),
+  "an incoming NULL updated-at is still rejected as stale"
 );
 ok(
-  code.includes("function backfillUpdatedAt"),
-  "incoming payloads missing updated_at are backfilled so stored rows never go NULL"
+  code.includes("if (!col || terminal) return \"\";"),
+  "a terminal write (the transition to Refunded) bypasses the guard entirely"
 );
 ok(
-  /backfillUpdatedAt\(table, normalized\)/.test(code),
-  "backfill runs inside normalizeData, after the camel→snake renames"
+  code.includes("function isRefundTransition("),
+  "the terminal-write predicate exists"
 );
 
 console.log("\n2) both upsert paths carry the guard");
@@ -76,13 +87,13 @@ console.log("\n2) both upsert paths carry the guard");
 const conflictSites =
   code.match(/INSERT INTO \$\{table\}[\s\S]{0,400}?ON CONFLICT\(id\) DO UPDATE/g) || [];
 assert.equal(conflictSites.length, 2, `expected exactly 2 table-driven upsert sites, found ${conflictSites.length}`);
-const freshnessSites = code.match(/UPDATED_AT_COLUMN\[table\]/g) || [];
+const freshnessSites = code.match(/freshnessClause\(table, UPDATED_AT_COLUMN\[table\]/g) || [];
 ok(freshnessSites.length >= 2, "freshness lookup present at both upsert sites");
 
 console.log("\n3) tables without an updated-at column stay unconditional");
 
 ok(
-  code.includes("const freshness = updatedAtCol"),
+  code.includes("if (!col || terminal) return"),
   "freshness clause is conditional on the column existing"
 );
 // snapshots and inventory_transactions have no entry in UPDATED_AT_COLUMN.

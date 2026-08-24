@@ -18,35 +18,6 @@ interface Env {
 }
 
 // Incremental-sync column per table (names are inconsistent across tables).
-/**
- * NULL-safe last-writer-wins clause.
- *
- * The original guard was `WHERE excluded.<col> > <table>.<col>`. That is correct
- * only while BOTH sides are non-NULL. A stored row whose updated-at is NULL (any
- * order created by a client that did not stamp updatedAt) made the comparison
- * evaluate to NULL — not TRUE — so the conflict update was dropped and the row
- * became permanently unwritable. Allowing the write when the STORED value is
- * unknown restores progress, and because the write then stamps a real timestamp,
- * normal freshness ordering resumes from that point on. Terminal states stay
- * protected by applyRefundLatch and the settled-order rule, not by this clause.
- */
-function freshnessClause(table: string, col: string): string {
-  return ` WHERE ${table}.${col} IS NULL OR excluded.${col} > ${table}.${col}`;
-}
-
-/**
- * Backfill a missing updated-at on an INCOMING payload so the stored row never
- * goes back to NULL. Derived from the payload's own timestamps (never the server
- * clock) so a genuinely old copy cannot promote itself to "newest".
- */
-function backfillUpdatedAt(table: string, row: any): void {
-  const col = UPDATED_AT_COLUMN[table];
-  if (!col) return;
-  if (row[col]) return;
-  const fallback = row.paidAt || row.paid_at || row.createdAt || row.created_at;
-  if (fallback) row[col] = fallback;
-}
-
 const UPDATED_AT_COLUMN: Record<string, string> = {
   menu_items: "updated_at",
   orders: "updatedAt",
@@ -183,6 +154,53 @@ function hasRefundMarker(row: any): boolean {
  * other case (including when the incoming write IS the refund itself).
  * Column names here are the D1/canonical camelCase ones (post-normalizeData).
  */
+/**
+ * Build the last-writer-wins guard for an upsert's ON CONFLICT branch.
+ *
+ * WHY THIS IS NOT A PLAIN `>` COMPARISON (the refund-loss bug, 2026-08-04)
+ * -----------------------------------------------------------------------
+ * The guard used to be `WHERE excluded.updatedAt > orders.updatedAt`. In SQL,
+ * ANY comparison against NULL yields NULL, and NULL is not true — so the
+ * conflict update is skipped. That has two very different NULL cases and the
+ * old clause conflated them:
+ *
+ *   * INCOMING is NULL (a stale device re-uploading a row it never stamped).
+ *     Discarding it is CORRECT and is kept below.
+ *
+ *   * STORED is NULL — and this is the bug. `IndexedDbOrderRepository.create`
+ *     does not stamp `updatedAt`, so an order can land in D1 with
+ *     `updatedAt IS NULL`. From that moment EVERY later write to that row was
+ *     silently discarded forever: the payment, and then the refund. The Worker
+ *     answered `200 {stale:true}`, the till believed it had saved, and D1 kept
+ *     the original row. Clearing the browser cache then re-hydrated the old
+ *     "Paid" copy and the refund was gone. A stored NULL means "unknown /
+ *     oldest", so any incoming row that actually carries a timestamp must win.
+ *
+ * `terminal` drops the guard entirely for a write that must never be lost to a
+ * freshness race (the transition to Refunded — see the callers).
+ */
+function freshnessClause(table: string, col: string | undefined, terminal = false): string {
+  if (!col || terminal) return "";
+  return (
+    ` WHERE excluded.${col} IS NOT NULL` +
+    ` AND (${table}.${col} IS NULL OR excluded.${col} > ${table}.${col})`
+  );
+}
+
+/**
+ * True when this write is the moment an order BECOMES refunded.
+ *
+ * Such a write is terminal money state and must never be discarded by the
+ * freshness guard: the operator has handed cash back at the till, and there is
+ * no second chance to record it (the client's retry queue lives in IndexedDB
+ * and dies with the browser cache). Once the stored row is already refunded the
+ * guard goes back on — `applyRefundLatch` protects the state from then on, and
+ * an old refund re-send must not be allowed to overwrite newer row data.
+ */
+function isRefundTransition(incoming: any, current: any): boolean {
+  return hasRefundMarker(incoming) && !hasRefundMarker(current);
+}
+
 export function applyRefundLatch(incoming: any, current: any): any {
   if (!current || !incoming) return incoming;
   if (!hasRefundMarker(current)) return incoming; // nothing to protect
@@ -545,6 +563,7 @@ export default {
             // re-derive it from the document id (see stampSettingKey).
             stampSettingKey(table, normalized, docId);
 
+            let terminalWrite = false;
             if (table === "orders") {
               // Refund is terminal: never let a stale device copy (Uploaded with
               // an old paymentStatus / without refund markers) overwrite the
@@ -554,6 +573,7 @@ export default {
                 .prepare(`SELECT paymentStatus, refundedAt, refundReason, status FROM orders WHERE id = ?`)
                 .bind(docId)
                 .first();
+              terminalWrite = isRefundTransition(normalized, currentRow);
               normalized = applyRefundLatch(normalized, currentRow);
             }
 
@@ -577,8 +597,7 @@ export default {
             // For tables with an updated-at column, only apply the conflict update
             // when the incoming row is strictly newer than the stored one. The
             // INSERT path (genuinely new id) is unaffected.
-            const updatedAtCol = UPDATED_AT_COLUMN[table];
-            const freshness = updatedAtCol ? freshnessClause(table, updatedAtCol) : "";
+            const freshness = freshnessClause(table, UPDATED_AT_COLUMN[table], terminalWrite);
 
             const sql = `
               INSERT INTO ${table} (${columns})
@@ -851,6 +870,7 @@ export default {
         const deniedPost = await authorize({ table, method: "POST", docId: documentId, submitted: data });
         if (deniedPost) return deniedPost;
 
+        let terminalWrite = false;
         if (table === "orders") {
           // Refund is terminal: a stale whole-row upsert (cloudUpsert sends the
           // entire order) must never overwrite a refunded row's payment state.
@@ -858,6 +878,7 @@ export default {
             .prepare(`SELECT paymentStatus, refundedAt, refundReason, status FROM orders WHERE id = ?`)
             .bind(documentId)
             .first();
+          terminalWrite = isRefundTransition(data, currentRow);
           data = applyRefundLatch(data, currentRow);
         }
 
@@ -876,8 +897,7 @@ export default {
                             .join(", ");
 
         // Last-writer-wins freshness guard — see the /api/sync upsert above.
-        const updatedAtCol = UPDATED_AT_COLUMN[table];
-        const freshness = updatedAtCol ? freshnessClause(table, updatedAtCol) : "";
+        const freshness = freshnessClause(table, UPDATED_AT_COLUMN[table], terminalWrite);
 
         const sql = `
           INSERT INTO ${table} (${columns})
@@ -1299,12 +1319,6 @@ function normalizeData(table: string, data: any) {
     if (!normalized.kind) normalized.kind = 'auto';
     delete normalized.branchId;
   }
-
-  // Runs LAST, after the per-table camel→snake renames, so it stamps whichever
-  // column name this table actually stores. Older clients that never send an
-  // updated-at would otherwise keep inserting NULL rows that the freshness guard
-  // can never update again.
-  backfillUpdatedAt(table, normalized);
 
   return normalized;
 }
