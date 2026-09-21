@@ -64,7 +64,7 @@ export function BranchConfigModal({ isOpen, onClose }: BranchConfigModalProps) {
   return createPortal(
     <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-gray-900/40 backdrop-blur-sm" onClick={onClose} />
-      
+
       <div className="relative bg-white w-full max-w-md tablet:max-w-lg rounded-2xl shadow-xl overflow-hidden">
         {/* Header */}
         <div className="bg-orange-600 px-6 py-4 flex items-center justify-between">
@@ -74,10 +74,15 @@ export function BranchConfigModal({ isOpen, onClose }: BranchConfigModalProps) {
             </div>
             <div>
               <h2 className="text-lg font-bold text-white">{t('Branch Configuration')}</h2>
-              <p className="text-orange-100 text-xs">{t('Configure branch identity and credentials')}</p>
+              <p className="text-orange-100 text-xs">
+                {t('Configure branch identity and credentials')}
+              </p>
             </div>
           </div>
-          <button onClick={onClose} className="text-white/80 hover:text-white p-2 rounded-lg hover:bg-white/10 transition-colors">
+          <button
+            onClick={onClose}
+            className="text-white/80 hover:text-white p-2 rounded-lg hover:bg-white/10 transition-colors"
+          >
             <X size={20} />
           </button>
         </div>
@@ -98,7 +103,9 @@ export function BranchConfigModal({ isOpen, onClose }: BranchConfigModalProps) {
                 className="w-full bg-gray-100 border border-gray-200 rounded-xl pl-11 pr-4 py-3 text-sm font-mono text-gray-500 cursor-not-allowed"
               />
             </div>
-            <p className="text-xs text-gray-500 mt-1">{t('Auto-generated identifier for this branch')}</p>
+            <p className="text-xs text-gray-500 mt-1">
+              {t('Auto-generated identifier for this branch')}
+            </p>
           </div>
 
           {/* Branch Name */}
@@ -133,7 +140,9 @@ export function BranchConfigModal({ isOpen, onClose }: BranchConfigModalProps) {
                 placeholder="admin@branch.local"
               />
             </div>
-            <p className="text-xs text-gray-500 mt-1">{t('This email is used to login to this branch')}</p>
+            <p className="text-xs text-gray-500 mt-1">
+              {t('This email is used to login to this branch')}
+            </p>
           </div>
 
           {/* Branch Password */}

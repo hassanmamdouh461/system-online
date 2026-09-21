@@ -23,8 +23,7 @@ export interface MenuItem {
 export const CATEGORIES = ['All'];
 
 export const CATEGORY_TRANSLATIONS: Record<string, string> = {
-  'Kitchen': 'مأكولات',
-  'Bar': 'مشروبات',
-  'General': 'عام',
+  Kitchen: 'مأكولات',
+  Bar: 'مشروبات',
+  General: 'عام',
 };
-

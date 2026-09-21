@@ -2,7 +2,11 @@ import { IOrderRepository } from '../types';
 import { Order, OrderStatus } from '../../types/order';
 import { withDB, enqueueWrite, SyncRecord } from './db';
 import { syncService } from '../../services/syncService';
-import { cloudGetCollection, optionalNumber, reserveServerOrderSeq } from '../../services/cloudConfig';
+import {
+  cloudGetCollection,
+  optionalNumber,
+  reserveServerOrderSeq,
+} from '../../services/cloudConfig';
 import {
   nextOrderSeq,
   localDayKey,
@@ -55,12 +59,7 @@ function mapRemoteOrder(doc: any): Order {
     ...(taxAmount !== undefined ? { taxAmount } : {}),
     ...(grandTotal !== undefined ? { grandTotal } : {}),
 
-    createdAt:
-      doc.createdAt ||
-      doc.created_at ||
-      doc.$createdAt ||
-      doc.paidAt ||
-      undefined,
+    createdAt: doc.createdAt || doc.created_at || doc.$createdAt || doc.paidAt || undefined,
     updatedAt: doc.updatedAt || doc.updated_at || undefined,
     paidAt: doc.paidAt || undefined,
     // Round-trips only once D1 has a printedAt column (see optional migration).
@@ -124,7 +123,7 @@ export class IndexedDbOrderRepository implements IOrderRepository {
   async getAllLocal(branchId?: string): Promise<Order[]> {
     const localOrders = await withDB((db) => db.getAll('orders'));
     // Always hide soft-deleted orders from consumers.
-    const live = (localOrders as Order[]).filter(o => !o.deletedAt);
+    const live = (localOrders as Order[]).filter((o) => !o.deletedAt);
     return filterByBranch(live, branchId);
   }
 
@@ -161,7 +160,7 @@ export class IndexedDbOrderRepository implements IOrderRepository {
     }
 
     // Always hide soft-deleted orders from consumers.
-    const live = (localOrders as Order[]).filter(o => !o.deletedAt);
+    const live = (localOrders as Order[]).filter((o) => !o.deletedAt);
     return filterByBranch(live, branchId);
   }
 
@@ -224,12 +223,11 @@ export class IndexedDbOrderRepository implements IOrderRepository {
           // createdAt order = the order tickets were actually issued in.
           const sorted = [...dayOrders].sort(byIssueTime);
 
-          const taken = new Set<string>();     // display labels already claimed
+          const taken = new Set<string>(); // display labels already claimed
           const takenBase = new Set<number>(); // numeric bases claimed by a holder
 
           // A printed order's number is authoritative and immutable.
-          const isFrozen = (o: Order) =>
-            !!o.printedAt && parseOrderSeq(o.orderNumber) !== null;
+          const isFrozen = (o: Order) => !!o.printedAt && parseOrderSeq(o.orderNumber) !== null;
           const isCleanBase = (n: number | null): n is number =>
             n !== null && n > 0 && n < 1000 && n <= sorted.length + 50;
 
@@ -330,11 +328,13 @@ export class IndexedDbOrderRepository implements IOrderRepository {
         } catch {
           // non-fatal
         }
-        void import('../../services/cloudConfig').then(({ cloudUpsert }) =>
-          cloudUpsert('orders', updated.id, updated).then((ok) => {
-            if (!ok) void syncService.syncPendingData();
-          })
-        ).catch(() => void syncService.syncPendingData());
+        void import('../../services/cloudConfig')
+          .then(({ cloudUpsert }) =>
+            cloudUpsert('orders', updated.id, updated).then((ok) => {
+              if (!ok) void syncService.syncPendingData();
+            })
+          )
+          .catch(() => void syncService.syncPendingData());
       });
     });
   }
@@ -345,15 +345,17 @@ export class IndexedDbOrderRepository implements IOrderRepository {
         const id = `ord_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
         const now = new Date().toISOString();
 
-        const allOrders = await db.getAll('orders') as Order[];
+        const allOrders = (await db.getAll('orders')) as Order[];
         // Always assign a short sequential ticket number (1, 2, 3...).
         // Ignore huge digit strings that came from timestamps / document ids.
         const provided = parseOrderSeq(orderData.orderNumber);
         // Multi-device: ask the Worker for today's atomic sequence first, so two
         // tills never issue the same ticket number. Offline → local heuristic.
-        const serverSeq = provided ?? (await reserveServerOrderSeq(
-          localDayKey(orderData.createdAt ? new Date(orderData.createdAt) : new Date())
-        ).catch(() => null));
+        const serverSeq =
+          provided ??
+          (await reserveServerOrderSeq(
+            localDayKey(orderData.createdAt ? new Date(orderData.createdAt) : new Date())
+          ).catch(() => null));
         const base = provided ?? serverSeq ?? nextOrderSeq(allOrders);
         // Never reuse a number already printed on a customer receipt TODAY: if the
         // computed base collides with a printed ticket, take a -A suffix instead
@@ -369,9 +371,7 @@ export class IndexedDbOrderRepository implements IOrderRepository {
         // Move to the next free number rather than decorating this one with a
         // letter: "5-A" printed as plain "5" anyway, so the suffix hid the
         // clash from the code without ever resolving it on the receipt.
-        const cleanNum = String(
-          printedToday.has(base) ? nextFreeTicket(printedToday, base) : base
-        );
+        const cleanNum = String(printedToday.has(base) ? nextFreeTicket(printedToday, base) : base);
 
         const newOrder: Order = {
           id,
@@ -403,7 +403,9 @@ export class IndexedDbOrderRepository implements IOrderRepository {
           companyId: orderData.companyId,
           companyName: orderData.companyName,
           billedToType: orderData.billedToType,
-          cashierName: orderData.cashierName ? String(orderData.cashierName).trim() || undefined : undefined,
+          cashierName: orderData.cashierName
+            ? String(orderData.cashierName).trim() || undefined
+            : undefined,
 
           branchId: branchId || orderData.branchId || 'main_branch',
         };
@@ -423,25 +425,27 @@ export class IndexedDbOrderRepository implements IOrderRepository {
           };
           await db.put('sync_queue', syncRec);
         } catch (syncErr) {
-          console.warn('[IndexedDbOrderRepository] sync_queue write failed (order saved):', syncErr);
+          console.warn(
+            '[IndexedDbOrderRepository] sync_queue write failed (order saved):',
+            syncErr
+          );
         }
 
         // Cloud-first: try immediate D1 upsert (non-blocking for cashier)
-        void import('../../services/cloudConfig').then(({ cloudUpsert }) =>
-          cloudUpsert('orders', newOrder.id, newOrder).then((ok) => {
-            if (!ok) void syncService.syncPendingData();
-          })
-        ).catch(() => void syncService.syncPendingData());
+        void import('../../services/cloudConfig')
+          .then(({ cloudUpsert }) =>
+            cloudUpsert('orders', newOrder.id, newOrder).then((ok) => {
+              if (!ok) void syncService.syncPendingData();
+            })
+          )
+          .catch(() => void syncService.syncPendingData());
 
         return newOrder;
       });
     });
   }
 
-  async update(
-    id: string,
-    data: Partial<Omit<Order, 'id'>>
-  ): Promise<Order> {
+  async update(id: string, data: Partial<Omit<Order, 'id'>>): Promise<Order> {
     return enqueueWrite(async () => {
       return withDB(async (db) => {
         const existing = await db.get('orders', id);
@@ -471,11 +475,13 @@ export class IndexedDbOrderRepository implements IOrderRepository {
           console.warn('[IndexedDbOrderRepository] sync_queue update failed:', syncErr);
         }
 
-        void import('../../services/cloudConfig').then(({ cloudUpsert }) =>
-          cloudUpsert('orders', updated.id, updated).then((ok) => {
-            if (!ok) void syncService.syncPendingData();
-          })
-        ).catch(() => void syncService.syncPendingData());
+        void import('../../services/cloudConfig')
+          .then(({ cloudUpsert }) =>
+            cloudUpsert('orders', updated.id, updated).then((ok) => {
+              if (!ok) void syncService.syncPendingData();
+            })
+          )
+          .catch(() => void syncService.syncPendingData());
 
         return updated;
       });
@@ -489,7 +495,7 @@ export class IndexedDbOrderRepository implements IOrderRepository {
   async completeWithPayment(
     id: string,
     method: 'Cash' | 'Card' | 'OnAccount',
-    patch?: Partial<Omit<Order, 'id'>>,
+    patch?: Partial<Omit<Order, 'id'>>
   ): Promise<Order> {
     // `patch` folds any caller-supplied fields (customer info, frozen tax /
     // grandTotal) into the SAME write, so completing a payment is a single
@@ -519,9 +525,9 @@ export class IndexedDbOrderRepository implements IOrderRepository {
         const now = new Date().toISOString();
         // Soft-delete: write a tombstone row instead of hard-deleting.
         // This prevents cloud hydrate from resurrecting the order.
-        const existing = await db.get('orders', id) as Order | undefined;
+        const existing = (await db.get('orders', id)) as Order | undefined;
         tombstone = {
-          ...(existing || {} as Order),
+          ...(existing || ({} as Order)),
           id,
           deletedAt: now,
           updatedAt: now,
@@ -561,7 +567,6 @@ export class IndexedDbOrderRepository implements IOrderRepository {
       void syncService.syncPendingData();
     }
   }
-
 
   async resetToDefaults(defaults: Omit<Order, 'id'>[], branchId?: string): Promise<Order[]> {
     await enqueueWrite(async () => {

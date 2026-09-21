@@ -1,4 +1,12 @@
-import React, { createContext, useContext, useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+  useMemo,
+} from 'react';
 import { MenuItem } from '../types/menu';
 import { Order, OrderStatus } from '../types/order';
 import { menuRepository, orderRepository } from '../repositories';
@@ -17,7 +25,6 @@ import {
 } from '../services/cloudConfig';
 import { performRefund, type RefundPushResult } from '../services/refundOrderFlow';
 import { useToast } from '../components/ui/Toast';
-
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -38,7 +45,11 @@ interface OrdersState {
   error: Error | null;
   addOrder: (order: Omit<Order, 'id'>) => Promise<Order | null>;
   updateOrderStatus: (id: string, status: OrderStatus) => Promise<void>;
-  completeWithPayment: (id: string, method?: 'Cash' | 'Card' | 'OnAccount', patch?: Partial<Omit<Order, 'id'>>) => Promise<void>;
+  completeWithPayment: (
+    id: string,
+    method?: 'Cash' | 'Card' | 'OnAccount',
+    patch?: Partial<Omit<Order, 'id'>>
+  ) => Promise<void>;
   refundOrder: (id: string, reason?: string) => Promise<void>;
   updateOrder: (id: string, data: Partial<Omit<Order, 'id'>>) => Promise<void>;
   deleteOrder: (id: string) => Promise<void>;
@@ -115,7 +126,8 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     try {
       setMenuLoading(true);
       setMenuError(null);
-      const targetBranch = (branch?.branchId === 'manager' || branch?.branchId === 'all') ? undefined : branch?.branchId;
+      const targetBranch =
+        branch?.branchId === 'manager' || branch?.branchId === 'all' ? undefined : branch?.branchId;
       const data = await menuRepository.getAll(targetBranch);
       setMenuItems(data);
     } catch (err) {
@@ -129,55 +141,61 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 
   // ── Orders fetching ───────────────────────────────────────────────────────────
 
-  const fetchOrders = useCallback(async (opts?: { renumber?: boolean }) => {
-    if (isEditingRef.current) return;
-    try {
-      setOrdersLoading(true);
-      setOrdersError(null);
-      const targetBranch = (branch?.branchId === 'manager' || branch?.branchId === 'all') ? undefined : branch?.branchId;
-      // Load (with cloud merge) first, THEN renumber so junk from cloud is cleaned.
-      // After renumber, re-read LOCAL only — another cloud merge would re-inject 1000-series.
-      let data = await orderRepository.getAll(targetBranch);
-      // Renumbering is a ONE-TIME cleanup — it must NEVER run on the recurring
-      // 10s auto-refresh. renumberIfNeeded() writes a fresh sync_queue row
-      // (unique Date.now() key) per changed order every time it runs, so any
-      // day that keeps looking "dirty" (legacy 1000-series cloud numbers, a
-      // >500-ticket day, or a cross-device duplicate) made the poll manufacture
-      // a new batch of pending rows every cycle — the queue could never drain
-      // and "معلّق/Pending" climbed without bound. Gate it to the initial load.
-      // LAYER 1 (printed-ticket safety): the daily renumber cleanup may ONLY run
-      // on the cashier / POS device. The manager view (branchId 'manager') runs
-      // on a phone that reloads constantly (app switch, iOS memory purge); if it
-      // renumbered, it would shift ticket numbers on receipts customers already
-      // hold. printedAt (Layer 2) freezes printed tickets even here, but the
-      // cashier device is the only one that should ever reassign numbers at all.
-      const isManagerDevice = branch?.branchId === 'manager';
-      if (opts?.renumber && !renumberedRef.current && !isManagerDevice) {
-        renumberedRef.current = true;
-        lastRenumberAtRef.current = Date.now();
-        try {
-          if (typeof orderRepository.renumberIfNeeded === 'function') {
-            const changed = await orderRepository.renumberIfNeeded();
-            if (changed > 0) {
-              data =
-                typeof orderRepository.getAllLocal === 'function'
-                  ? await orderRepository.getAllLocal(targetBranch)
-                  : await orderRepository.getAll(targetBranch);
+  const fetchOrders = useCallback(
+    async (opts?: { renumber?: boolean }) => {
+      if (isEditingRef.current) return;
+      try {
+        setOrdersLoading(true);
+        setOrdersError(null);
+        const targetBranch =
+          branch?.branchId === 'manager' || branch?.branchId === 'all'
+            ? undefined
+            : branch?.branchId;
+        // Load (with cloud merge) first, THEN renumber so junk from cloud is cleaned.
+        // After renumber, re-read LOCAL only — another cloud merge would re-inject 1000-series.
+        let data = await orderRepository.getAll(targetBranch);
+        // Renumbering is a ONE-TIME cleanup — it must NEVER run on the recurring
+        // 10s auto-refresh. renumberIfNeeded() writes a fresh sync_queue row
+        // (unique Date.now() key) per changed order every time it runs, so any
+        // day that keeps looking "dirty" (legacy 1000-series cloud numbers, a
+        // >500-ticket day, or a cross-device duplicate) made the poll manufacture
+        // a new batch of pending rows every cycle — the queue could never drain
+        // and "معلّق/Pending" climbed without bound. Gate it to the initial load.
+        // LAYER 1 (printed-ticket safety): the daily renumber cleanup may ONLY run
+        // on the cashier / POS device. The manager view (branchId 'manager') runs
+        // on a phone that reloads constantly (app switch, iOS memory purge); if it
+        // renumbered, it would shift ticket numbers on receipts customers already
+        // hold. printedAt (Layer 2) freezes printed tickets even here, but the
+        // cashier device is the only one that should ever reassign numbers at all.
+        const isManagerDevice = branch?.branchId === 'manager';
+        if (opts?.renumber && !renumberedRef.current && !isManagerDevice) {
+          renumberedRef.current = true;
+          lastRenumberAtRef.current = Date.now();
+          try {
+            if (typeof orderRepository.renumberIfNeeded === 'function') {
+              const changed = await orderRepository.renumberIfNeeded();
+              if (changed > 0) {
+                data =
+                  typeof orderRepository.getAllLocal === 'function'
+                    ? await orderRepository.getAllLocal(targetBranch)
+                    : await orderRepository.getAll(targetBranch);
+              }
             }
+          } catch {
+            // non-fatal
           }
-        } catch {
-          // non-fatal
         }
+        setOrdersList(data);
+      } catch (err) {
+        console.warn('[DataContext] Failed to fetch orders from repository:', err);
+        setOrdersError(err instanceof Error ? err : new Error(String(err)));
+        setOrdersList([]);
+      } finally {
+        setOrdersLoading(false);
       }
-      setOrdersList(data);
-    } catch (err) {
-      console.warn('[DataContext] Failed to fetch orders from repository:', err);
-      setOrdersError(err instanceof Error ? err : new Error(String(err)));
-      setOrdersList([]);
-    } finally {
-      setOrdersLoading(false);
-    }
-  }, [branch?.branchId]);
+    },
+    [branch?.branchId]
+  );
 
   // Fetch on mount + when branch changes.
   // NOTE: A 10-second auto-refresh keeps analytics, dashboard receivables,
@@ -247,22 +265,25 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 
   // ── Menu mutations ────────────────────────────────────────────────────────────
 
-  const addItem = useCallback(async (item: Omit<MenuItem, 'id'>) => {
-    try {
-      const newItem = await menuRepository.create(item, branch?.branchId);
-      setMenuItems(prev => [newItem, ...prev]);
-      return newItem;
-    } catch (err) {
-      console.error('[DataContext] Failed to create item in repository:', err);
-      toast.error(err instanceof Error ? err.message : String(err));
-      return null;
-    }
-  }, [branch?.branchId]);
+  const addItem = useCallback(
+    async (item: Omit<MenuItem, 'id'>) => {
+      try {
+        const newItem = await menuRepository.create(item, branch?.branchId);
+        setMenuItems((prev) => [newItem, ...prev]);
+        return newItem;
+      } catch (err) {
+        console.error('[DataContext] Failed to create item in repository:', err);
+        toast.error(err instanceof Error ? err.message : String(err));
+        return null;
+      }
+    },
+    [branch?.branchId]
+  );
 
   const updateItem = useCallback(async (id: string, data: Partial<Omit<MenuItem, 'id'>>) => {
     try {
       const updatedItem = await menuRepository.update(id, data);
-      setMenuItems(prev => prev.map(i => i.id === id ? updatedItem : i));
+      setMenuItems((prev) => prev.map((i) => (i.id === id ? updatedItem : i)));
     } catch (err) {
       console.error('[DataContext] Failed to update item in repository:', err);
       toast.error(err instanceof Error ? err.message : String(err));
@@ -272,7 +293,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   const deleteItem = useCallback(async (id: string) => {
     try {
       await menuRepository.delete(id);
-      setMenuItems(prev => prev.filter(i => i.id !== id));
+      setMenuItems((prev) => prev.filter((i) => i.id !== id));
     } catch (err) {
       console.error('[DataContext] Failed to delete item in repository:', err);
       toast.error(err instanceof Error ? err.message : String(err));
@@ -280,24 +301,20 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const toggleAvailability = useCallback(async (id: string) => {
-    const item = menuItemsRef.current.find(i => i.id === id);
+    const item = menuItemsRef.current.find((i) => i.id === id);
     if (!item) return;
     try {
       const updatedItem = await menuRepository.update(id, { available: !item.available });
-      setMenuItems(prev => prev.map(i => i.id === id ? updatedItem : i));
+      setMenuItems((prev) => prev.map((i) => (i.id === id ? updatedItem : i)));
     } catch (err) {
       console.error('[DataContext] Failed to toggle availability in repository:', err);
       toast.error(err instanceof Error ? err.message : String(err));
     }
   }, []);
 
-
   // ── Orders mutations ──────────────────────────────────────────────────────────
 
-async function applyOrderInventory(
-    order: Order,
-    direction: 'deduct' | 'restore'
-  ) {
+  async function applyOrderInventory(order: Order, direction: 'deduct' | 'restore') {
     try {
       const allInv = await inventoryService.getAll();
       for (const item of order.items) {
@@ -306,8 +323,12 @@ async function applyOrderInventory(
         if (recipe && recipe.length > 0) {
           for (const ing of recipe) {
             const rawQty = ing.quantity * item.quantity;
-            const targetInv = allInv.find(i => i.id === ing.inventoryItemId);
-            const baseQty = getIngredientBaseQty(rawQty, ing.unit || targetInv?.unit || '', targetInv?.unit || '');
+            const targetInv = allInv.find((i) => i.id === ing.inventoryItemId);
+            const baseQty = getIngredientBaseQty(
+              rawQty,
+              ing.unit || targetInv?.unit || '',
+              targetInv?.unit || ''
+            );
             // IV-023: an impossible conversion (e.g. a recipe in grams against
             // an item stocked in ml) must NEVER be booked. Writing a fabricated
             // figure corrupts the stock level silently; skipping leaves the
@@ -315,7 +336,7 @@ async function applyOrderInventory(
             if (baseQty === null) {
               console.error(
                 `[DataContext] skipped ${direction} for inventory ${ing.inventoryItemId}: ` +
-                `cannot convert ${rawQty} "${ing.unit}" → "${targetInv?.unit}" (order #${order.orderNumber}, ${item.name})`
+                  `cannot convert ${rawQty} "${ing.unit}" → "${targetInv?.unit}" (order #${order.orderNumber}, ${item.name})`
               );
               continue;
             }
@@ -342,40 +363,46 @@ async function applyOrderInventory(
     }
   }
 
+  const addOrder = useCallback(
+    async (order: Omit<Order, 'id'>): Promise<Order | null> => {
+      try {
+        const newOrder = await orderRepository.create(order, branch?.branchId || 'main_branch');
+        setOrdersList((prev) => [newOrder, ...prev]);
 
-  const addOrder = useCallback(async (order: Omit<Order, 'id'>): Promise<Order | null> => {
-    try {
-      const newOrder = await orderRepository.create(order, branch?.branchId || 'main_branch');
-      setOrdersList(prev => [newOrder, ...prev]);
+        if (newOrder) {
+          // Inventory deduction must NEVER block order creation
+          void applyOrderInventory(newOrder, 'deduct').catch((invErr) => {
+            console.error(
+              '[DataContext] Failed to deduct inventory for order:',
+              newOrder.id,
+              invErr
+            );
+          });
+        }
 
-      if (newOrder) {
-        // Inventory deduction must NEVER block order creation
-        void applyOrderInventory(newOrder, 'deduct').catch((invErr) => {
-          console.error('[DataContext] Failed to deduct inventory for order:', newOrder.id, invErr);
-        });
+        // Immediate Cloudflare D1 Sync (non-blocking)
+        void syncService.syncPendingData();
+
+        return newOrder;
+      } catch (err) {
+        console.error('[DataContext] Failed to create order in repository:', err);
+        // Surface real error so POS can show it instead of silent null
+        throw err instanceof Error ? err : new Error(String(err));
       }
-
-      // Immediate Cloudflare D1 Sync (non-blocking)
-      void syncService.syncPendingData();
-
-      return newOrder;
-    } catch (err) {
-      console.error('[DataContext] Failed to create order in repository:', err);
-      // Surface real error so POS can show it instead of silent null
-      throw err instanceof Error ? err : new Error(String(err));
-    }
-  }, [branch?.branchId]);
+    },
+    [branch?.branchId]
+  );
 
   const updateOrderStatus = useCallback(async (id: string, status: OrderStatus) => {
     try {
-      const existing = ordersListRef.current.find(o => o.id === id);
+      const existing = ordersListRef.current.find((o) => o.id === id);
       // Paid orders must use refund/void flow — do not cancel+restock here.
       if (status === 'Cancelled' && existing?.paymentStatus === 'Paid') {
         throw new Error('Cannot cancel a paid order. Use refund/void instead.');
       }
 
       const updatedOrder = await orderRepository.updateStatus(id, status);
-      setOrdersList(prev => prev.map(o => o.id === id ? updatedOrder : o));
+      setOrdersList((prev) => prev.map((o) => (o.id === id ? updatedOrder : o)));
 
       if (
         status === 'Cancelled' &&
@@ -386,7 +413,11 @@ async function applyOrderInventory(
         try {
           await applyOrderInventory(existing, 'restore');
         } catch (invErr) {
-          console.error('[DataContext] Failed to restore inventory on cancel:', existing.id, invErr);
+          console.error(
+            '[DataContext] Failed to restore inventory on cancel:',
+            existing.id,
+            invErr
+          );
         }
       }
 
@@ -397,21 +428,23 @@ async function applyOrderInventory(
     }
   }, []);
 
-  const completeWithPayment = useCallback(async (
-    id: string,
-    method: 'Cash' | 'Card' | 'OnAccount' = 'Cash',
-    patch?: Partial<Omit<Order, 'id'>>,
-  ) => {
-    try {
-      const updatedOrder = await orderRepository.completeWithPayment(id, method, patch);
-      setOrdersList(prev => prev.map(o => o.id === id ? updatedOrder : o));
-      void syncService.syncPendingData();
-    } catch (err) {
-      console.error('[DataContext] Failed to complete payment in repository:', err);
-      toast.error(err instanceof Error ? err.message : String(err));
-    }
-  }, []);
-
+  const completeWithPayment = useCallback(
+    async (
+      id: string,
+      method: 'Cash' | 'Card' | 'OnAccount' = 'Cash',
+      patch?: Partial<Omit<Order, 'id'>>
+    ) => {
+      try {
+        const updatedOrder = await orderRepository.completeWithPayment(id, method, patch);
+        setOrdersList((prev) => prev.map((o) => (o.id === id ? updatedOrder : o)));
+        void syncService.syncPendingData();
+      } catch (err) {
+        console.error('[DataContext] Failed to complete payment in repository:', err);
+        toast.error(err instanceof Error ? err.message : String(err));
+      }
+    },
+    []
+  );
 
   /**
    * Void/refund a paid order: mark payment Refunded, restore inventory,
@@ -438,7 +471,7 @@ async function applyOrderInventory(
    * "Only paid orders can be refunded", "Order not found".
    */
   const refundOrder = useCallback(async (id: string, reason?: string) => {
-    const existing = ordersListRef.current.find(o => o.id === id);
+    const existing = ordersListRef.current.find((o) => o.id === id);
     if (!existing) throw new Error('Order not found');
     if (existing.paymentStatus !== 'Paid') {
       throw new Error('Only paid orders can be refunded');
@@ -485,7 +518,11 @@ async function applyOrderInventory(
           try {
             await applyOrderInventory(existing, 'restore');
           } catch (invErr) {
-            console.error('[DataContext] Failed to restore inventory on refund:', existing.id, invErr);
+            console.error(
+              '[DataContext] Failed to restore inventory on refund:',
+              existing.id,
+              invErr
+            );
           }
         },
         triggerSync: () => {
@@ -495,19 +532,19 @@ async function applyOrderInventory(
       () => ({ ...existing, ...refundPatch, updatedAt: new Date().toISOString() })
     );
 
-    setOrdersList(prev => prev.map(o => (o.id === id ? updated : o)));
+    setOrdersList((prev) => prev.map((o) => (o.id === id ? updated : o)));
   }, []);
 
   const updateOrder = useCallback(async (id: string, data: Partial<Omit<Order, 'id'>>) => {
     try {
-      const existing = ordersListRef.current.find(o => o.id === id);
+      const existing = ordersListRef.current.find((o) => o.id === id);
 
       if (data.status === 'Cancelled' && existing?.paymentStatus === 'Paid') {
         throw new Error('Cannot cancel a paid order. Use refund/void instead.');
       }
 
       const updatedOrder = await orderRepository.update(id, data);
-      setOrdersList(prev => prev.map(o => o.id === id ? updatedOrder : o));
+      setOrdersList((prev) => prev.map((o) => (o.id === id ? updatedOrder : o)));
 
       if (
         data.status === 'Cancelled' &&
@@ -518,7 +555,11 @@ async function applyOrderInventory(
         try {
           await applyOrderInventory(existing, 'restore');
         } catch (invErr) {
-          console.error('[DataContext] Failed to restore inventory on order update:', existing.id, invErr);
+          console.error(
+            '[DataContext] Failed to restore inventory on order update:',
+            existing.id,
+            invErr
+          );
         }
       }
     } catch (err) {
@@ -529,7 +570,7 @@ async function applyOrderInventory(
 
   const deleteOrder = useCallback(async (id: string) => {
     try {
-      const existing = ordersListRef.current.find(o => o.id === id);
+      const existing = ordersListRef.current.find((o) => o.id === id);
 
       // Paid orders must use refund/void flow — never hard-delete.
       if (existing?.paymentStatus === 'Paid') {
@@ -539,13 +580,17 @@ async function applyOrderInventory(
       }
 
       await orderRepository.delete(id);
-      setOrdersList(prev => prev.filter(o => o.id !== id));
+      setOrdersList((prev) => prev.filter((o) => o.id !== id));
 
       if (existing && existing.status !== 'Cancelled') {
         try {
           await applyOrderInventory(existing, 'restore');
         } catch (invErr) {
-          console.error('[DataContext] Failed to restore inventory on physical order deletion:', existing.id, invErr);
+          console.error(
+            '[DataContext] Failed to restore inventory on physical order deletion:',
+            existing.id,
+            invErr
+          );
         }
       }
 
@@ -560,37 +605,54 @@ async function applyOrderInventory(
 
   // ── Context value ─────────────────────────────────────────────────────────────
 
-  const value: DataContextValue = useMemo(() => ({
-    menu: {
-      items: menuItems,
-      loading: menuLoading,
-      error: menuError,
+  const value: DataContextValue = useMemo(
+    () => ({
+      menu: {
+        items: menuItems,
+        loading: menuLoading,
+        error: menuError,
+        addItem,
+        updateItem,
+        deleteItem,
+        toggleAvailability,
+        refetch: fetchMenu,
+      },
+      orders: {
+        orders: ordersList,
+        loading: ordersLoading,
+        error: ordersError,
+        addOrder,
+        updateOrderStatus,
+        completeWithPayment,
+        refundOrder,
+        updateOrder,
+        deleteOrder,
+        refetch: fetchOrders,
+      },
+      setEditing,
+    }),
+    [
+      menuItems,
+      menuLoading,
+      menuError,
+      ordersList,
+      ordersLoading,
+      ordersError,
       addItem,
       updateItem,
       deleteItem,
       toggleAvailability,
-      refetch: fetchMenu,
-    },
-    orders: {
-      orders: ordersList,
-      loading: ordersLoading,
-      error: ordersError,
+      fetchMenu,
       addOrder,
       updateOrderStatus,
       completeWithPayment,
       refundOrder,
       updateOrder,
       deleteOrder,
-      refetch: fetchOrders,
-    },
-    setEditing,
-  }), [
-    menuItems, menuLoading, menuError,
-    ordersList, ordersLoading, ordersError,
-    addItem, updateItem, deleteItem, toggleAvailability, fetchMenu,
-    addOrder, updateOrderStatus, completeWithPayment, refundOrder, updateOrder, deleteOrder, fetchOrders,
-    setEditing,
-  ]);
+      fetchOrders,
+      setEditing,
+    ]
+  );
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;
 }
@@ -608,4 +670,3 @@ export function useOrdersContext(): OrdersState {
   if (!ctx) throw new Error('useOrdersContext must be used within DataProvider');
   return ctx.orders;
 }
-

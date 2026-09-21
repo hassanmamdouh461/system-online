@@ -30,20 +30,26 @@ describe('roundMoney', () => {
 describe('isCompanyBilledOrder', () => {
   it('is true for an OnAccount order billed to a company', () => {
     expect(
-      isCompanyBilledOrder(order({ paymentStatus: 'OnAccount', billedToType: 'company', companyId: 'co1' }))
+      isCompanyBilledOrder(
+        order({ paymentStatus: 'OnAccount', billedToType: 'company', companyId: 'co1' })
+      )
     ).toBe(true);
   });
   it('infers company billing from companyId + companyName when billedToType is absent', () => {
     expect(
-      isCompanyBilledOrder(order({ paymentStatus: 'OnAccount', companyId: 'co1', companyName: 'Acme' }))
+      isCompanyBilledOrder(
+        order({ paymentStatus: 'OnAccount', companyId: 'co1', companyName: 'Acme' })
+      )
     ).toBe(true);
   });
   it('is false for paid, refunded, or customer-billed orders', () => {
-    expect(isCompanyBilledOrder(order({ paymentStatus: 'Paid', companyId: 'co1', companyName: 'Acme' }))).toBe(
-      false
-    );
     expect(
-      isCompanyBilledOrder(order({ paymentStatus: 'OnAccount', billedToType: 'customer', companyId: 'co1' }))
+      isCompanyBilledOrder(order({ paymentStatus: 'Paid', companyId: 'co1', companyName: 'Acme' }))
+    ).toBe(false);
+    expect(
+      isCompanyBilledOrder(
+        order({ paymentStatus: 'OnAccount', billedToType: 'customer', companyId: 'co1' })
+      )
     ).toBe(false);
   });
 });
@@ -51,9 +57,23 @@ describe('isCompanyBilledOrder', () => {
 describe('getCustomerAccountBalance', () => {
   it('sums only the customer’s own open OnAccount invoices', () => {
     const orders = [
-      order({ id: 'a', paymentStatus: 'OnAccount', customerId: 'c1', totalAmount: 100, taxAmount: 0, grandTotal: 100 }),
+      order({
+        id: 'a',
+        paymentStatus: 'OnAccount',
+        customerId: 'c1',
+        totalAmount: 100,
+        taxAmount: 0,
+        grandTotal: 100,
+      }),
       order({ id: 'b', paymentStatus: 'Paid', customerId: 'c1', totalAmount: 40, grandTotal: 40 }), // settled → excluded
-      order({ id: 'c', paymentStatus: 'OnAccount', billedToType: 'company', companyId: 'co1', totalAmount: 70, grandTotal: 70 }), // company debt → excluded
+      order({
+        id: 'c',
+        paymentStatus: 'OnAccount',
+        billedToType: 'company',
+        companyId: 'co1',
+        totalAmount: 70,
+        grandTotal: 70,
+      }), // company debt → excluded
     ];
     expect(getCustomerAccountBalance(orders, { id: 'c1', phone: '0100' })).toBe(100);
   });
@@ -67,9 +87,30 @@ describe('getCustomerAccountBalance', () => {
 describe('getCompanyAccountBalance', () => {
   it('sums open invoices billed to the company', () => {
     const orders = [
-      order({ id: 'a', paymentStatus: 'OnAccount', billedToType: 'company', companyId: 'co1', totalAmount: 50, taxAmount: 0, grandTotal: 50 }),
-      order({ id: 'b', paymentStatus: 'OnAccount', billedToType: 'company', companyId: 'co2', totalAmount: 30, grandTotal: 30 }), // other company
-      order({ id: 'c', paymentStatus: 'Paid', billedToType: 'company', companyId: 'co1', grandTotal: 999 }), // settled
+      order({
+        id: 'a',
+        paymentStatus: 'OnAccount',
+        billedToType: 'company',
+        companyId: 'co1',
+        totalAmount: 50,
+        taxAmount: 0,
+        grandTotal: 50,
+      }),
+      order({
+        id: 'b',
+        paymentStatus: 'OnAccount',
+        billedToType: 'company',
+        companyId: 'co2',
+        totalAmount: 30,
+        grandTotal: 30,
+      }), // other company
+      order({
+        id: 'c',
+        paymentStatus: 'Paid',
+        billedToType: 'company',
+        companyId: 'co1',
+        grandTotal: 999,
+      }), // settled
     ];
     expect(getCompanyAccountBalance(orders, 'co1')).toBe(50);
   });
@@ -82,7 +123,7 @@ describe('customer phone matching (AB-005)', () => {
   const invoice = (phone: string) =>
     order({ id: `o-${phone}`, paymentStatus: 'OnAccount', customerPhone: phone, totalAmount: 100 });
 
-  it('does not attach a stranger\'s invoice to a short/partial phone record', () => {
+  it("does not attach a stranger's invoice to a short/partial phone record", () => {
     const orders = [invoice('01012345678')];
     const partial = { id: 'c1', phone: '8' } as any;
     expect(getCustomerOpenInvoices(orders, partial)).toHaveLength(0);

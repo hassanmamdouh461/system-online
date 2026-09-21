@@ -5,18 +5,16 @@
 
 import { getRefundPin } from '../utils/refundPin';
 
-const PLACEHOLDER_MARKERS = [
-  'YOUR_SUBDOMAIN',
-  'your-username',
-  'your-worker',
-  'example.com',
-];
+const PLACEHOLDER_MARKERS = ['YOUR_SUBDOMAIN', 'your-username', 'your-worker', 'example.com'];
 
 const DEFAULT_TIMEOUT_MS = 8000;
 
 function cleanUrl(raw: string | undefined | null): string {
   if (!raw) return '';
-  const url = String(raw).trim().replace(/^["']|["']$/g, '').replace(/\/$/, '');
+  const url = String(raw)
+    .trim()
+    .replace(/^["']|["']$/g, '')
+    .replace(/\/$/, '');
   if (!url) return '';
   if (PLACEHOLDER_MARKERS.some((m) => url.includes(m))) return '';
   if (typeof window !== 'undefined') {
@@ -377,7 +375,9 @@ function notifyRoleMismatch(serverRole: SessionRole | null): void {
   if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
     try {
       window.dispatchEvent(
-        new CustomEvent(ROLE_MISMATCH_EVENT, { detail: { expected: roleIntent, actual: serverRole } })
+        new CustomEvent(ROLE_MISMATCH_EVENT, {
+          detail: { expected: roleIntent, actual: serverRole },
+        })
       );
     } catch {
       // best-effort
@@ -624,44 +624,40 @@ export function ensureCloudSession(force = false): Promise<boolean> {
       }
     };
 
-    const navLocks = (typeof navigator !== 'undefined' ? (navigator as any).locks : undefined);
+    const navLocks = typeof navigator !== 'undefined' ? (navigator as any).locks : undefined;
     if (navLocks && typeof navLocks.request === 'function') {
       let becameLeader = false;
       try {
-        return await navLocks.request(
-          MINT_LOCK_NAME,
-          { ifAvailable: true },
-          async (lock: any) => {
-            if (!lock) {
-              // Another tab holds the mint lock: wait for its published result.
-              const peer = await waitForPeerMint();
-              if (peer) {
-                if (peer.ok) {
-                  // The peer minted the SHARED cookie — verify it actually landed
-                  // for this tab before declaring the session established.
-                  const role = await refreshCloudSessionRole();
-                  if (role !== null) recordMintOutcome({ kind: 'ok' });
-                  else recordMintOutcome({ kind: 'unreachable' });
-                  return role !== null;
-                }
-                if (peer.status === 429) advanceMintCooldownForRateLimit();
-                // Inherit the leader tab's reason — this tab never sent a request
-                // of its own, so without this it would report a bare failure and
-                // the login screen would fall back to blaming the password.
-                recordMintOutcome(
-                  typeof peer.status === 'number'
-                    ? classifyMintStatus(peer.status)
-                    : { kind: 'unreachable' }
-                );
-                return false;
+        return await navLocks.request(MINT_LOCK_NAME, { ifAvailable: true }, async (lock: any) => {
+          if (!lock) {
+            // Another tab holds the mint lock: wait for its published result.
+            const peer = await waitForPeerMint();
+            if (peer) {
+              if (peer.ok) {
+                // The peer minted the SHARED cookie — verify it actually landed
+                // for this tab before declaring the session established.
+                const role = await refreshCloudSessionRole();
+                if (role !== null) recordMintOutcome({ kind: 'ok' });
+                else recordMintOutcome({ kind: 'unreachable' });
+                return role !== null;
               }
-              recordMintOutcome({ kind: 'unreachable' });
+              if (peer.status === 429) advanceMintCooldownForRateLimit();
+              // Inherit the leader tab's reason — this tab never sent a request
+              // of its own, so without this it would report a bare failure and
+              // the login screen would fall back to blaming the password.
+              recordMintOutcome(
+                typeof peer.status === 'number'
+                  ? classifyMintStatus(peer.status)
+                  : { kind: 'unreachable' }
+              );
               return false;
             }
-            becameLeader = true;
-            return await doMint();
+            recordMintOutcome({ kind: 'unreachable' });
+            return false;
           }
-        );
+          becameLeader = true;
+          return await doMint();
+        });
       } catch (err) {
         // Lock API rejected (unsupported edge case) — fall through to a plain mint.
         if (becameLeader) throw err;
@@ -674,8 +670,13 @@ export function ensureCloudSession(force = false): Promise<boolean> {
 
   sessionPromise = p;
   // Don't cache a failure — allow a later attempt to retry the mint.
-  void p.then((ok) => { if (!ok && sessionPromise === p) sessionPromise = null; })
-        .catch(() => { if (sessionPromise === p) sessionPromise = null; });
+  void p
+    .then((ok) => {
+      if (!ok && sessionPromise === p) sessionPromise = null;
+    })
+    .catch(() => {
+      if (sessionPromise === p) sessionPromise = null;
+    });
   return p;
 }
 
@@ -1009,10 +1010,7 @@ export async function cloudGetCollection(
     const query = qs.toString();
     if (query) path += `?${query}`;
 
-    const res = await cloudFetch(
-      path,
-      { method: 'GET', timeoutMs: DEFAULT_TIMEOUT_MS }
-    );
+    const res = await cloudFetch(path, { method: 'GET', timeoutMs: DEFAULT_TIMEOUT_MS });
     if (!res) return null;
     if (!res.ok) {
       console.warn(`[cloud] GET ${collection} failed: HTTP ${res.status}`);
@@ -1101,14 +1099,11 @@ export async function cloudUpsertWithOutcome(
   payload.branch_id = MAIN_BRANCH_ID;
   payload.branchId = MAIN_BRANCH_ID;
   try {
-    const res = await cloudFetch(
-      `/v1/databases/default/collections/${collection}/documents`,
-      {
-        method: 'POST',
-        timeoutMs: DEFAULT_TIMEOUT_MS,
-        body: JSON.stringify({ documentId: id, data: payload }),
-      }
-    );
+    const res = await cloudFetch(`/v1/databases/default/collections/${collection}/documents`, {
+      method: 'POST',
+      timeoutMs: DEFAULT_TIMEOUT_MS,
+      body: JSON.stringify({ documentId: id, data: payload }),
+    });
     if (!res) return { kind: 'unreachable', status: null };
     if (!res.ok) {
       console.warn(`[cloud] UPSERT ${collection}/${id} failed: HTTP ${res.status}`);
@@ -1205,10 +1200,7 @@ export async function ackSyncQueueForEntity(entityId: string): Promise<void> {
   }
 }
 
-export async function cloudDeleteDocument(
-  collection: string,
-  id: string
-): Promise<boolean> {
+export async function cloudDeleteDocument(collection: string, id: string): Promise<boolean> {
   if (!id) return false;
   try {
     const res = await cloudFetch(

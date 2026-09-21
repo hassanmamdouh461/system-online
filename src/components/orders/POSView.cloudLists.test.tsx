@@ -59,10 +59,7 @@ const CLOUD_TABLES = ['وي', 'التعاون', 'Engaz', 'tea', 'Tech'];
 const CLOUD_STAFF = ['أحمد', 'سارة'];
 
 /** What hydrateSettingsFromCloud does to this device: writes D1 into localStorage. */
-function cloudHydrateArrives(
-  tables: string[] = CLOUD_TABLES,
-  staff: string[] = CLOUD_STAFF
-) {
+function cloudHydrateArrives(tables: string[] = CLOUD_TABLES, staff: string[] = CLOUD_STAFF) {
   localStorage.setItem('pos_tables_list', JSON.stringify(tables));
   localStorage.setItem('pos_staff_list', JSON.stringify(staff));
   markSettingsHydrationSettled(true);

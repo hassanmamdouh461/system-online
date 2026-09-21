@@ -33,7 +33,12 @@ export const telegramService = {
     return { botToken: botToken.trim(), chatId: chatId.trim() };
   },
 
-  async sendMessage(botToken: string, chatId: string, text: string, parseMode: 'HTML' | 'Markdown' = 'HTML'): Promise<{ ok: boolean; description?: string }> {
+  async sendMessage(
+    botToken: string,
+    chatId: string,
+    text: string,
+    parseMode: 'HTML' | 'Markdown' = 'HTML'
+  ): Promise<{ ok: boolean; description?: string }> {
     if (!botToken || !chatId) {
       throw new Error('Telegram Bot Token and Chat ID are required');
     }
@@ -45,8 +50,8 @@ export const telegramService = {
       body: JSON.stringify({
         chat_id: chatId.trim(),
         text: text,
-        parse_mode: parseMode
-      })
+        parse_mode: parseMode,
+      }),
     });
 
     const data = await response.json();
@@ -60,5 +65,5 @@ export const telegramService = {
     const testText = `🧪 <b>رسالة تجريبية من نظام BrewMaster POS</b>\n\nتم إعداد البوت ومحادثة تليجرام بنجاح! ستصلك التقارير اليومية هنا في الموعد المحدد.`;
     const res = await this.sendMessage(botToken, chatId, testText, 'HTML');
     return res.ok;
-  }
+  },
 };

@@ -109,7 +109,7 @@ describe('performRefund — the server decides before this device moves', () => 
     expect(h.restoreInventory).not.toHaveBeenCalled();
   });
 
-  it('surfaces the server\'s own reason to the operator', async () => {
+  it("surfaces the server's own reason to the operator", async () => {
     const h = harness({
       probed: 'manager',
       pushes: [{ kind: 'denied', code: 'refund_requires_escalation', message: 'رسالة السيرفر' }],
@@ -146,10 +146,7 @@ describe('performRefund — a cashier may refund, nobody needs a PIN', () => {
       cached: 'manager',
       probed: 'cashier',
       canRemint: true,
-      pushes: [
-        { kind: 'denied', code: 'refund_denied', message: 'no' },
-        { kind: 'ok' },
-      ],
+      pushes: [{ kind: 'denied', code: 'refund_denied', message: 'no' }, { kind: 'ok' }],
     });
 
     const result = await run(h);

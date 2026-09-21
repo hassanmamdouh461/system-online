@@ -26,7 +26,10 @@ const DAILY_TICKET_SOFT_MAX = 500;
  * Business-day key YYYY-MM-DD for a Date — the same bucket reports use.
  * Name kept for its many call sites; the semantics are now business-day.
  */
-export function localDayKey(date: Date = new Date(), startHour: number = getDayStartHour()): string {
+export function localDayKey(
+  date: Date = new Date(),
+  startHour: number = getDayStartHour()
+): string {
   const b = businessDate(date, startHour);
   const y = b.getFullYear();
   const m = String(b.getMonth() + 1).padStart(2, '0');
@@ -253,14 +256,13 @@ export function mergeOrderRecords(local: OrderLike | undefined, remote: OrderLik
   // Resolve soft-delete tombstone: whichever side has a NEWER deletedAt wins.
   const localDeletedAt = local.deletedAt;
   const remoteDeletedAt = remote.deletedAt;
-  const effectiveDeletedAt =
-    !localDeletedAt
-      ? remoteDeletedAt
-      : !remoteDeletedAt
+  const effectiveDeletedAt = !localDeletedAt
+    ? remoteDeletedAt
+    : !remoteDeletedAt
+      ? localDeletedAt
+      : new Date(localDeletedAt).getTime() >= new Date(remoteDeletedAt).getTime()
         ? localDeletedAt
-        : new Date(localDeletedAt).getTime() >= new Date(remoteDeletedAt).getTime()
-          ? localDeletedAt
-          : remoteDeletedAt;
+        : remoteDeletedAt;
 
   // Prefer non-empty fields; local wins when remote is empty/placeholder
   const isEmpty = (v: unknown) =>
@@ -272,7 +274,7 @@ export function mergeOrderRecords(local: OrderLike | undefined, remote: OrderLik
     return s === 'عميل' || s === 'customer' || s === 'شركة' || s === 'company' || s === '—';
   };
 
-  const pick = <T,>(r: T | undefined | null, l: T | undefined | null): T | undefined => {
+  const pick = <T>(r: T | undefined | null, l: T | undefined | null): T | undefined => {
     // Local real value beats remote empty/placeholder
     if (!isEmpty(l) && !isPlaceholderName(l) && (isEmpty(r) || isPlaceholderName(r))) {
       return l as T;
@@ -294,7 +296,7 @@ export function mergeOrderRecords(local: OrderLike | undefined, remote: OrderLik
   // Local wins payment when it paid more recently (cashier flow on this device)
   // OR it has a more recent update carrying real payment data.
   const localWinsPayment =
-    Number.isFinite(localPaid) && Number.isFinite(remotePaid) && localPaid > remotePaid ||
+    (Number.isFinite(localPaid) && Number.isFinite(remotePaid) && localPaid > remotePaid) ||
     (Number.isFinite(localUpdated) &&
       Number.isFinite(remoteUpdated) &&
       localUpdated > remoteUpdated &&
@@ -310,12 +312,11 @@ export function mergeOrderRecords(local: OrderLike | undefined, remote: OrderLik
 
   // Resolve the refund following the same winner as the payment fields, always
   // preferring a non-empty value so a refund is never wiped by a stale copy.
-  const mergedRefundedAt =
-    localWinsPayment
-      ? (local.refundedAt ?? remote.refundedAt)
-      : remoteWinsState
-        ? (remote.refundedAt ?? local.refundedAt)
-        : (local.refundedAt ?? remote.refundedAt);
+  const mergedRefundedAt = localWinsPayment
+    ? (local.refundedAt ?? remote.refundedAt)
+    : remoteWinsState
+      ? (remote.refundedAt ?? local.refundedAt)
+      : (local.refundedAt ?? remote.refundedAt);
 
   // A refund is TERMINAL — there is no un-refund flow in this POS. Once either
   // side carries a refund (a resolved refundedAt, or an explicit 'Refunded'
@@ -325,9 +326,7 @@ export function mergeOrderRecords(local: OrderLike | undefined, remote: OrderLik
   // report (useAnalytics) filters on paymentStatus === 'Paid' while IGNORING
   // refundedAt — so a refunded order would be silently re-counted as revenue.
   const isRefunded =
-    !!mergedRefundedAt ||
-    local.paymentStatus === 'Refunded' ||
-    remote.paymentStatus === 'Refunded';
+    !!mergedRefundedAt || local.paymentStatus === 'Refunded' || remote.paymentStatus === 'Refunded';
 
   // A settled payment is a one-way latch, same as Refunded. Once ANY side has
   // genuinely recorded the order as Paid (status 'Paid' backed by a paidAt
@@ -388,20 +387,20 @@ export function mergeOrderRecords(local: OrderLike | undefined, remote: OrderLik
       : latchedPaid
         ? 'Paid'
         : localWinsPayment
-          ? (local.paymentStatus || remote.paymentStatus)
+          ? local.paymentStatus || remote.paymentStatus
           : remoteWinsState
-            ? (remote.paymentStatus || local.paymentStatus)
-            : (local.paymentStatus || remote.paymentStatus),
+            ? remote.paymentStatus || local.paymentStatus
+            : local.paymentStatus || remote.paymentStatus,
     paymentMethod: localWinsPayment
-      ? (local.paymentMethod || remote.paymentMethod)
+      ? local.paymentMethod || remote.paymentMethod
       : remoteWinsState
-        ? (remote.paymentMethod || local.paymentMethod)
-        : (local.paymentMethod || remote.paymentMethod),
+        ? remote.paymentMethod || local.paymentMethod
+        : local.paymentMethod || remote.paymentMethod,
     paidAt: localWinsPayment
-      ? (local.paidAt || remote.paidAt)
+      ? local.paidAt || remote.paidAt
       : remoteWinsState
-        ? (remote.paidAt || local.paidAt)
-        : (local.paidAt || remote.paidAt),
+        ? remote.paidAt || local.paidAt
+        : local.paidAt || remote.paidAt,
     items: Array.isArray(remote.items) && remote.items.length > 0 ? remote.items : local.items,
   };
 }

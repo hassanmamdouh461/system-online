@@ -25,12 +25,14 @@ const ENC_VERSION = 1;
 export interface SecretBoxPayload {
   v: number;
   salt: string; // hex, 16 bytes
-  iv: string;   // hex, 12 bytes (AES-GCM)
-  ct: string;   // hex, ciphertext
+  iv: string; // hex, 12 bytes (AES-GCM)
+  ct: string; // hex, ciphertext
 }
 
 function bufToHex(buf: Uint8Array): string {
-  return Array.from(buf).map((b) => b.toString(16).padStart(2, '0')).join('');
+  return Array.from(buf)
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
 }
 
 function hexToBuf(hex: string): Uint8Array {
@@ -43,7 +45,8 @@ function hexToBuf(hex: string): Uint8Array {
 }
 
 function cryptoApi(): Crypto {
-  const c = (typeof window !== 'undefined' ? window.crypto : (globalThis as any).crypto) as Crypto | undefined;
+  const c = (typeof window !== 'undefined' ? window.crypto : (globalThis as any).crypto) as
+    Crypto | undefined;
   if (!c || !c.subtle) {
     throw new Error('Web Crypto API is unavailable on this device');
   }
@@ -63,7 +66,7 @@ async function deriveKey(password: string, salt: Uint8Array): Promise<CryptoKey>
     keyMaterial,
     { name: 'AES-GCM', length: 256 },
     false,
-    ['encrypt', 'decrypt'],
+    ['encrypt', 'decrypt']
   );
 }
 
@@ -71,7 +74,10 @@ async function deriveKey(password: string, salt: Uint8Array): Promise<CryptoKey>
  * Encrypt a UTF-8 string with a manager password. Returns a self-contained
  * payload (salt+iv+ciphertext) safe to store in the cloud.
  */
-export async function encryptSecret(plaintext: string, password: string): Promise<SecretBoxPayload> {
+export async function encryptSecret(
+  plaintext: string,
+  password: string
+): Promise<SecretBoxPayload> {
   const c = cryptoApi();
   const salt = c.getRandomValues(new Uint8Array(16));
   const iv = c.getRandomValues(new Uint8Array(12));
@@ -79,7 +85,7 @@ export async function encryptSecret(plaintext: string, password: string): Promis
   const ctBuf = await c.subtle.encrypt(
     { name: 'AES-GCM', iv: iv as BufferSource },
     key,
-    new TextEncoder().encode(plaintext),
+    new TextEncoder().encode(plaintext)
   );
   return {
     v: ENC_VERSION,
@@ -99,7 +105,8 @@ export async function decryptSecret(payload: unknown, password: string): Promise
     const p = payload as SecretBoxPayload;
     if (!p || typeof p !== 'object') return null;
     if (p.v !== ENC_VERSION) return null;
-    if (typeof p.salt !== 'string' || typeof p.iv !== 'string' || typeof p.ct !== 'string') return null;
+    if (typeof p.salt !== 'string' || typeof p.iv !== 'string' || typeof p.ct !== 'string')
+      return null;
     const c = cryptoApi();
     const salt = hexToBuf(p.salt);
     const iv = hexToBuf(p.iv);
@@ -108,7 +115,7 @@ export async function decryptSecret(payload: unknown, password: string): Promise
     const plainBuf = await c.subtle.decrypt(
       { name: 'AES-GCM', iv: iv as BufferSource },
       key,
-      ct as BufferSource,
+      ct as BufferSource
     );
     return new TextDecoder().decode(plainBuf);
   } catch {
@@ -127,7 +134,13 @@ export function parseSecretBox(raw: unknown): SecretBoxPayload | null {
   if (typeof raw !== 'string' || !raw.trim()) return null;
   try {
     const p = JSON.parse(raw);
-    if (p && p.v === ENC_VERSION && typeof p.salt === 'string' && typeof p.iv === 'string' && typeof p.ct === 'string') {
+    if (
+      p &&
+      p.v === ENC_VERSION &&
+      typeof p.salt === 'string' &&
+      typeof p.iv === 'string' &&
+      typeof p.ct === 'string'
+    ) {
       return p as SecretBoxPayload;
     }
     return null;

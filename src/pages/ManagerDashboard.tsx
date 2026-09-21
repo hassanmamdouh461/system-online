@@ -1,12 +1,32 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import {
-  TrendingUp, DollarSign, ShoppingBag,
-  Coffee, Calendar, Download,
-  CheckCircle2, AlertCircle, Utensils,
-  UserCheck, Coins, Building2, RefreshCw,
-  SignalHigh, WifiOff, Package, BarChart3, Users, Settings, Send, Scale, TrendingDown, Wallet,
-  Undo2, Printer, LogOut
+  TrendingUp,
+  DollarSign,
+  ShoppingBag,
+  Coffee,
+  Calendar,
+  Download,
+  CheckCircle2,
+  AlertCircle,
+  Utensils,
+  UserCheck,
+  Coins,
+  Building2,
+  RefreshCw,
+  SignalHigh,
+  WifiOff,
+  Package,
+  BarChart3,
+  Users,
+  Settings,
+  Send,
+  Scale,
+  TrendingDown,
+  Wallet,
+  Undo2,
+  Printer,
+  LogOut,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
@@ -48,13 +68,10 @@ import {
   formatMoney,
 } from '../utils/money';
 
-
-
 const SettingsPage = lazy(() => import('./Settings'));
 const InventoryPage = lazy(() => import('./Inventory'));
 const CustomersPage = lazy(() => import('./Customers'));
 const MenuPage = lazy(() => import('./Menu'));
-
 
 // ─── Interfaces ──────────────────────────────────────────────────────────────
 interface D1OrderDoc {
@@ -88,29 +105,29 @@ interface StatCardProps {
 }
 
 const colorConfig = {
-  orange: { 
-    gradient: 'from-amber-200 to-orange-200', 
-    iconBg: 'bg-gradient-to-br from-amber-50 to-orange-50', 
+  orange: {
+    gradient: 'from-amber-200 to-orange-200',
+    iconBg: 'bg-gradient-to-br from-amber-50 to-orange-50',
     iconText: 'text-amber-600',
-    glow: 'shadow-amber-200/10'
+    glow: 'shadow-amber-200/10',
   },
-  blue: { 
-    gradient: 'from-blue-200 to-cyan-200', 
-    iconBg: 'bg-gradient-to-br from-blue-50 to-cyan-50', 
+  blue: {
+    gradient: 'from-blue-200 to-cyan-200',
+    iconBg: 'bg-gradient-to-br from-blue-50 to-cyan-50',
     iconText: 'text-blue-500',
-    glow: 'shadow-blue-200/10'
+    glow: 'shadow-blue-200/10',
   },
-  green: { 
-    gradient: 'from-green-200 to-emerald-200', 
-    iconBg: 'bg-gradient-to-br from-green-50 to-emerald-50', 
+  green: {
+    gradient: 'from-green-200 to-emerald-200',
+    iconBg: 'bg-gradient-to-br from-green-50 to-emerald-50',
     iconText: 'text-green-500',
-    glow: 'shadow-green-200/10'
+    glow: 'shadow-green-200/10',
   },
-  purple: { 
-    gradient: 'from-purple-200 to-pink-200', 
-    iconBg: 'bg-gradient-to-br from-purple-50 to-pink-50', 
+  purple: {
+    gradient: 'from-purple-200 to-pink-200',
+    iconBg: 'bg-gradient-to-br from-purple-50 to-pink-50',
     iconText: 'text-purple-500',
-    glow: 'shadow-purple-200/10'
+    glow: 'shadow-purple-200/10',
   },
 };
 
@@ -124,7 +141,9 @@ function StatCard({ label, value, icon: Icon, trend, color }: StatCardProps) {
       animate={{ opacity: 1, y: 0 }}
       className="bg-white/95 backdrop-blur-sm p-3 sm:p-4 md:p-6 rounded-xl sm:rounded-2xl shadow-sm hover:shadow-md border border-gray-200/50 relative overflow-hidden group transition-all"
     >
-      <div className={`absolute inset-0 bg-gradient-to-br ${colors.gradient} opacity-0 group-hover:opacity-[0.03] transition-opacity duration-300`} />
+      <div
+        className={`absolute inset-0 bg-gradient-to-br ${colors.gradient} opacity-0 group-hover:opacity-[0.03] transition-opacity duration-300`}
+      />
       <div className="relative z-10">
         <div className="flex justify-between items-start mb-3 sm:mb-4 gap-1">
           <motion.div
@@ -138,14 +157,19 @@ function StatCard({ label, value, icon: Icon, trend, color }: StatCardProps) {
             {trend}
           </span>
         </div>
-        <h3 className="text-gray-500 text-[10px] sm:text-xs md:text-sm font-semibold mb-1 uppercase tracking-wide line-clamp-2">{label}</h3>
-        <p className="text-base sm:text-xl md:text-2xl lg:text-3xl font-bold text-gray-800 leading-tight">{value}</p>
+        <h3 className="text-gray-500 text-[10px] sm:text-xs md:text-sm font-semibold mb-1 uppercase tracking-wide line-clamp-2">
+          {label}
+        </h3>
+        <p className="text-base sm:text-xl md:text-2xl lg:text-3xl font-bold text-gray-800 leading-tight">
+          {value}
+        </p>
       </div>
-      <div className={`absolute -right-4 -bottom-4 w-24 h-24 bg-gradient-to-br ${colors.gradient} rounded-full opacity-5 group-hover:opacity-10 transition-opacity duration-300 blur-2xl`} />
+      <div
+        className={`absolute -right-4 -bottom-4 w-24 h-24 bg-gradient-to-br ${colors.gradient} rounded-full opacity-5 group-hover:opacity-10 transition-opacity duration-300 blur-2xl`}
+      />
     </motion.div>
   );
 }
-
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 export default function ManagerDashboard() {
@@ -157,14 +181,21 @@ export default function ManagerDashboard() {
   // Filters State
   const [dateRange, setDateRange] = useState<AnalyticsPeriod>(() => {
     const saved = localStorage.getItem('manager_date_range');
-    if (saved === 'Today' || saved === 'This Week' || saved === 'This Month' || saved === 'This Year') {
+    if (
+      saved === 'Today' ||
+      saved === 'This Week' ||
+      saved === 'This Month' ||
+      saved === 'This Year'
+    ) {
       return saved as AnalyticsPeriod;
     }
     // Default to week so restored cloud history is visible after browser wipe
     return 'This Week';
   });
 
-  const [activeTab, setActiveTab] = useState<'analytics' | 'menu' | 'inventory' | 'customers' | 'settings'>('analytics');
+  const [activeTab, setActiveTab] = useState<
+    'analytics' | 'menu' | 'inventory' | 'customers' | 'settings'
+  >('analytics');
 
   // The desktop top strip (which used to carry the logout button) is hidden for
   // the manager, so logout lives in this header instead.
@@ -178,7 +209,7 @@ export default function ManagerDashboard() {
   // Component-scoped so both the Telegram report and the CSV export label the
   // period identically (it used to be declared inside the Telegram handler).
   const periodNames: Record<AnalyticsPeriod, string> = {
-    'Today': language === 'ar' ? 'اليوم' : 'Today',
+    Today: language === 'ar' ? 'اليوم' : 'Today',
     'This Week': language === 'ar' ? 'هذا الأسبوع' : 'This Week',
     'This Month': language === 'ar' ? 'هذا الشهر' : 'This Month',
     'This Year': language === 'ar' ? 'هذا العام' : 'This Year',
@@ -196,10 +227,24 @@ export default function ManagerDashboard() {
   const [companies, setCompanies] = useState<any[]>([]);
 
   useEffect(() => {
-    inventoryService.getAll().then(setLiveInventory).catch(() => {});
-    inventoryService.getMenuRecipes().then(res => { if (Array.isArray(res)) setRecipes(res); }).catch(() => {});
-    menuService.getAll().then(setMenuItems).catch(() => {});
-    companiesService.getAll(undefined).then(setCompanies).catch(() => {});
+    inventoryService
+      .getAll()
+      .then(setLiveInventory)
+      .catch(() => {});
+    inventoryService
+      .getMenuRecipes()
+      .then((res) => {
+        if (Array.isArray(res)) setRecipes(res);
+      })
+      .catch(() => {});
+    menuService
+      .getAll()
+      .then(setMenuItems)
+      .catch(() => {});
+    companiesService
+      .getAll(undefined)
+      .then(setCompanies)
+      .catch(() => {});
   }, []);
 
   // Data Fetching State
@@ -227,7 +272,7 @@ export default function ManagerDashboard() {
       const [liveInv, liveRec, liveMenuItems] = await Promise.all([
         inventoryService.getAll(),
         inventoryService.getMenuRecipes(),
-        menuService.getAll()
+        menuService.getAll(),
       ]);
       setLiveInventory(liveInv);
       if (Array.isArray(liveRec)) setRecipes(liveRec);
@@ -244,7 +289,10 @@ export default function ManagerDashboard() {
         // Worker while the dashboard just sat open.
         await hydrateFromCloud(showToast);
       } catch (hydrateErr) {
-        console.warn('[ManagerDashboard] cloud hydrate failed, using local/remote merge:', hydrateErr);
+        console.warn(
+          '[ManagerDashboard] cloud hydrate failed, using local/remote merge:',
+          hydrateErr
+        );
       }
 
       const { orderRepository, customerRepository } = await import('../repositories');
@@ -252,14 +300,12 @@ export default function ManagerDashboard() {
       const localOrders = await orderRepository.getAll(undefined);
       const localCustomers = await customerRepository.getAll(undefined);
 
-      const ordersList: any[] = localOrders.map(o => ({
+      const ordersList: any[] = localOrders.map((o) => ({
         $id: o.id,
         $createdAt: o.createdAt,
         branch_id: o.branchId || 'main_branch',
         total_amount:
-          typeof o.grandTotal === 'number' && o.grandTotal > 0
-            ? o.grandTotal
-            : o.totalAmount,
+          typeof o.grandTotal === 'number' && o.grandTotal > 0 ? o.grandTotal : o.totalAmount,
         payment_method: o.paymentMethod || 'Cash',
         items: typeof o.items === 'string' ? o.items : JSON.stringify(o.items),
         tableId: o.tableId,
@@ -270,23 +316,23 @@ export default function ManagerDashboard() {
         grandTotal: o.grandTotal,
       }));
 
-      const customersList: any[] = localCustomers.map(c => ({
+      const customersList: any[] = localCustomers.map((c) => ({
         $id: c.id,
         name: c.name,
         phone: c.phone,
         points: c.points,
         createdAt: c.createdAt,
-        branchId: c.branchId || 'main_branch'
+        branchId: c.branchId || 'main_branch',
       }));
 
-      invList = liveInv.map(i => ({
+      invList = liveInv.map((i) => ({
         $id: i.id,
         name: i.name,
         unit: i.unit,
         stock: i.stock,
         minStock: i.minStock,
         costPerUnit: i.costPerUnit,
-        branch_id: i.branchId || 'main_branch'
+        branch_id: i.branchId || 'main_branch',
       }));
 
       setOrders(ordersList);
@@ -296,18 +342,21 @@ export default function ManagerDashboard() {
       setIsDemoMode(false);
 
       if (showToast) {
-        toast.success(language === 'ar' ? 'تم تحديث كافة البيانات والمخزون والإحصائيات بنجاح 🔄' : 'All data, inventory, and stats refreshed successfully 🔄');
+        toast.success(
+          language === 'ar'
+            ? 'تم تحديث كافة البيانات والمخزون والإحصائيات بنجاح 🔄'
+            : 'All data, inventory, and stats refreshed successfully 🔄'
+        );
       }
     } catch (err: any) {
-      console.warn("[ManagerDashboard] Fetch error:", err);
-      setErrorInfo(err.message || "Network Timeout");
+      console.warn('[ManagerDashboard] Fetch error:', err);
+      setErrorInfo(err.message || 'Network Timeout');
       setIsDemoMode(false);
     } finally {
       setLoading(false);
       setIsRefreshing(false);
     }
   };
-
 
   useEffect(() => {
     fetchOrders();
@@ -317,27 +366,38 @@ export default function ManagerDashboard() {
     return () => clearInterval(interval);
   }, []);
 
-
   const sendConsolidatedTelegramReport = async () => {
     // 1. Get config
     const configRaw = localStorage.getItem('brewmaster_telegram_config');
     if (!configRaw) {
-      toast.error(language === 'ar' ? 'يرجى إعداد التليجرام أولاً من صفحة الإعدادات!' : 'Please configure Telegram first in Settings!');
+      toast.error(
+        language === 'ar'
+          ? 'يرجى إعداد التليجرام أولاً من صفحة الإعدادات!'
+          : 'Please configure Telegram first in Settings!'
+      );
       return;
     }
     let config;
     try {
       config = JSON.parse(configRaw);
-    } catch(e) {}
+    } catch {}
     if (!config || !config.botToken || !config.chatId) {
-      toast.error(language === 'ar' ? 'يرجى إدخال التوكن ومعرف المحادثة في الإعدادات أولاً!' : 'Please enter Bot Token and Chat ID in Settings!');
+      toast.error(
+        language === 'ar'
+          ? 'يرجى إدخال التوكن ومعرف المحادثة في الإعدادات أولاً!'
+          : 'Please enter Bot Token and Chat ID in Settings!'
+      );
       return;
     }
 
     const { botToken, chatId } = config;
 
     if (activeTab === 'settings') {
-      toast.info(language === 'ar' ? 'يرجى فتح لوحة الإحصائيات أو المخزون أو العملاء لإرسال تقرير تليجرام المخصص لها!' : 'Please open the Analytics, Inventory, or Customers tab to send its report!');
+      toast.info(
+        language === 'ar'
+          ? 'يرجى فتح لوحة الإحصائيات أو المخزون أو العملاء لإرسال تقرير تليجرام المخصص لها!'
+          : 'Please open the Analytics, Inventory, or Customers tab to send its report!'
+      );
       return;
     }
 
@@ -356,10 +416,16 @@ export default function ManagerDashboard() {
       // Filter orders matching current dateRange (single-branch system).
       // Uses the shared business-day boundary so the report's "period" matches
       // the dashboard/report figures above it.
-      const filteredOrders = orders.filter(order => inBusinessPeriod(order.$createdAt, dateRange));
+      const filteredOrders = orders.filter((order) =>
+        inBusinessPeriod(order.$createdAt, dateRange)
+      );
 
       if (filteredOrders.length === 0) {
-        toast.info(language === 'ar' ? 'لا توجد مبيعات مسجلة في هذه الفترة لإرسالها!' : 'No orders recorded in this period to send!');
+        toast.info(
+          language === 'ar'
+            ? 'لا توجد مبيعات مسجلة في هذه الفترة لإرسالها!'
+            : 'No orders recorded in this period to send!'
+        );
         return;
       }
 
@@ -384,7 +450,7 @@ export default function ManagerDashboard() {
 
       if (processedData.topItems && processedData.topItems.length > 0) {
         message += `☕ <b>أكثر الأصناف مبيعاً في هذه الفترة:</b>\n`;
-        processedData.topItems.forEach(item => {
+        processedData.topItems.forEach((item) => {
           message += `• ${escapeTelegramHtml(item.name)}: عدد <b>${item.count}</b>\n`;
         });
         message += `\n`;
@@ -396,14 +462,14 @@ export default function ManagerDashboard() {
         message += `• إجمالي المستحقات: <b>${formatMoney(receivablesData.grandTotal)}</b> ج.م\n`;
         if (receivablesData.companiesOwed.length > 0) {
           message += `🏢 <b>ديون الشركات:</b>\n`;
-          receivablesData.companiesOwed.slice(0, 5).forEach(co => {
+          receivablesData.companiesOwed.slice(0, 5).forEach((co) => {
             message += `• ${escapeTelegramHtml(co.name)}: <b>${formatMoney(co.balance)}</b> ج.م (${co.invoiceCount} فاتورة)\n`;
           });
           message += `\n`;
         }
         if (receivablesData.customersOwed.length > 0) {
           message += `👤 <b>ديون العملاء:</b>\n`;
-          receivablesData.customersOwed.slice(0, 5).forEach(c => {
+          receivablesData.customersOwed.slice(0, 5).forEach((c) => {
             message += `• ${escapeTelegramHtml(c.name)}: <b>${formatMoney(c.balance)}</b> ج.م\n`;
           });
           if (receivablesData.customersOwed.length > 5) {
@@ -414,7 +480,6 @@ export default function ManagerDashboard() {
       }
 
       message += `✅ تم تصدير التقرير من لوحة الإشراف المركزية`;
-
     } else if (activeTab === 'inventory') {
       // 📦 REPORT 2: INVENTORY REPORT
       message = `📦 <b>تقرير حالة المخزون: ${activeBranchName}</b>\n`;
@@ -426,7 +491,7 @@ export default function ManagerDashboard() {
       message += `• تنبيهات نقص المخزون: <b>${inventorySummary.lowStockCount}</b> صنف\n\n`;
 
       message += `📋 <b>تفاصيل كميات المواد الخام:</b>\n`;
-      inventoryData.forEach(inv => {
+      inventoryData.forEach((inv) => {
         const name = language === 'ar' ? inv.nameAr : inv.nameEn;
         const unit = language === 'ar' ? inv.unitAr : inv.unit;
         const warning = inv.isLow ? ' ⚠️ (نقص)' : '';
@@ -435,7 +500,6 @@ export default function ManagerDashboard() {
       message += `\n`;
 
       message += `✅ تم تصدير تقرير المخزون من لوحة الإشراف المركزية`;
-
     } else if (activeTab === 'customers') {
       // 👥 REPORT 3: CUSTOMERS REPORT
       message = `👥 <b>تقرير العملاء: ${activeBranchName}</b>\n`;
@@ -445,12 +509,12 @@ export default function ManagerDashboard() {
       message += `• إجمالي العملاء المسجلين: <b>${customers.length}</b> عميل\n\n`;
 
       const owed = receivablesData.customersOwed;
-      const customersDebtTotal = sumMoneyBy(owed, c => c.balance);
+      const customersDebtTotal = sumMoneyBy(owed, (c) => c.balance);
       if (owed.length > 0) {
         message += `💸 <b>مديونية العملاء (على الحساب):</b>\n`;
         message += `• إجمالي المستحق على العملاء: <b>${customersDebtTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</b> ج.م\n`;
         message += `• عدد العملاء المدينين: <b>${owed.length}</b> عميل\n`;
-        owed.slice(0, 5).forEach(c => {
+        owed.slice(0, 5).forEach((c) => {
           message += `• ${escapeTelegramHtml(c.name)}: <b>${formatMoney(c.balance)}</b> ج.م (${c.invoiceCount} فاتورة)\n`;
         });
         if (owed.length > 5) {
@@ -466,16 +530,26 @@ export default function ManagerDashboard() {
 
     // Guard: never send an empty report (e.g. from the menu tab, which has no report)
     if (!message.trim()) {
-      toast.info(language === 'ar' ? 'يرجى فتح لوحة الإحصائيات أو المخزون أو العملاء لإرسال تقرير تليجرام المخصص لها!' : 'Please open the Analytics, Inventory, or Customers tab to send its report!');
+      toast.info(
+        language === 'ar'
+          ? 'يرجى فتح لوحة الإحصائيات أو المخزون أو العملاء لإرسال تقرير تليجرام المخصص لها!'
+          : 'Please open the Analytics, Inventory, or Customers tab to send its report!'
+      );
       return;
     }
 
     // Send message to Telegram using shared service
     try {
       await telegramService.sendMessage(botToken, chatId, message, 'HTML');
-      toast.success(language === 'ar' ? 'تم إرسال تقرير الفترة المحددة للتليجرام بنجاح!' : 'Report for the selected period sent successfully to Telegram!');
-    } catch(err: any) {
-      toast.error(`${language === 'ar' ? 'فشل الإرسال: ' : 'Send failed: '}${err.message || 'خطأ غير معروف'}`);
+      toast.success(
+        language === 'ar'
+          ? 'تم إرسال تقرير الفترة المحددة للتليجرام بنجاح!'
+          : 'Report for the selected period sent successfully to Telegram!'
+      );
+    } catch (err: any) {
+      toast.error(
+        `${language === 'ar' ? 'فشل الإرسال: ' : 'Send failed: '}${err.message || 'خطأ غير معروف'}`
+      );
     }
   };
 
@@ -499,14 +573,23 @@ export default function ManagerDashboard() {
     rows.push([]);
 
     rows.push([language === 'ar' ? 'البيان' : 'Metric', language === 'ar' ? 'القيمة' : 'Value']);
-    rows.push([language === 'ar' ? 'الإيراد المحصّل' : 'Collected revenue', formatMoney(processedData.totalRevenue)]);
-    rows.push([language === 'ar' ? 'المستحقات (آجل/غير مدفوع)' : 'Receivables', formatMoney(processedData.unpaidAmount)]);
+    rows.push([
+      language === 'ar' ? 'الإيراد المحصّل' : 'Collected revenue',
+      formatMoney(processedData.totalRevenue),
+    ]);
+    rows.push([
+      language === 'ar' ? 'المستحقات (آجل/غير مدفوع)' : 'Receivables',
+      formatMoney(processedData.unpaidAmount),
+    ]);
     rows.push([language === 'ar' ? 'نقداً' : 'Cash', formatMoney(processedData.cashAmount)]);
     rows.push([language === 'ar' ? 'بطاقة' : 'Card', formatMoney(processedData.cardAmount)]);
     rows.push([language === 'ar' ? 'عدد الطلبات' : 'Orders', processedData.totalOrdersCount]);
     rows.push([language === 'ar' ? 'فواتير مدفوعة' : 'Paid invoices', processedData.paidCount]);
     rows.push([language === 'ar' ? 'فواتير معلقة' : 'Open invoices', processedData.unpaidCount]);
-    rows.push([language === 'ar' ? 'متوسط الفاتورة' : 'Average ticket', formatMoney(processedData.avgOrderValue)]);
+    rows.push([
+      language === 'ar' ? 'متوسط الفاتورة' : 'Average ticket',
+      formatMoney(processedData.avgOrderValue),
+    ]);
     rows.push([]);
 
     rows.push([
@@ -553,18 +636,20 @@ export default function ManagerDashboard() {
     const orderTotal = (o: any) => getOrderGrandTotal(o, taxRate);
 
     const cashAmount = sumMoneyBy(
-      analytics.completedPeriod.filter(o => o.paymentMethod === 'Cash'),
-      o => orderTotal(o)
+      analytics.completedPeriod.filter((o) => o.paymentMethod === 'Cash'),
+      (o) => orderTotal(o)
     );
     const cardAmount = sumMoneyBy(
-      analytics.completedPeriod.filter(o => o.paymentMethod === 'Card'),
-      o => orderTotal(o)
+      analytics.completedPeriod.filter((o) => o.paymentMethod === 'Card'),
+      (o) => orderTotal(o)
     );
     const cashCardTotal = addMoney(cashAmount, cardAmount);
 
     // Invoices still awaiting settlement in the period (receivables, not revenue).
     const openInvoices = analytics.periodOrders.filter(
-      o => o.status !== 'Cancelled' && (o.paymentStatus === 'Unpaid' || o.paymentStatus === 'OnAccount')
+      (o) =>
+        o.status !== 'Cancelled' &&
+        (o.paymentStatus === 'Unpaid' || o.paymentStatus === 'OnAccount')
     );
 
     return {
@@ -573,8 +658,8 @@ export default function ManagerDashboard() {
       avgOrderValue: analytics.avgOrderValue,
       chartData: analytics.chartData,
       topItems: analytics.topItems,
-      takeawayCount: analytics.completedPeriod.filter(o => o.tableId === 'Takeaway').length,
-      dineInCount: analytics.completedPeriod.filter(o => o.tableId !== 'Takeaway').length,
+      takeawayCount: analytics.completedPeriod.filter((o) => o.tableId === 'Takeaway').length,
+      dineInCount: analytics.completedPeriod.filter((o) => o.tableId !== 'Takeaway').length,
       // Match Reports: paid = Paid only, open = Unpaid + OnAccount
       paidCount: analytics.completedPeriod.length,
       unpaidCount: openInvoices.length,
@@ -588,8 +673,12 @@ export default function ManagerDashboard() {
       invoiceCount: invoiceTotalCount(analytics.completedPeriod.length, openInvoices.length),
       paidAmount: analytics.realRevenue,
       unpaidAmount: sumMoneyBy(
-        analytics.periodOrders.filter(o => o.status !== 'Cancelled' && (o.paymentStatus === 'Unpaid' || o.paymentStatus === 'OnAccount')),
-        o => orderTotal(o)
+        analytics.periodOrders.filter(
+          (o) =>
+            o.status !== 'Cancelled' &&
+            (o.paymentStatus === 'Unpaid' || o.paymentStatus === 'OnAccount')
+        ),
+        (o) => orderTotal(o)
       ),
       cashAmount,
       cardAmount,
@@ -610,7 +699,7 @@ export default function ManagerDashboard() {
     // Single-branch system: real stock, reported once. The previous shape
     // duplicated the same stock value under branch_1/2/3 keys, which fabricated
     // a per-branch comparison in the Telegram report that never existed.
-    return activeInventory.map(inv => ({
+    return activeInventory.map((inv) => ({
       ...inv,
       nameAr: inv.name,
       nameEn: inv.name,
@@ -628,7 +717,7 @@ export default function ManagerDashboard() {
     const yields: Record<string, number> = {};
 
     const invMapById = new Map<string, any>();
-    activeInventory.forEach(item => invMapById.set(item.id, item));
+    activeInventory.forEach((item) => invMapById.set(item.id, item));
 
     // IV-019: identity-only resolution. The old positional `inv_b_N` fallback
     // slid onto a neighbouring item after any inventory deletion and costed the
@@ -639,19 +728,19 @@ export default function ManagerDashboard() {
     };
 
     const menuRecipeMap: Record<string, any[]> = {};
-    recipes.forEach(r => {
+    recipes.forEach((r) => {
       if (r.menuItemId) {
         if (!menuRecipeMap[r.menuItemId]) menuRecipeMap[r.menuItemId] = [];
         menuRecipeMap[r.menuItemId].push(r);
       }
     });
 
-    const activeMenuItems = (menuItems.length > 0 ? menuItems : (localMenuItems || []));
-    const menuMap = new Map(activeMenuItems.map(m => [String(m.id), m]));
+    const activeMenuItems = menuItems.length > 0 ? menuItems : localMenuItems || [];
+    const menuMap = new Map(activeMenuItems.map((m) => [String(m.id), m]));
 
     const menuTotalCostMap = new Map<string, number>();
     Object.entries(menuRecipeMap).forEach(([mId, ingList]) => {
-      const totalCost = sumMoneyBy(ingList, ing => {
+      const totalCost = sumMoneyBy(ingList, (ing) => {
         const invItem = resolveInvItem(ing.inventoryItemId);
         const cost = invItem?.costPerUnit && invItem.costPerUnit > 0 ? invItem.costPerUnit : 1;
         const baseQty = getIngredientBaseQtySafe(ing.quantity, ing.unit || '', invItem?.unit || '');
@@ -660,8 +749,11 @@ export default function ManagerDashboard() {
       menuTotalCostMap.set(mId, totalCost > 0 ? totalCost : 1);
     });
 
-    const invRecipesMap = new Map<string, { menuItemId: string; quantity: number, unit?: string }[]>();
-    recipes.forEach(r => {
+    const invRecipesMap = new Map<
+      string,
+      { menuItemId: string; quantity: number; unit?: string }[]
+    >();
+    recipes.forEach((r) => {
       const invItem = resolveInvItem(r.inventoryItemId);
       const targetId = invItem ? invItem.id : r.inventoryItemId;
 
@@ -669,7 +761,7 @@ export default function ManagerDashboard() {
       invRecipesMap.get(targetId)!.push({
         menuItemId: String(r.menuItemId),
         quantity: r.quantity,
-        unit: r.unit
+        unit: r.unit,
       });
     });
 
@@ -686,7 +778,7 @@ export default function ManagerDashboard() {
       let totalUnitYield = 0;
       let validCount = 0;
 
-      itemRecipes.forEach(rec => {
+      itemRecipes.forEach((rec) => {
         const menuItem = menuMap.get(String(rec.menuItemId));
         const totalRecipeCost = menuTotalCostMap.get(String(rec.menuItemId)) || 1;
         if (menuItem && menuItem.price > 0 && rec.quantity > 0) {
@@ -702,7 +794,10 @@ export default function ManagerDashboard() {
         }
       });
 
-      yields[item.id] = validCount > 0 ? averageMoney(totalUnitYield, validCount) : multiplyMoney(itemUnitCost, 2.5);
+      yields[item.id] =
+        validCount > 0
+          ? averageMoney(totalUnitYield, validCount)
+          : multiplyMoney(itemUnitCost, 2.5);
     });
 
     return yields;
@@ -731,18 +826,27 @@ export default function ManagerDashboard() {
       totalItems++;
     });
 
-    return { totalValue, totalSalesValue: addMoney(totalValue, totalProfitValue), totalProfitValue, lowStockCount, totalItems };
+    return {
+      totalValue,
+      totalSalesValue: addMoney(totalValue, totalProfitValue),
+      totalProfitValue,
+      lowStockCount,
+      totalItems,
+    };
   }, [activeInventory, itemYields]);
 
   // Max bounds for graphing
-  const maxItemCount = Math.max(...processedData.topItems.map(i => i.count), 1);
+  const maxItemCount = Math.max(...processedData.topItems.map((i) => i.count), 1);
 
   // Labels helper — single-branch system, name comes from branch settings
   const activeBranchLabel = useMemo(() => getBranchConfig().branchName, []);
 
   const pLabel = useMemo(() => {
     const map: Record<AnalyticsPeriod, string> = {
-      'Today': 'today', 'This Week': 'this week', 'This Month': 'this month', 'This Year': 'this year',
+      Today: 'today',
+      'This Week': 'this week',
+      'This Month': 'this month',
+      'This Year': 'this year',
     };
     return t(map[dateRange]);
   }, [dateRange, t]);
@@ -784,26 +888,42 @@ export default function ManagerDashboard() {
     // Single-branch system: every order belongs to the one branch.
     const realOrders = allRealOrders || [];
 
-    const accountOrders = realOrders.filter(o => o.paymentStatus === 'OnAccount' && o.status !== 'Cancelled');
+    const accountOrders = realOrders.filter(
+      (o) => o.paymentStatus === 'OnAccount' && o.status !== 'Cancelled'
+    );
 
     // Create lookup maps
     const customerByPhone = new Map<string, any>();
     for (const c of customers) {
-      const p = (c.phone || '').replace(/[\s\-()]/g, '').trim().toLowerCase();
+      const p = (c.phone || '')
+        .replace(/[\s\-()]/g, '')
+        .trim()
+        .toLowerCase();
       if (p) customerByPhone.set(p, c);
       if (c.id) customerByPhone.set(`id:${c.id}`, c);
     }
 
     const companyById = new Map<string, any>();
-    companies.forEach(c => companyById.set(c.id, c));
+    companies.forEach((c) => companyById.set(c.id, c));
 
     // Helper functions (same as Payment.tsx)
-    const normalize = (s: string) => s.replace(/[\s\-()]/g, '').trim().toLowerCase();
+    const normalize = (s: string) =>
+      s
+        .replace(/[\s\-()]/g, '')
+        .trim()
+        .toLowerCase();
     const realName = (name?: string | null) => {
       const n = (name || '').trim();
       if (!n) return undefined;
       const lower = n.toLowerCase();
-      if (lower === 'عميل' || lower === 'customer' || lower === 'شركة' || lower === 'company' || n === '—') return undefined;
+      if (
+        lower === 'عميل' ||
+        lower === 'customer' ||
+        lower === 'شركة' ||
+        lower === 'company' ||
+        n === '—'
+      )
+        return undefined;
       return n;
     };
     const resolveCustomerName = (o: any) => {
@@ -829,7 +949,7 @@ export default function ManagerDashboard() {
 
     const companiesMap = new Map<string, any>();
     const customersMap = new Map<string, any>();
-    
+
     let grandTotal = 0;
 
     for (const o of accountOrders) {
@@ -853,11 +973,11 @@ export default function ManagerDashboard() {
           const co = companyById.get(coId);
           companiesMap.set(key, {
             id: coId,
-            name: co ? co.name : (language === 'ar' ? 'شركة' : 'Company'),
+            name: co ? co.name : language === 'ar' ? 'شركة' : 'Company',
             phone: co?.phone,
             balance: total,
             invoiceCount: 1,
-            type: 'company'
+            type: 'company',
           });
         }
         continue;
@@ -868,7 +988,8 @@ export default function ManagerDashboard() {
       const idPart = o.customerId || phoneKey || o.id;
       const key = idPart;
       const existing = customersMap.get(key);
-      const displayName = custName || o.customerPhone?.trim() || (language === 'ar' ? 'عميل' : 'Customer');
+      const displayName =
+        custName || o.customerPhone?.trim() || (language === 'ar' ? 'عميل' : 'Customer');
 
       if (existing) {
         existing.balance = addMoney(existing.balance, total);
@@ -886,16 +1007,20 @@ export default function ManagerDashboard() {
           phone: o.customerPhone,
           balance: total,
           invoiceCount: 1,
-          type: 'customer'
+          type: 'customer',
         });
       }
     }
 
     return {
       // Descending by balance (largest debtor first) — compareMoney(b, a) instead of raw `b.balance - a.balance`
-      customersOwed: Array.from(customersMap.values()).sort((a, b) => compareMoney(b.balance, a.balance)),
-      companiesOwed: Array.from(companiesMap.values()).sort((a, b) => compareMoney(b.balance, a.balance)),
-      grandTotal
+      customersOwed: Array.from(customersMap.values()).sort((a, b) =>
+        compareMoney(b.balance, a.balance)
+      ),
+      companiesOwed: Array.from(companiesMap.values()).sort((a, b) =>
+        compareMoney(b.balance, a.balance)
+      ),
+      grandTotal,
     };
   }, [allRealOrders, customers, companies, taxRate, language]);
 
@@ -907,14 +1032,20 @@ export default function ManagerDashboard() {
       label: t('TOTAL REVENUE (INCL. TAX)'),
       value: `${analytics.totalRevenue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currencyStr}`,
       icon: DollarSign,
-      trend: analytics.realRevenue > 0 ? `+${formatMoney(analytics.realRevenue)} ${currencyStr} ${pLabel}` : t('Lifetime total'),
+      trend:
+        analytics.realRevenue > 0
+          ? `+${formatMoney(analytics.realRevenue)} ${currencyStr} ${pLabel}`
+          : t('Lifetime total'),
       color: 'green' as const,
     },
     {
       label: language === 'ar' ? 'إجمالي المبالغ المستحقة' : 'Total Amounts Due',
       value: `${totalReceivables.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currencyStr}`,
       icon: Wallet,
-      trend: language === 'ar' ? 'إجمالي الآجل المستحق على العملاء والشركات' : 'Outstanding customer & company balances',
+      trend:
+        language === 'ar'
+          ? 'إجمالي الآجل المستحق على العملاء والشركات'
+          : 'Outstanding customer & company balances',
       color: 'orange' as const,
     },
     {
@@ -945,7 +1076,8 @@ export default function ManagerDashboard() {
       label: t('Net Profit'),
       value: `${netProfit.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currencyStr}`,
       icon: Coins,
-      trend: language === 'ar' ? 'صافي الربح الفعلي بعد الخامات والضريبة' : 'Earnings after COGS & tax',
+      trend:
+        language === 'ar' ? 'صافي الربح الفعلي بعد الخامات والضريبة' : 'Earnings after COGS & tax',
       color: 'green' as const,
     },
     {
@@ -959,7 +1091,10 @@ export default function ManagerDashboard() {
       label: t('Expected Potential Profit'),
       value: `${inventorySummary.totalProfitValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currencyStr}`,
       icon: TrendingUp,
-      trend: language === 'ar' ? 'الأرباح المتوقعة من الخامات بالمخزن' : 'Potential profit of remaining stock',
+      trend:
+        language === 'ar'
+          ? 'الأرباح المتوقعة من الخامات بالمخزن'
+          : 'Potential profit of remaining stock',
       color: 'purple' as const,
     },
   ];
@@ -967,31 +1102,31 @@ export default function ManagerDashboard() {
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[500px] text-gray-700 space-y-4">
-        <motion.div 
+        <motion.div
           animate={{ rotate: 360 }}
           transition={{ repeat: Infinity, duration: 1.2, ease: 'linear' }}
           className="p-3 bg-mocha-100 rounded-full text-mocha-650"
         >
           <RefreshCw size={32} />
         </motion.div>
-        <p className="font-semibold text-lg">{language === 'ar' ? 'جاري جلب إحصائيات الفروع...' : 'Fetching branch statistics...'}</p>
+        <p className="font-semibold text-lg">
+          {language === 'ar' ? 'جاري جلب إحصائيات الفروع...' : 'Fetching branch statistics...'}
+        </p>
       </div>
     );
   }
 
   return (
     <div className="space-y-4 md:space-y-8 text-gray-900 pb-16 sm:pb-4">
-      
       {/* ── Header Area with Live Status & Filters ─────────────────────────────────── */}
       <div className="flex flex-col tablet:flex-row tablet:items-center xl:flex-row xl:items-center justify-between gap-3 sm:gap-4 bg-white/50 backdrop-blur-md p-3 sm:p-4 rounded-2xl border border-gray-200/40 shadow-sm relative z-30">
-        
         {/* Title and Cloud Sync Connection Badge */}
         <div className="space-y-1.5 flex-1 min-w-0">
           <div className="flex flex-wrap items-center gap-3">
             <h1 className="text-xl md:text-2xl font-black text-gray-900 tracking-tight">
               {language === 'ar' ? 'لوحة تحكم المدير العام' : 'Web Manager Central Dashboard'}
             </h1>
-            
+
             {/* Live Connection Sync Status Badge — honest cloud status */}
             {(() => {
               const cloudOn = isCloudConfigured();
@@ -1006,28 +1141,45 @@ export default function ManagerDashboard() {
               }
               if (!cloudOn) {
                 return (
-                  <div className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border transition-colors shadow-sm bg-red-50 text-red-600 border-red-200/50" title={language === 'ar' ? 'اضبط VITE_CLOUDFLARE_WORKER_URL' : 'Set VITE_CLOUDFLARE_WORKER_URL'}>
+                  <div
+                    className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border transition-colors shadow-sm bg-red-50 text-red-600 border-red-200/50"
+                    title={
+                      language === 'ar'
+                        ? 'اضبط VITE_CLOUDFLARE_WORKER_URL'
+                        : 'Set VITE_CLOUDFLARE_WORKER_URL'
+                    }
+                  >
                     <AlertCircle size={13} />
-                    <span>{language === 'ar' ? 'سحابة غير مفعّلة (محلي فقط)' : 'Cloud off (local only)'}</span>
+                    <span>
+                      {language === 'ar' ? 'سحابة غير مفعّلة (محلي فقط)' : 'Cloud off (local only)'}
+                    </span>
                   </div>
                 );
               }
               return (
-                <div className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border transition-colors shadow-sm bg-emerald-50 text-emerald-600 border-emerald-200/50" title={getWorkerUrl()}>
+                <div
+                  className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border transition-colors shadow-sm bg-emerald-50 text-emerald-600 border-emerald-200/50"
+                  title={getWorkerUrl()}
+                >
                   <SignalHigh size={13} className="text-emerald-500 animate-pulse" />
                   <span>{language === 'ar' ? 'Cloudflare D1 مفعّل' : 'Cloudflare D1 Enabled'}</span>
                 </div>
               );
             })()}
-            
+
             {/* Manual Refresh Button */}
-            <button 
+            <button
               onClick={() => fetchOrders(true)}
               disabled={isRefreshing}
               className="p-2 rounded-lg hover:bg-gray-100 border border-gray-200 transition-all text-gray-500 hover:text-gray-900 active:scale-95 disabled:opacity-50"
-              title={language === 'ar' ? 'تحديث كافة البيانات والمخزون' : 'Refresh All Data & Inventory'}
+              title={
+                language === 'ar' ? 'تحديث كافة البيانات والمخزون' : 'Refresh All Data & Inventory'
+              }
             >
-              <RefreshCw size={14} className={`transition-transform ${isRefreshing ? 'animate-spin text-mocha-650' : 'hover:rotate-45'}`} />
+              <RefreshCw
+                size={14}
+                className={`transition-transform ${isRefreshing ? 'animate-spin text-mocha-650' : 'hover:rotate-45'}`}
+              />
             </button>
 
             {/* Logout — the manager's only sign-out control on desktop now that
@@ -1039,11 +1191,10 @@ export default function ManagerDashboard() {
             >
               <LogOut size={14} />
             </button>
-
           </div>
           <p className="text-xs md:text-sm text-gray-500 font-medium">
-            {language === 'ar' 
-              ? 'مراقبة إيرادات ومبيعات كافة الفروع المتصلة بقاعدة البيانات المركزية' 
+            {language === 'ar'
+              ? 'مراقبة إيرادات ومبيعات كافة الفروع المتصلة بقاعدة البيانات المركزية'
               : 'Monitor revenues and sales across all branches synced to the cloud.'}
           </p>
         </div>
@@ -1051,13 +1202,12 @@ export default function ManagerDashboard() {
         {/* Filters Panel (Date Selector) - Only show on analytics tab */}
         {activeTab === 'analytics' && (
           <div className="flex flex-wrap items-center gap-2 sm:gap-3 shrink-0">
-
             {/* Date Range Dropdown */}
             <div className="relative flex items-center bg-white border border-gray-250/70 rounded-xl shadow-sm pr-2 sm:pr-3">
               <Calendar className="text-gray-400 w-4 h-4 ml-2 mr-1.5 sm:mr-2 shrink-0" />
               <select
                 value={dateRange}
-                onChange={e => {
+                onChange={(e) => {
                   const val = e.target.value as AnalyticsPeriod;
                   setDateRange(val);
                   localStorage.setItem('manager_date_range', val);
@@ -1075,10 +1225,14 @@ export default function ManagerDashboard() {
             <button
               onClick={sendConsolidatedTelegramReport}
               className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 sm:py-2.5 bg-sky-600 hover:bg-sky-700 text-white rounded-xl text-[11px] sm:text-xs md:text-sm font-bold transition-all active:scale-95 shadow-sm"
-              title={language === 'ar' ? 'إرسال تقرير اليوم لتليجرام' : 'Send Daily Report to Telegram'}
+              title={
+                language === 'ar' ? 'إرسال تقرير اليوم لتليجرام' : 'Send Daily Report to Telegram'
+              }
             >
               <Send size={14} className="shrink-0" />
-              <span className="whitespace-nowrap">{language === 'ar' ? 'تليجرام' : 'Telegram'}</span>
+              <span className="whitespace-nowrap">
+                {language === 'ar' ? 'تليجرام' : 'Telegram'}
+              </span>
             </button>
 
             {/*
@@ -1090,7 +1244,11 @@ export default function ManagerDashboard() {
             <button
               onClick={handleExportCsv}
               className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 sm:py-2.5 bg-gray-900 hover:bg-black text-white rounded-xl text-[11px] sm:text-xs md:text-sm font-bold transition-all active:scale-95 shadow-sm"
-              title={language === 'ar' ? 'تنزيل بيانات الفترة كملف CSV' : 'Download the period as a CSV file'}
+              title={
+                language === 'ar'
+                  ? 'تنزيل بيانات الفترة كملف CSV'
+                  : 'Download the period as a CSV file'
+              }
             >
               <Download size={14} className="shrink-0" />
               <span className="whitespace-nowrap">{t('Export')}</span>
@@ -1143,9 +1301,13 @@ export default function ManagerDashboard() {
           <Package size={15} className="shrink-0" />
           <span className="truncate">{language === 'ar' ? 'المخزون' : 'Inventory'}</span>
           {inventorySummary.lowStockCount > 0 && (
-            <span className={`absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full text-[10px] font-black flex items-center justify-center ${
-              activeTab === 'inventory' ? 'bg-red-500 text-white' : 'bg-red-500 text-white animate-pulse'
-            }`}>
+            <span
+              className={`absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full text-[10px] font-black flex items-center justify-center ${
+                activeTab === 'inventory'
+                  ? 'bg-red-500 text-white'
+                  : 'bg-red-500 text-white animate-pulse'
+              }`}
+            >
               {inventorySummary.lowStockCount}
             </span>
           )}
@@ -1176,16 +1338,18 @@ export default function ManagerDashboard() {
 
       {/* ── Error Banner for Demo Fallback Mode ────────────────────────────────────── */}
       {isDemoMode && errorInfo && (
-        <motion.div 
+        <motion.div
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
           className="bg-amber-50 border border-amber-200 text-amber-800 p-4 rounded-xl flex items-start gap-3"
         >
           <AlertCircle size={20} className="text-amber-600 shrink-0 mt-0.5" />
           <div className="space-y-1">
-            <h4 className="font-bold text-sm">{language === 'ar' ? 'تم تشغيل الوضع التجريبي الاحتياطي' : 'Offline Demo Mode Active'}</h4>
+            <h4 className="font-bold text-sm">
+              {language === 'ar' ? 'تم تشغيل الوضع التجريبي الاحتياطي' : 'Offline Demo Mode Active'}
+            </h4>
             <p className="text-xs text-amber-700/90 leading-normal">
-              {language === 'ar' 
+              {language === 'ar'
                 ? `تعذر الاتصال بقاعدة بيانات Cloudflare المركزية (${errorInfo}). تم تحميل حزمة تحاكي الإحصائيات الحية لـ 3 فروع لتسهيل العرض التقديمي بشكل تفاعلي بالكامل.`
                 : `Could not connect to Cloudflare central database (${errorInfo}). Loaded a robust local fallback representing 3 branches to ensure full dashboard interactivity for your presentation.`}
             </p>
@@ -1196,472 +1360,558 @@ export default function ManagerDashboard() {
       {/* ══════════════════════════════════════════════════════════════════════ */}
       {/* ══ ANALYTICS TAB ═══════════════════════════════════════════════════ */}
       {/* ══════════════════════════════════════════════════════════════════════ */}
-      {activeTab === 'analytics' && (<>
-
-      {/* ── All 8 Stat Cards in 2 Rows (100% Identical to Reports Page) ───────────── */}
-      <div className="space-y-3 sm:space-y-4 md:space-y-6">
-        {/* Row 1: 4 cards (Revenue, Receivables/المبالغ المستحقة, Orders, Menu Items) */}
-        <div className="grid grid-cols-2 tablet:grid-cols-4 lg:grid-cols-4 gap-3 sm:gap-4 md:gap-6">
-          {statCardsRow1.map((s, i) => <StatCard key={i} {...s} />)}
-        </div>
-        {/* Row 2: 4 cards (COGS, Net Profit, Stock Cost, Potential Profit) */}
-        <div className="grid grid-cols-2 tablet:grid-cols-4 lg:grid-cols-4 gap-3 sm:gap-4 md:gap-6">
-          {statCardsRow2.map((s, i) => <StatCard key={i} {...s} />)}
-        </div>
-      </div>
-
-      {/* ── Chart & Top Items Panels ─────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-1 tablet:grid-cols-3 lg:grid-cols-3 gap-4 sm:gap-6 md:gap-8">
-        
-        {/* Revenue Trend Chart */}
-        <div className="lg:col-span-2 bg-white p-4 md:p-6 rounded-2xl shadow-sm border border-gray-150 flex flex-col justify-between">
-          <div className="flex items-center justify-between mb-6">
-            <div>
-              <h2 className="text-base md:text-lg font-extrabold text-gray-900">
-                {language === 'ar' ? 'منحنى الإيرادات المركّب' : 'Aggregated Revenue Trend'}
-              </h2>
-              <p className="text-[11px] text-gray-400 mt-0.5">
-                {language === 'ar' 
-                  ? `أرقام المبيعات المسجلة لـ (${activeBranchLabel}) خلال ${pLabel}`
-                  : `Visualizing completed sales for (${activeBranchLabel}) during ${pLabel}`}
-              </p>
-            </div>
-            {processedData.totalRevenue > 0 && (
-              <span className="text-xs text-green-600 bg-green-50 px-3 py-1 rounded-full font-bold border border-green-100">
-                +{formatMoney(processedData.totalRevenue, 0)} {currencyStr}
-              </span>
-            )}
-          </div>
-
-          <div className="flex-1 w-full pt-2">
-            <RevenueAreaChart
-              data={processedData.chartData}
-              currencyStr={currencyStr}
-              isRtl={language === 'ar'}
-              ordersText={t('orders')}
-            />
-          </div>
-
-          {/* Legend */}
-          <div className="flex items-center gap-4 mt-2 pt-3 border-t border-gray-100">
-            <div className="flex items-center gap-2">
-              <div className="w-3.5 h-3.5 rounded-full bg-gradient-to-r from-amber-500 via-sky-500 to-blue-600 shadow-sm" />
-              <span className="text-xs text-gray-600 font-semibold">
-                {language === 'ar' ? 'إجمالي المبيعات المحققة' : 'Completed Sales Revenue'}
-              </span>
-            </div>
-          </div>
-
-        </div>
-
-        {/* Top Selling Items (الأصناف الأكثر مبيعاً) */}
-        <div className="bg-white p-4 md:p-6 rounded-2xl shadow-sm border border-gray-150 flex flex-col justify-between">
-          <div>
-            <h2 className="text-base md:text-lg font-extrabold text-gray-900 mb-1">
-              {t('Top Selling Items')}
-            </h2>
-            <p className="text-[11px] text-gray-400 mb-6">
-              {language === 'ar' 
-                ? 'الأصناف الأعلى طلباً من الفواتير المدفوعة المحسوبة للفترة' 
-                : 'Top items sorted by quantity sold in the selected period.'}
-            </p>
-          </div>
-
-          {processedData.topItems.length === 0 ? (
-            <div className="flex-1 flex flex-col items-center justify-center py-12 text-gray-400">
-              <Utensils size={36} className="mb-2 text-gray-300" />
-              <p className="text-xs">{t('No orders')} ({pLabel})</p>
-            </div>
-          ) : (
-            <div className="space-y-4 md:space-y-5 flex-1">
-              {processedData.topItems.map((item, idx) => (
-                <div key={idx} className="space-y-1.5">
-                  <div className="flex justify-between text-xs md:text-sm">
-                    <span className="font-bold text-gray-800">{t(item.name)}</span>
-                    <span className="text-mocha-700 font-bold shrink-0 ml-2">{item.count}x</span>
-                  </div>
-                  
-                  {/* Progress bar with exactly original visual style */}
-                  <div className="w-full h-2.5 bg-mocha-100 rounded-full overflow-hidden">
-                    <motion.div
-                      key={`${dateRange}-top-${idx}`}
-                      initial={{ width: 0 }}
-                      animate={{ width: `${(item.count / maxItemCount) * 100}%` }}
-                      transition={{ duration: 0.9, delay: idx * 0.05 }}
-                      className="h-full bg-caramel rounded-full"
-                    />
-                  </div>
-                  <p className="text-[10px] text-gray-400">
-                    {formatMoney(item.revenue)} {currencyStr} {language === 'ar' ? 'مبيعات' : 'revenue'}
-                  </p>
-                </div>
+      {activeTab === 'analytics' && (
+        <>
+          {/* ── All 8 Stat Cards in 2 Rows (100% Identical to Reports Page) ───────────── */}
+          <div className="space-y-3 sm:space-y-4 md:space-y-6">
+            {/* Row 1: 4 cards (Revenue, Receivables/المبالغ المستحقة, Orders, Menu Items) */}
+            <div className="grid grid-cols-2 tablet:grid-cols-4 lg:grid-cols-4 gap-3 sm:gap-4 md:gap-6">
+              {statCardsRow1.map((s, i) => (
+                <StatCard key={i} {...s} />
               ))}
             </div>
-          )}
-        </div>
-      </div>
-
-      {/* ── Breakdown Panels ───────────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-1 tablet:grid-cols-3 lg:grid-cols-3 gap-4 sm:gap-6 md:gap-8">
-        
-        {/* Order Mode Breakdown (Dine-in vs Takeaway) */}
-        <div className="bg-white p-4 md:p-6 rounded-2xl shadow-sm border border-gray-150">
-          <div className="mb-6">
-            <h2 className="text-base md:text-lg font-extrabold text-gray-900">{t('Sales by Order Mode')}</h2>
-            <p className="text-xs text-gray-400 mt-0.5">
-              {t('Dine-in vs Takeaway orders in the selected period')}
-            </p>
+            {/* Row 2: 4 cards (COGS, Net Profit, Stock Cost, Potential Profit) */}
+            <div className="grid grid-cols-2 tablet:grid-cols-4 lg:grid-cols-4 gap-3 sm:gap-4 md:gap-6">
+              {statCardsRow2.map((s, i) => (
+                <StatCard key={i} {...s} />
+              ))}
+            </div>
           </div>
 
-          {processedData.totalCount === 0 ? (
-            <div className="py-12 text-center text-gray-400">
-              <p className="text-xs">{t('No orders')}</p>
-            </div>
-          ) : (
-            <div className="space-y-6 py-2">
-              {/* Takeaway Progress */}
-              <div className="space-y-2">
-                <div className="flex justify-between text-xs md:text-sm">
-                  <div className="flex items-center gap-2">
-                    <span className="font-extrabold text-gray-800">{t('Takeaway')}</span>
-                  </div>
-                  <span className="font-bold text-mocha-700 tabular-nums">
-                    {processedData.takeawayCount} {t('orders')} ({processedData.totalCount ? Math.round((processedData.takeawayCount / processedData.totalCount) * 100) : 0}%)
+          {/* ── Chart & Top Items Panels ─────────────────────────────────────────────────── */}
+          <div className="grid grid-cols-1 tablet:grid-cols-3 lg:grid-cols-3 gap-4 sm:gap-6 md:gap-8">
+            {/* Revenue Trend Chart */}
+            <div className="lg:col-span-2 bg-white p-4 md:p-6 rounded-2xl shadow-sm border border-gray-150 flex flex-col justify-between">
+              <div className="flex items-center justify-between mb-6">
+                <div>
+                  <h2 className="text-base md:text-lg font-extrabold text-gray-900">
+                    {language === 'ar' ? 'منحنى الإيرادات المركّب' : 'Aggregated Revenue Trend'}
+                  </h2>
+                  <p className="text-[11px] text-gray-400 mt-0.5">
+                    {language === 'ar'
+                      ? `أرقام المبيعات المسجلة لـ (${activeBranchLabel}) خلال ${pLabel}`
+                      : `Visualizing completed sales for (${activeBranchLabel}) during ${pLabel}`}
+                  </p>
+                </div>
+                {processedData.totalRevenue > 0 && (
+                  <span className="text-xs text-green-600 bg-green-50 px-3 py-1 rounded-full font-bold border border-green-100">
+                    +{formatMoney(processedData.totalRevenue, 0)} {currencyStr}
                   </span>
-                </div>
-                <div className="w-full h-3 bg-mocha-50 rounded-full overflow-hidden border border-mocha-100/50">
-                  <motion.div
-                    key={`takeaway-`}
-                    initial={{ width: 0 }}
-                    animate={{ width: `${(processedData.takeawayCount / processedData.totalCount) * 100}%` }}
-                    transition={{ duration: 0.8 }}
-                    className="h-full bg-mocha-650 rounded-full"
-                  />
-                </div>
+                )}
               </div>
 
-              {/* Dine-in Progress */}
-              <div className="space-y-2">
-                <div className="flex justify-between text-xs md:text-sm">
-                  <div className="flex items-center gap-2">
-                    <span className="font-extrabold text-gray-800">{t('Dine-in')}</span>
-                  </div>
-                  <span className="font-bold text-caramel-600 tabular-nums">
-                    {processedData.dineInCount} {t('orders')} ({processedData.totalCount ? Math.round((processedData.dineInCount / processedData.totalCount) * 100) : 0}%)
+              <div className="flex-1 w-full pt-2">
+                <RevenueAreaChart
+                  data={processedData.chartData}
+                  currencyStr={currencyStr}
+                  isRtl={language === 'ar'}
+                  ordersText={t('orders')}
+                />
+              </div>
+
+              {/* Legend */}
+              <div className="flex items-center gap-4 mt-2 pt-3 border-t border-gray-100">
+                <div className="flex items-center gap-2">
+                  <div className="w-3.5 h-3.5 rounded-full bg-gradient-to-r from-amber-500 via-sky-500 to-blue-600 shadow-sm" />
+                  <span className="text-xs text-gray-600 font-semibold">
+                    {language === 'ar' ? 'إجمالي المبيعات المحققة' : 'Completed Sales Revenue'}
                   </span>
-                </div>
-                <div className="w-full h-3 bg-caramel-50/50 rounded-full overflow-hidden border border-caramel-100/30">
-                  <motion.div
-                    key={`dinein-`}
-                    initial={{ width: 0 }}
-                    animate={{ width: `${(processedData.dineInCount / processedData.totalCount) * 100}%` }}
-                    transition={{ duration: 0.8 }}
-                    className="h-full bg-caramel rounded-full"
-                  />
                 </div>
               </div>
             </div>
-          )}
-        </div>
 
-        {/* Invoice Payment Status & Payment Methods */}
-        <div className="bg-white p-4 md:p-6 rounded-2xl shadow-sm border border-gray-150">
-          <div className="mb-4">
-            <h2 className="text-base md:text-lg font-extrabold text-gray-900">{t('Invoice Payment Status')}</h2>
-            <p className="text-xs text-gray-400 mt-0.5">
-              {t('Paid vs Open invoices breakdown')}
-            </p>
-          </div>
-
-          {processedData.invoiceCount === 0 ? (
-            <div className="py-12 text-center text-gray-400">
-              <p className="text-xs">{t('No orders')}</p>
-            </div>
-          ) : (
-            <div className="space-y-5">
-              
-              {/* Paid Invoices */}
-              <div className="space-y-1.5">
-                <div className="flex justify-between text-xs md:text-sm font-bold text-gray-700">
-                  <span className="flex items-center gap-1.5">{t('Paid Invoices')}</span>
-                  <span>{processedData.paidCount} ({sharePercent(processedData.paidCount, processedData.invoiceCount)}%)</span>
-                </div>
-                <div className="w-full h-2.5 bg-green-50 rounded-full overflow-hidden border border-green-100/50">
-                  <motion.div
-                    key={`paid-inv-`}
-                    initial={{ width: 0 }}
-                    animate={{ width: `${shareWidth(processedData.paidCount, processedData.invoiceCount)}%` }}
-                    className="h-full bg-green-600 rounded-full"
-                  />
-                </div>
-                <p className="text-[10px] text-gray-400 font-bold">
-                  {t('Total Paid')}: {formatMoney(processedData.paidAmount)} {currencyStr}
+            {/* Top Selling Items (الأصناف الأكثر مبيعاً) */}
+            <div className="bg-white p-4 md:p-6 rounded-2xl shadow-sm border border-gray-150 flex flex-col justify-between">
+              <div>
+                <h2 className="text-base md:text-lg font-extrabold text-gray-900 mb-1">
+                  {t('Top Selling Items')}
+                </h2>
+                <p className="text-[11px] text-gray-400 mb-6">
+                  {language === 'ar'
+                    ? 'الأصناف الأعلى طلباً من الفواتير المدفوعة المحسوبة للفترة'
+                    : 'Top items sorted by quantity sold in the selected period.'}
                 </p>
               </div>
 
-              {/* Open/Unpaid Invoices */}
-              <div className="space-y-1.5">
-                <div className="flex justify-between text-xs md:text-sm font-bold text-gray-700">
-                  <span className="flex items-center gap-1.5">{t('Open Invoices')}</span>
-                  <span>{processedData.unpaidCount} ({sharePercent(processedData.unpaidCount, processedData.invoiceCount)}%)</span>
-                </div>
-                <div className="w-full h-2.5 bg-amber-50 rounded-full overflow-hidden border border-amber-100/30">
-                  <motion.div
-                    key={`open-inv-`}
-                    initial={{ width: 0 }}
-                    animate={{ width: `${shareWidth(processedData.unpaidCount, processedData.invoiceCount)}%` }}
-                    className="h-full bg-amber-500 rounded-full"
-                  />
-                </div>
-                <p className="text-[10px] text-gray-400 font-bold">
-                  {t('Total Open')}: {formatMoney(processedData.unpaidAmount)} {currencyStr}
-                </p>
-              </div>
-
-              <div className="border-t border-gray-155 my-3 pt-3" />
-
-              {/* Payment Methods */}
-              <div className="space-y-3">
-                <h3 className="text-xs md:text-sm font-bold text-gray-800">{t('Payment Methods')}</h3>
-                
-                {/* Cash */}
-                <div className="space-y-1">
-                  <div className="flex justify-between text-xs font-semibold text-gray-600">
-                    <span className="flex items-center gap-1.5">{t('Cash')}</span>
-                    <span>{processedData.cashPercentage}%</span>
-                  </div>
-                  <div className="w-full h-2 bg-emerald-50 rounded-full overflow-hidden border border-emerald-100">
-                    <motion.div
-                      key={`cash-`}
-                      initial={{ width: 0 }}
-                      animate={{ width: `${processedData.cashPercentage}%` }}
-                      className="h-full bg-emerald-600 rounded-full"
-                    />
-                  </div>
-                  <p className="text-[9px] text-gray-400 font-bold">
-                    {t('Total Cash')}: {formatMoney(processedData.cashAmount)} {currencyStr}
+              {processedData.topItems.length === 0 ? (
+                <div className="flex-1 flex flex-col items-center justify-center py-12 text-gray-400">
+                  <Utensils size={36} className="mb-2 text-gray-300" />
+                  <p className="text-xs">
+                    {t('No orders')} ({pLabel})
                   </p>
                 </div>
-
-                {/* Card */}
-                <div className="space-y-1">
-                  <div className="flex justify-between text-xs font-semibold text-gray-600">
-                    <span className="flex items-center gap-1.5">{t('Card')}</span>
-                    <span>{processedData.cardPercentage}%</span>
-                  </div>
-                  <div className="w-full h-2 bg-blue-50 rounded-full overflow-hidden border border-blue-100">
-                    <motion.div
-                      key={`card-`}
-                      initial={{ width: 0 }}
-                      animate={{ width: `${processedData.cardPercentage}%` }}
-                      className="h-full bg-blue-600 rounded-full"
-                    />
-                  </div>
-                  <p className="text-[9px] text-gray-400 font-bold">
-                    {t('Total Card')}: {formatMoney(processedData.cardAmount)} {currencyStr}
-                  </p>
-                </div>
-
-              </div>
-
-            </div>
-          )}
-        </div>
-
-        {/* Recent Transactions Feed */}
-        <div className="bg-white p-4 md:p-6 rounded-2xl shadow-sm border border-gray-150 flex flex-col justify-between">
-          <div>
-            <h2 className="text-base md:text-lg font-extrabold text-gray-900 mb-1">{t('Recent Transactions')}</h2>
-            <p className="text-xs text-gray-400 mb-4">{language === 'ar' ? 'أحدث المعاملات المقبوضة عبر الفروع' : 'Latest completed checkouts.'}</p>
-          </div>
-
-          {processedData.recentTransactions.length === 0 ? (
-            <div className="flex-1 flex items-center justify-center py-12 text-gray-400 text-xs">
-              <p>{t('No completed orders')}</p>
-            </div>
-          ) : (
-            <div className="divide-y divide-gray-100 flex-1">
-              {processedData.recentTransactions.map((order, idx) => {
-                let summary = "";
-                let more = "";
-                try {
-                  const items = order.items || [];
-                  if (Array.isArray(items) && items.length > 0) {
-                    summary = items.slice(0, 2).map(i => `${i.quantity}× ${t(i.name)}`).join(', ');
-                    if (items.length > 2) {
-                      more = ` +${items.length - 2}`;
-                    }
-                  }
-                } catch {}
-
-                const elapsed = Math.round((Date.now() - new Date(order.createdAt).getTime()) / 60000);
-                const timeStr = elapsed < 1 ? t('just now') : elapsed < 60 ? `${elapsed}${t('m ago')}` : `${Math.round(elapsed / 60)}${t('h ago')}`;
-
-                const isRefunded = order.paymentStatus === 'Refunded';
-
-                return (
-                  <motion.div
-                    key={order.id}
-                    initial={{ opacity: 0, x: -10 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ delay: idx * 0.05 }}
-                    className="flex items-center justify-between py-3 gap-3"
-                  >
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      <div className={`p-2 rounded-xl shrink-0 ${isRefunded ? 'bg-amber-50 text-amber-600' : 'bg-green-50 text-green-600'}`}>
-                        {isRefunded ? <Undo2 size={16} /> : <CheckCircle2 size={16} />}
+              ) : (
+                <div className="space-y-4 md:space-y-5 flex-1">
+                  {processedData.topItems.map((item, idx) => (
+                    <div key={idx} className="space-y-1.5">
+                      <div className="flex justify-between text-xs md:text-sm">
+                        <span className="font-bold text-gray-800">{t(item.name)}</span>
+                        <span className="text-mocha-700 font-bold shrink-0 ml-2">
+                          {item.count}x
+                        </span>
                       </div>
-                      <div className="min-w-0 text-left">
-                        <p className="text-xs md:text-sm font-extrabold text-gray-900 truncate">
-                          #{formatOrderNumber(order)}
-                          {isRefunded && (
-                            <span className="text-[10px] text-amber-700 font-bold bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded">
-                              {language === 'ar' ? 'مسترجعة' : 'Refunded'}
-                            </span>
-                          )}
-                        </p>
-                        <p className="text-[11px] text-gray-400 truncate mt-0.5">
-                          {order.tableId === 'Takeaway' ? t('Takeaway') : `${t('Table')} ${order.tableId}`}
-                          {order.customerName ? ` · ${order.customerName}` : order.customerPhone ? ` · ${order.customerPhone}` : ''}
-                        </p>
-                        <p className="text-[11px] text-gray-400 truncate mt-0.5">{summary}{more}</p>
+
+                      {/* Progress bar with exactly original visual style */}
+                      <div className="w-full h-2.5 bg-mocha-100 rounded-full overflow-hidden">
+                        <motion.div
+                          key={`${dateRange}-top-${idx}`}
+                          initial={{ width: 0 }}
+                          animate={{ width: `${(item.count / maxItemCount) * 100}%` }}
+                          transition={{ duration: 0.9, delay: idx * 0.05 }}
+                          className="h-full bg-caramel rounded-full"
+                        />
                       </div>
+                      <p className="text-[10px] text-gray-400">
+                        {formatMoney(item.revenue)} {currencyStr}{' '}
+                        {language === 'ar' ? 'مبيعات' : 'revenue'}
+                      </p>
                     </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      <div className="text-right">
-                        <p className="text-xs md:text-sm font-extrabold text-gray-900">
-                          {formatMoney(getOrderGrandTotal(order, taxRate))} {currencyStr}
-                        </p>
-                        <p className="text-[10px] text-gray-400 mt-0.5">{timeStr}</p>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* ── Breakdown Panels ───────────────────────────────────────────────────────── */}
+          <div className="grid grid-cols-1 tablet:grid-cols-3 lg:grid-cols-3 gap-4 sm:gap-6 md:gap-8">
+            {/* Order Mode Breakdown (Dine-in vs Takeaway) */}
+            <div className="bg-white p-4 md:p-6 rounded-2xl shadow-sm border border-gray-150">
+              <div className="mb-6">
+                <h2 className="text-base md:text-lg font-extrabold text-gray-900">
+                  {t('Sales by Order Mode')}
+                </h2>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  {t('Dine-in vs Takeaway orders in the selected period')}
+                </p>
+              </div>
+
+              {processedData.totalCount === 0 ? (
+                <div className="py-12 text-center text-gray-400">
+                  <p className="text-xs">{t('No orders')}</p>
+                </div>
+              ) : (
+                <div className="space-y-6 py-2">
+                  {/* Takeaway Progress */}
+                  <div className="space-y-2">
+                    <div className="flex justify-between text-xs md:text-sm">
+                      <div className="flex items-center gap-2">
+                        <span className="font-extrabold text-gray-800">{t('Takeaway')}</span>
                       </div>
-                      <div className="flex items-center gap-1">
-                        <button
-                          onClick={() => printCustomerReceipt(order, language === 'ar' ? 'ar' : 'en')}
-                          className="p-1.5 rounded-lg text-gray-400 hover:text-mocha-700 hover:bg-mocha-50 transition-colors"
-                          title={language === 'ar' ? 'طباعة الفاتورة' : 'Print Receipt'}
-                        >
-                          <Printer size={15} />
-                        </button>
-                        {/* Refund / delete invoice actions are intentionally NOT available
+                      <span className="font-bold text-mocha-700 tabular-nums">
+                        {processedData.takeawayCount} {t('orders')} (
+                        {processedData.totalCount
+                          ? Math.round(
+                              (processedData.takeawayCount / processedData.totalCount) * 100
+                            )
+                          : 0}
+                        %)
+                      </span>
+                    </div>
+                    <div className="w-full h-3 bg-mocha-50 rounded-full overflow-hidden border border-mocha-100/50">
+                      <motion.div
+                        key={`takeaway-`}
+                        initial={{ width: 0 }}
+                        animate={{
+                          width: `${(processedData.takeawayCount / processedData.totalCount) * 100}%`,
+                        }}
+                        transition={{ duration: 0.8 }}
+                        className="h-full bg-mocha-650 rounded-full"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Dine-in Progress */}
+                  <div className="space-y-2">
+                    <div className="flex justify-between text-xs md:text-sm">
+                      <div className="flex items-center gap-2">
+                        <span className="font-extrabold text-gray-800">{t('Dine-in')}</span>
+                      </div>
+                      <span className="font-bold text-caramel-600 tabular-nums">
+                        {processedData.dineInCount} {t('orders')} (
+                        {processedData.totalCount
+                          ? Math.round((processedData.dineInCount / processedData.totalCount) * 100)
+                          : 0}
+                        %)
+                      </span>
+                    </div>
+                    <div className="w-full h-3 bg-caramel-50/50 rounded-full overflow-hidden border border-caramel-100/30">
+                      <motion.div
+                        key={`dinein-`}
+                        initial={{ width: 0 }}
+                        animate={{
+                          width: `${(processedData.dineInCount / processedData.totalCount) * 100}%`,
+                        }}
+                        transition={{ duration: 0.8 }}
+                        className="h-full bg-caramel rounded-full"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Invoice Payment Status & Payment Methods */}
+            <div className="bg-white p-4 md:p-6 rounded-2xl shadow-sm border border-gray-150">
+              <div className="mb-4">
+                <h2 className="text-base md:text-lg font-extrabold text-gray-900">
+                  {t('Invoice Payment Status')}
+                </h2>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  {t('Paid vs Open invoices breakdown')}
+                </p>
+              </div>
+
+              {processedData.invoiceCount === 0 ? (
+                <div className="py-12 text-center text-gray-400">
+                  <p className="text-xs">{t('No orders')}</p>
+                </div>
+              ) : (
+                <div className="space-y-5">
+                  {/* Paid Invoices */}
+                  <div className="space-y-1.5">
+                    <div className="flex justify-between text-xs md:text-sm font-bold text-gray-700">
+                      <span className="flex items-center gap-1.5">{t('Paid Invoices')}</span>
+                      <span>
+                        {processedData.paidCount} (
+                        {sharePercent(processedData.paidCount, processedData.invoiceCount)}%)
+                      </span>
+                    </div>
+                    <div className="w-full h-2.5 bg-green-50 rounded-full overflow-hidden border border-green-100/50">
+                      <motion.div
+                        key={`paid-inv-`}
+                        initial={{ width: 0 }}
+                        animate={{
+                          width: `${shareWidth(processedData.paidCount, processedData.invoiceCount)}%`,
+                        }}
+                        className="h-full bg-green-600 rounded-full"
+                      />
+                    </div>
+                    <p className="text-[10px] text-gray-400 font-bold">
+                      {t('Total Paid')}: {formatMoney(processedData.paidAmount)} {currencyStr}
+                    </p>
+                  </div>
+
+                  {/* Open/Unpaid Invoices */}
+                  <div className="space-y-1.5">
+                    <div className="flex justify-between text-xs md:text-sm font-bold text-gray-700">
+                      <span className="flex items-center gap-1.5">{t('Open Invoices')}</span>
+                      <span>
+                        {processedData.unpaidCount} (
+                        {sharePercent(processedData.unpaidCount, processedData.invoiceCount)}%)
+                      </span>
+                    </div>
+                    <div className="w-full h-2.5 bg-amber-50 rounded-full overflow-hidden border border-amber-100/30">
+                      <motion.div
+                        key={`open-inv-`}
+                        initial={{ width: 0 }}
+                        animate={{
+                          width: `${shareWidth(processedData.unpaidCount, processedData.invoiceCount)}%`,
+                        }}
+                        className="h-full bg-amber-500 rounded-full"
+                      />
+                    </div>
+                    <p className="text-[10px] text-gray-400 font-bold">
+                      {t('Total Open')}: {formatMoney(processedData.unpaidAmount)} {currencyStr}
+                    </p>
+                  </div>
+
+                  <div className="border-t border-gray-155 my-3 pt-3" />
+
+                  {/* Payment Methods */}
+                  <div className="space-y-3">
+                    <h3 className="text-xs md:text-sm font-bold text-gray-800">
+                      {t('Payment Methods')}
+                    </h3>
+
+                    {/* Cash */}
+                    <div className="space-y-1">
+                      <div className="flex justify-between text-xs font-semibold text-gray-600">
+                        <span className="flex items-center gap-1.5">{t('Cash')}</span>
+                        <span>{processedData.cashPercentage}%</span>
+                      </div>
+                      <div className="w-full h-2 bg-emerald-50 rounded-full overflow-hidden border border-emerald-100">
+                        <motion.div
+                          key={`cash-`}
+                          initial={{ width: 0 }}
+                          animate={{ width: `${processedData.cashPercentage}%` }}
+                          className="h-full bg-emerald-600 rounded-full"
+                        />
+                      </div>
+                      <p className="text-[9px] text-gray-400 font-bold">
+                        {t('Total Cash')}: {formatMoney(processedData.cashAmount)} {currencyStr}
+                      </p>
+                    </div>
+
+                    {/* Card */}
+                    <div className="space-y-1">
+                      <div className="flex justify-between text-xs font-semibold text-gray-600">
+                        <span className="flex items-center gap-1.5">{t('Card')}</span>
+                        <span>{processedData.cardPercentage}%</span>
+                      </div>
+                      <div className="w-full h-2 bg-blue-50 rounded-full overflow-hidden border border-blue-100">
+                        <motion.div
+                          key={`card-`}
+                          initial={{ width: 0 }}
+                          animate={{ width: `${processedData.cardPercentage}%` }}
+                          className="h-full bg-blue-600 rounded-full"
+                        />
+                      </div>
+                      <p className="text-[9px] text-gray-400 font-bold">
+                        {t('Total Card')}: {formatMoney(processedData.cardAmount)} {currencyStr}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Recent Transactions Feed */}
+            <div className="bg-white p-4 md:p-6 rounded-2xl shadow-sm border border-gray-150 flex flex-col justify-between">
+              <div>
+                <h2 className="text-base md:text-lg font-extrabold text-gray-900 mb-1">
+                  {t('Recent Transactions')}
+                </h2>
+                <p className="text-xs text-gray-400 mb-4">
+                  {language === 'ar'
+                    ? 'أحدث المعاملات المقبوضة عبر الفروع'
+                    : 'Latest completed checkouts.'}
+                </p>
+              </div>
+
+              {processedData.recentTransactions.length === 0 ? (
+                <div className="flex-1 flex items-center justify-center py-12 text-gray-400 text-xs">
+                  <p>{t('No completed orders')}</p>
+                </div>
+              ) : (
+                <div className="divide-y divide-gray-100 flex-1">
+                  {processedData.recentTransactions.map((order, idx) => {
+                    let summary = '';
+                    let more = '';
+                    try {
+                      const items = order.items || [];
+                      if (Array.isArray(items) && items.length > 0) {
+                        summary = items
+                          .slice(0, 2)
+                          .map((i) => `${i.quantity}× ${t(i.name)}`)
+                          .join(', ');
+                        if (items.length > 2) {
+                          more = ` +${items.length - 2}`;
+                        }
+                      }
+                    } catch {}
+
+                    const elapsed = Math.round(
+                      (Date.now() - new Date(order.createdAt).getTime()) / 60000
+                    );
+                    const timeStr =
+                      elapsed < 1
+                        ? t('just now')
+                        : elapsed < 60
+                          ? `${elapsed}${t('m ago')}`
+                          : `${Math.round(elapsed / 60)}${t('h ago')}`;
+
+                    const isRefunded = order.paymentStatus === 'Refunded';
+
+                    return (
+                      <motion.div
+                        key={order.id}
+                        initial={{ opacity: 0, x: -10 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ delay: idx * 0.05 }}
+                        className="flex items-center justify-between py-3 gap-3"
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <div
+                            className={`p-2 rounded-xl shrink-0 ${isRefunded ? 'bg-amber-50 text-amber-600' : 'bg-green-50 text-green-600'}`}
+                          >
+                            {isRefunded ? <Undo2 size={16} /> : <CheckCircle2 size={16} />}
+                          </div>
+                          <div className="min-w-0 text-left">
+                            <p className="text-xs md:text-sm font-extrabold text-gray-900 truncate">
+                              #{formatOrderNumber(order)}
+                              {isRefunded && (
+                                <span className="text-[10px] text-amber-700 font-bold bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded">
+                                  {language === 'ar' ? 'مسترجعة' : 'Refunded'}
+                                </span>
+                              )}
+                            </p>
+                            <p className="text-[11px] text-gray-400 truncate mt-0.5">
+                              {order.tableId === 'Takeaway'
+                                ? t('Takeaway')
+                                : `${t('Table')} ${order.tableId}`}
+                              {order.customerName
+                                ? ` · ${order.customerName}`
+                                : order.customerPhone
+                                  ? ` · ${order.customerPhone}`
+                                  : ''}
+                            </p>
+                            <p className="text-[11px] text-gray-400 truncate mt-0.5">
+                              {summary}
+                              {more}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <div className="text-right">
+                            <p className="text-xs md:text-sm font-extrabold text-gray-900">
+                              {formatMoney(getOrderGrandTotal(order, taxRate))} {currencyStr}
+                            </p>
+                            <p className="text-[10px] text-gray-400 mt-0.5">{timeStr}</p>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <button
+                              onClick={() =>
+                                printCustomerReceipt(order, language === 'ar' ? 'ar' : 'en')
+                              }
+                              className="p-1.5 rounded-lg text-gray-400 hover:text-mocha-700 hover:bg-mocha-50 transition-colors"
+                              title={language === 'ar' ? 'طباعة الفاتورة' : 'Print Receipt'}
+                            >
+                              <Printer size={15} />
+                            </button>
+                            {/* Refund / delete invoice actions are intentionally NOT available
                             on the manager dashboard. Refunds happen only at the cashier
                             (payment) screen. */}
-                      </div>
-                    </div>
-                  </motion.div>
-                );
-              })}
+                          </div>
+                        </div>
+                      </motion.div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
-          )}
-        </div>
-
-      </div>
-
-      {/* ── Outstanding Receivables Report (المبالغ المستحقة) ──────────────────── */}
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-150 overflow-hidden">
-        <div className="px-3 sm:px-4 md:px-6 py-3 sm:py-4 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div>
-            <h2 className="text-base md:text-lg font-extrabold text-gray-900 flex items-center gap-2">
-              <Wallet className="text-orange-500" size={20} />
-              {language === 'ar' ? 'المبالغ المستحقة (على الحساب)' : 'Outstanding Receivables'}
-            </h2>
-            <p className="text-xs text-gray-400 mt-0.5">
-              {language === 'ar'
-                ? 'ديون العملاء والشركات غير المسددة من فواتير على الحساب'
-                : 'Unpaid customer & company balances from on-account invoices'}
-            </p>
           </div>
-          <div className="text-left sm:text-right">
-            <p className="text-[10px] text-gray-400 font-bold">
-              {language === 'ar' ? 'إجمالي المستحقات' : 'Total Receivable'}
-            </p>
-            <p className="text-xl md:text-2xl font-black text-orange-600">
-              {receivablesData.grandTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {currencyStr}
-            </p>
-          </div>
-        </div>
 
-        {receivablesData.grandTotal === 0 ? (
-          <div className="py-12 text-center">
-            <CheckCircle2 className="mx-auto text-green-500 mb-2" size={36} />
-            <p className="text-sm text-gray-400">
-              {language === 'ar' ? 'لا توجد مبالغ مستحقة 🎉' : 'No outstanding balances 🎉'}
-            </p>
-          </div>
-        ) : (
-          <div className="divide-y divide-gray-100">
-            {/* Companies section */}
-            {receivablesData.companiesOwed.length > 0 && (
-              <>
-                <div className="px-4 md:px-6 py-2.5 bg-purple-50/40">
-                  <p className="text-xs font-extrabold text-purple-700 flex items-center gap-1.5">
-                    <Building2 size={13} />
-                    {language === 'ar' ? 'الشركات' : 'Companies'} ({receivablesData.companiesOwed.length})
-                  </p>
-                </div>
-                {receivablesData.companiesOwed.map(co => (
-                  <div key={co.id} className="px-4 md:px-6 py-3 flex items-center justify-between gap-3 hover:bg-purple-50/20 transition-colors">
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div className="p-2 rounded-xl bg-purple-100 text-purple-700 shrink-0">
-                        <Building2 size={16} />
-                      </div>
-                      <div className="min-w-0">
-                        <p className="text-sm font-extrabold text-gray-900 truncate">{co.name}</p>
-                        <p className="text-[11px] text-gray-400">
-                          {co.invoiceCount} {language === 'ar' ? 'فاتورة' : 'invoices'}
-                          {co.memberCount > 0 && ` · ${co.memberCount} ${language === 'ar' ? 'عضو' : 'members'}`}
-                          {co.phone && ` · ${co.phone}`}
+          {/* ── Outstanding Receivables Report (المبالغ المستحقة) ──────────────────── */}
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-150 overflow-hidden">
+            <div className="px-3 sm:px-4 md:px-6 py-3 sm:py-4 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <h2 className="text-base md:text-lg font-extrabold text-gray-900 flex items-center gap-2">
+                  <Wallet className="text-orange-500" size={20} />
+                  {language === 'ar' ? 'المبالغ المستحقة (على الحساب)' : 'Outstanding Receivables'}
+                </h2>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  {language === 'ar'
+                    ? 'ديون العملاء والشركات غير المسددة من فواتير على الحساب'
+                    : 'Unpaid customer & company balances from on-account invoices'}
+                </p>
+              </div>
+              <div className="text-left sm:text-right">
+                <p className="text-[10px] text-gray-400 font-bold">
+                  {language === 'ar' ? 'إجمالي المستحقات' : 'Total Receivable'}
+                </p>
+                <p className="text-xl md:text-2xl font-black text-orange-600">
+                  {receivablesData.grandTotal.toLocaleString('en-US', {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
+                  })}{' '}
+                  {currencyStr}
+                </p>
+              </div>
+            </div>
+
+            {receivablesData.grandTotal === 0 ? (
+              <div className="py-12 text-center">
+                <CheckCircle2 className="mx-auto text-green-500 mb-2" size={36} />
+                <p className="text-sm text-gray-400">
+                  {language === 'ar' ? 'لا توجد مبالغ مستحقة 🎉' : 'No outstanding balances 🎉'}
+                </p>
+              </div>
+            ) : (
+              <div className="divide-y divide-gray-100">
+                {/* Companies section */}
+                {receivablesData.companiesOwed.length > 0 && (
+                  <>
+                    <div className="px-4 md:px-6 py-2.5 bg-purple-50/40">
+                      <p className="text-xs font-extrabold text-purple-700 flex items-center gap-1.5">
+                        <Building2 size={13} />
+                        {language === 'ar' ? 'الشركات' : 'Companies'} (
+                        {receivablesData.companiesOwed.length})
+                      </p>
+                    </div>
+                    {receivablesData.companiesOwed.map((co) => (
+                      <div
+                        key={co.id}
+                        className="px-4 md:px-6 py-3 flex items-center justify-between gap-3 hover:bg-purple-50/20 transition-colors"
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="p-2 rounded-xl bg-purple-100 text-purple-700 shrink-0">
+                            <Building2 size={16} />
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-sm font-extrabold text-gray-900 truncate">
+                              {co.name}
+                            </p>
+                            <p className="text-[11px] text-gray-400">
+                              {co.invoiceCount} {language === 'ar' ? 'فاتورة' : 'invoices'}
+                              {co.memberCount > 0 &&
+                                ` · ${co.memberCount} ${language === 'ar' ? 'عضو' : 'members'}`}
+                              {co.phone && ` · ${co.phone}`}
+                            </p>
+                          </div>
+                        </div>
+                        <p className="text-sm font-black text-red-600 shrink-0">
+                          {co.balance.toLocaleString('en-US', {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2,
+                          })}{' '}
+                          {currencyStr}
                         </p>
                       </div>
-                    </div>
-                    <p className="text-sm font-black text-red-600 shrink-0">
-                      {co.balance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {currencyStr}
-                    </p>
-                  </div>
-                ))}
-              </>
-            )}
-
-            {/* Customers section */}
-            {receivablesData.customersOwed.length > 0 && (
-              <>
-                <div className="px-4 md:px-6 py-2.5 bg-mocha-50/40">
-                  <p className="text-xs font-extrabold text-mocha-700 flex items-center gap-1.5">
-                    <Users size={13} />
-                    {language === 'ar' ? 'العملاء' : 'Customers'} ({receivablesData.customersOwed.length})
-                  </p>
-                </div>
-                {receivablesData.customersOwed.slice(0, 20).map(c => (
-                  <div key={c.id} className="px-4 md:px-6 py-3 flex items-center justify-between gap-3 hover:bg-mocha-50/20 transition-colors">
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div className="p-2 rounded-xl bg-mocha-100 text-mocha-700 shrink-0">
-                        <UserCheck size={16} />
-                      </div>
-                      <div className="min-w-0">
-                        <p className="text-sm font-extrabold text-gray-900 truncate">{c.name}</p>
-                        <p className="text-[11px] text-gray-400">
-                          {c.invoiceCount} {language === 'ar' ? 'فاتورة' : 'invoices'}{c.phone && ` · ${c.phone}`}
-                        </p>
-                      </div>
-                    </div>
-                    <p className="text-sm font-black text-red-600 shrink-0">
-                      {c.balance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {currencyStr}
-                    </p>
-                  </div>
-                ))}
-                {receivablesData.customersOwed.length > 20 && (
-                  <div className="px-4 md:px-6 py-2 text-center text-[11px] text-gray-400">
-                    +{receivablesData.customersOwed.length - 20} {language === 'ar' ? 'عميل آخر' : 'more customers'}
-                  </div>
+                    ))}
+                  </>
                 )}
-              </>
+
+                {/* Customers section */}
+                {receivablesData.customersOwed.length > 0 && (
+                  <>
+                    <div className="px-4 md:px-6 py-2.5 bg-mocha-50/40">
+                      <p className="text-xs font-extrabold text-mocha-700 flex items-center gap-1.5">
+                        <Users size={13} />
+                        {language === 'ar' ? 'العملاء' : 'Customers'} (
+                        {receivablesData.customersOwed.length})
+                      </p>
+                    </div>
+                    {receivablesData.customersOwed.slice(0, 20).map((c) => (
+                      <div
+                        key={c.id}
+                        className="px-4 md:px-6 py-3 flex items-center justify-between gap-3 hover:bg-mocha-50/20 transition-colors"
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="p-2 rounded-xl bg-mocha-100 text-mocha-700 shrink-0">
+                            <UserCheck size={16} />
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-sm font-extrabold text-gray-900 truncate">
+                              {c.name}
+                            </p>
+                            <p className="text-[11px] text-gray-400">
+                              {c.invoiceCount} {language === 'ar' ? 'فاتورة' : 'invoices'}
+                              {c.phone && ` · ${c.phone}`}
+                            </p>
+                          </div>
+                        </div>
+                        <p className="text-sm font-black text-red-600 shrink-0">
+                          {c.balance.toLocaleString('en-US', {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2,
+                          })}{' '}
+                          {currencyStr}
+                        </p>
+                      </div>
+                    ))}
+                    {receivablesData.customersOwed.length > 20 && (
+                      <div className="px-4 md:px-6 py-2 text-center text-[11px] text-gray-400">
+                        +{receivablesData.customersOwed.length - 20}{' '}
+                        {language === 'ar' ? 'عميل آخر' : 'more customers'}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
             )}
           </div>
-        )}
-      </div>
-
-
-
-      </>)}
+        </>
+      )}
 
       {/* ══════════════════════════════════════════════════════════════════════ */}
       {/* ══ MENU TAB ═══════════════════════════════════════════════════════ */}
@@ -1691,8 +1941,6 @@ export default function ManagerDashboard() {
         </Suspense>
       )}
 
-
-
       {/* ── SETTINGS TAB ───────────────────────────────────────────────────────── */}
       {activeTab === 'settings' && (
         <Suspense fallback={<LoadingScreen />}>
@@ -1701,10 +1949,6 @@ export default function ManagerDashboard() {
           </div>
         </Suspense>
       )}
-
-
-
-
     </div>
   );
 }

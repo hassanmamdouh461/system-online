@@ -32,46 +32,64 @@ export type AnalyticsPeriod = 'Today' | 'This Week' | 'This Month' | 'This Year'
 
 // ─── Historical Baseline ──────────────────────────────────────────────────────
 // Pure live data mode: zero baseline so all metrics come 100% from real orders
-const BASELINE: Record<AnalyticsPeriod, {
-  orders: number;
-  completedOrders: number;
-  revenue: number;
-}> = {
-  'Today':      { orders: 0, completedOrders: 0, revenue: 0 },
-  'This Week':  { orders: 0, completedOrders: 0, revenue: 0 },
+const BASELINE: Record<
+  AnalyticsPeriod,
+  {
+    orders: number;
+    completedOrders: number;
+    revenue: number;
+  }
+> = {
+  Today: { orders: 0, completedOrders: 0, revenue: 0 },
+  'This Week': { orders: 0, completedOrders: 0, revenue: 0 },
   'This Month': { orders: 0, completedOrders: 0, revenue: 0 },
-  'This Year':  { orders: 0, completedOrders: 0, revenue: 0 },
+  'This Year': { orders: 0, completedOrders: 0, revenue: 0 },
 };
 
 // ─── Chart Baseline ───────────────────────────────────────────────────────────
 // All base values are 0 so chart bars represent 100% real completed revenue
-const CHART_CONFIG: Record<AnalyticsPeriod, {
-  labels: string[];
-  base: number[];
-  getBucket: (d: Date) => number;
-}> = {
-  'Today': {
-    labels: ['12am', '2am', '4am', '6am', '8am', '10am', '12pm', '2pm', '4pm', '6pm', '8pm', '10pm'],
-    base:   [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+const CHART_CONFIG: Record<
+  AnalyticsPeriod,
+  {
+    labels: string[];
+    base: number[];
+    getBucket: (d: Date) => number;
+  }
+> = {
+  Today: {
+    labels: [
+      '12am',
+      '2am',
+      '4am',
+      '6am',
+      '8am',
+      '10am',
+      '12pm',
+      '2pm',
+      '4pm',
+      '6pm',
+      '8pm',
+      '10pm',
+    ],
+    base: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
     getBucket: (d) => Math.floor(d.getHours() / 2),
   },
   'This Week': {
     labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
-    base:   [0, 0, 0, 0, 0, 0, 0],
+    base: [0, 0, 0, 0, 0, 0, 0],
     getBucket: (d) => (d.getDay() + 6) % 7,
   },
   'This Month': {
     labels: ['Wk 1', 'Wk 2', 'Wk 3', 'Wk 4'],
-    base:   [0, 0, 0, 0],
+    base: [0, 0, 0, 0],
     getBucket: (d) => Math.min(Math.floor((d.getDate() - 1) / 7), 3),
   },
   'This Year': {
     labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
-    base:   [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    base: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
     getBucket: (d) => d.getMonth(),
   },
 };
-
 
 // ─── Period filter ────────────────────────────────────────────────────────────
 // Day bucketing now lives in src/utils/businessDay.ts (inBusinessPeriod), so a
@@ -81,9 +99,9 @@ const CHART_CONFIG: Record<AnalyticsPeriod, {
 // ─── Exported types ───────────────────────────────────────────────────────────
 export interface ChartPoint {
   label: string;
-  value: number;        // baseline + real (what the bar renders)
-  realRevenue: number;  // real portion only (for color + badge)
-  orders: number;       // real order count in this bucket (for tooltip)
+  value: number; // baseline + real (what the bar renders)
+  realRevenue: number; // real portion only (for color + badge)
+  orders: number; // real order count in this bucket (for tooltip)
 }
 
 export interface TopItem {
@@ -101,18 +119,18 @@ export interface AnalyticsResult {
   totalRevenue: number;
   totalOrders: number;
   avgOrderValue: number;
-  openOrders: number;           // live count only — no baseline (always current)
+  openOrders: number; // live count only — no baseline (always current)
   totalTax: number;
   totalPreTax: number;
 
   // ── Menu ────────────────────────────────────────────────────────────────────
   menuItemsCount: number;
   availableMenuItemsCount: number;
-  menuItems: MenuItem[];        // raw array (for NewOrderModal etc.)
+  menuItems: MenuItem[]; // raw array (for NewOrderModal etc.)
 
   // ── Real-only deltas (for "live" / "new" badges) ─────────────────────────────
   realRevenue: number;
-  realOrders: number;           // count of ALL orders placed in the period (excludes cancelled)
+  realOrders: number; // count of ALL orders placed in the period (excludes cancelled)
 
   // ── Chart ───────────────────────────────────────────────────────────────────
   chartData: ChartPoint[];
@@ -122,10 +140,10 @@ export interface AnalyticsResult {
 
   // ── Status breakdown (real only — it's a live metric) ───────────────────────
   statusBreakdown: Array<{ status: OrderStatus; count: number }>;
-  allOrdersTotal: number;       // total ALL real orders (for % denominator in status section)
+  allOrdersTotal: number; // total ALL real orders (for % denominator in status section)
   // ── Activity / transaction feeds ────────────────────────────────────────────
-  recentOrders: Order[];        // newest 5 all-time (Dashboard activity feed)
-  recentTransactions: Order[];  // newest 5 completed in period (Reports page)
+  recentOrders: Order[]; // newest 5 all-time (Dashboard activity feed)
+  recentTransactions: Order[]; // newest 5 completed in period (Reports page)
 
   // ── Raw period arrays (for components needing full access) ───────────────────
   periodOrders: Order[];
@@ -139,7 +157,7 @@ export function useAnalytics(period: AnalyticsPeriod): AnalyticsResult {
   const { items: menuItems, loading: menuLoading, error: menuError } = useMenu();
 
   const loading = ordersLoading || menuLoading;
-  const error   = ordersError ?? menuError ?? null;
+  const error = ordersError ?? menuError ?? null;
 
   // Business-day start hour is read ONCE per render and threaded into every day
   // check below, so we never re-read localStorage per order inside a filter.
@@ -150,8 +168,8 @@ export function useAnalytics(period: AnalyticsPeriod): AnalyticsResult {
   // present on every order, including Unpaid / OnAccount. Do NOT blank out while
   // loading if we already have orders (prevents flash-to-zero after hydrate).
   const periodOrders = useMemo(
-    () => orders.filter(o => inBusinessPeriod(countTimestamp(o), period, startHour)),
-    [orders, period, startHour],
+    () => orders.filter((o) => inBusinessPeriod(countTimestamp(o), period, startHour)),
+    [orders, period, startHour]
   );
 
   // Realized Sales: strictly paid orders (Cash + Card). REVENUE is attributed to
@@ -167,9 +185,8 @@ export function useAnalytics(period: AnalyticsPeriod): AnalyticsResult {
           o.status !== 'Cancelled' &&
           inBusinessPeriod(revenueTimestamp(o), period, startHour)
       ),
-    [orders, period, startHour],
+    [orders, period, startHour]
   );
-
 
   // Sum of real completed-order revenue in the period (including frozen tax when present)
   // CRITICAL: NaN / non-finite grandTotal/tax fields must be ignored (D1 nulls used to become 0/NaN)
@@ -198,30 +215,30 @@ export function useAnalytics(period: AnalyticsPeriod): AnalyticsResult {
   // is what completedPeriod tracks. Counting completedPeriod here hid every
   // Unpaid / OnAccount order and made the card understate real activity.
   const periodOrdersCount = useMemo(
-    () => periodOrders.filter(o => o.status !== 'Cancelled').length,
-    [periodOrders],
+    () => periodOrders.filter((o) => o.status !== 'Cancelled').length,
+    [periodOrders]
   );
 
   // ── Combined stats ──────────────────────────────────────────────────────────
-  const bl             = BASELINE[period];
-  const totalRevenue   = addMoney(bl.revenue, realRevenue);
-  const totalTax       = realTax;       // baseline has no tax component
-  const totalPreTax    = addMoney(bl.revenue, realPreTax);
-  const totalOrders    = bl.orders         + periodOrdersCount;
+  const bl = BASELINE[period];
+  const totalRevenue = addMoney(bl.revenue, realRevenue);
+  const totalTax = realTax; // baseline has no tax component
+  const totalPreTax = addMoney(bl.revenue, realPreTax);
+  const totalOrders = bl.orders + periodOrdersCount;
   const completedTotal = bl.completedOrders + completedPeriod.length;
-  const avgOrderValue  = averageMoney(totalRevenue, completedTotal);
+  const avgOrderValue = averageMoney(totalRevenue, completedTotal);
   const openOrders = useMemo(
-    () => orders.filter(o => ['New', 'Preparing', 'Ready'].includes(o.status)).length,
-    [orders],
+    () => orders.filter((o) => ['New', 'Preparing', 'Ready'].includes(o.status)).length,
+    [orders]
   );
 
   // ── Chart: baseline per bucket + real completed revenue per bucket ──────────
   const chartData = useMemo<ChartPoint[]>(() => {
-    const cfg       = CHART_CONFIG[period];
-    const realRev   = new Array(cfg.labels.length).fill(0);
+    const cfg = CHART_CONFIG[period];
+    const realRev = new Array(cfg.labels.length).fill(0);
     const realCount = new Array(cfg.labels.length).fill(0);
 
-    completedPeriod.forEach(o => {
+    completedPeriod.forEach((o) => {
       const ts = revenueTimestamp(o);
       // 'Today' buckets by real clock hour; coarser periods bucket by the
       // business date so a post-midnight order aligns to the correct day/week/month.
@@ -237,9 +254,9 @@ export function useAnalytics(period: AnalyticsPeriod): AnalyticsResult {
 
     return cfg.labels.map((label, i) => ({
       label,
-      value:       addMoney(cfg.base[i], realRev[i]),
+      value: addMoney(cfg.base[i], realRev[i]),
       realRevenue: realRev[i],
-      orders:      realCount[i],
+      orders: realCount[i],
     }));
   }, [completedPeriod, period, startHour]);
 
@@ -251,7 +268,7 @@ export function useAnalytics(period: AnalyticsPeriod): AnalyticsResult {
   const topItems = useMemo<TopItem[]>(() => {
     const map: Record<string, TopItem> = {};
 
-    completedPeriod.forEach(order => {
+    completedPeriod.forEach((order) => {
       // Resolve the order's actual grand total from the frozen snapshot so the
       // per-item revenue allocation matches what the dashboard / reports show.
       const orderTotal = getOrderMoney(order, getTaxRate()).grandTotal;
@@ -260,7 +277,7 @@ export function useAnalytics(period: AnalyticsPeriod): AnalyticsResult {
       // allocateMoney uses largest-remainder so the per-item parts sum back to
       // orderTotal EXACTLY — naive `total * fraction` per item leaks piasters
       // and made item revenue fail to reconcile with reported revenue.
-      const weights = order.items.map(i => lineTotal(i.price, i.quantity));
+      const weights = order.items.map((i) => lineTotal(i.price, i.quantity));
       const shares = allocateMoney(orderTotal, weights);
       order.items.forEach((item, i) => {
         if (!map[item.name]) map[item.name] = { name: item.name, count: 0, revenue: 0 };
@@ -269,7 +286,9 @@ export function useAnalytics(period: AnalyticsPeriod): AnalyticsResult {
       });
     });
 
-    return Object.values(map).sort((a, b) => b.count - a.count).slice(0, 5);
+    return Object.values(map)
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 5);
   }, [completedPeriod]);
 
   // ── Status breakdown: uses ALL real orders (live kitchen board view) ────────
@@ -279,9 +298,9 @@ export function useAnalytics(period: AnalyticsPeriod): AnalyticsResult {
   const statusBreakdown = useMemo(
     () =>
       (['New', 'Preparing', 'Ready', 'Completed', 'Cancelled'] as OrderStatus[])
-        .map(status => ({ status, count: orders.filter(o => o.status === status).length }))
-        .filter(x => x.count > 0),
-    [orders],
+        .map((status) => ({ status, count: orders.filter((o) => o.status === status).length }))
+        .filter((x) => x.count > 0),
+    [orders]
   );
   const allOrdersTotal = orders.length;
 
@@ -291,16 +310,20 @@ export function useAnalytics(period: AnalyticsPeriod): AnalyticsResult {
       [...orders]
         .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
         .slice(0, 5),
-    [orders],
+    [orders]
   );
 
   // ── Transactions: newest 5 completed in period (Reports page) ─────────────
   const recentTransactions = useMemo(
     () =>
       [...completedPeriod]
-        .sort((a, b) => new Date(b.paidAt || b.createdAt).getTime() - new Date(a.paidAt || a.createdAt).getTime())
+        .sort(
+          (a, b) =>
+            new Date(b.paidAt || b.createdAt).getTime() -
+            new Date(a.paidAt || a.createdAt).getTime()
+        )
         .slice(0, 5),
-    [completedPeriod],
+    [completedPeriod]
   );
 
   return {
@@ -312,8 +335,8 @@ export function useAnalytics(period: AnalyticsPeriod): AnalyticsResult {
     totalOrders,
     avgOrderValue,
     openOrders,
-    menuItemsCount:          menuItems.length,
-    availableMenuItemsCount: menuItems.filter(i => i.available).length,
+    menuItemsCount: menuItems.length,
+    availableMenuItemsCount: menuItems.filter((i) => i.available).length,
     menuItems,
     realRevenue,
     realOrders: periodOrdersCount,

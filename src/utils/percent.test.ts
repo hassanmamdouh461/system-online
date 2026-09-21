@@ -65,7 +65,7 @@ describe('the display helper is used everywhere a rate is shown', () => {
 
   it('PaymentModal renders both tax labels through the helper', () => {
     const src = read('../components/payment/PaymentModal.tsx');
-    expect(src).toContain("formatPercent(taxRate)");
+    expect(src).toContain('formatPercent(taxRate)');
     // The raw multiplication (and the truncating toFixed(0)) are gone.
     expect(src).not.toContain('taxRate * 100');
     expect(src).not.toContain('(taxRate * 100).toFixed(0)');

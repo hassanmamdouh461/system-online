@@ -2,7 +2,12 @@ import { useState, useEffect, useCallback } from 'react';
 import { Database, Wifi, WifiOff, RefreshCw, AlertTriangle } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useLanguage } from '../../context/LanguageContext';
-import { checkCloudHealth, fetchCloudLastWrite, getWorkerUrl, type CloudHealth } from '../../services/cloudConfig';
+import {
+  checkCloudHealth,
+  fetchCloudLastWrite,
+  getWorkerUrl,
+  type CloudHealth,
+} from '../../services/cloudConfig';
 import { syncService } from '../../services/syncService';
 import { newerTimestamp, isBackupStale } from '../../utils/backupFreshness';
 
@@ -108,9 +113,7 @@ export function DatabaseStatus() {
           color: 'text-amber-600',
           bgColor: 'bg-amber-50',
           borderColor: 'border-amber-200',
-          label: isAr
-            ? 'متصلة — لكن مفيش نسخ جديد'
-            : 'Connected — but no recent backup',
+          label: isAr ? 'متصلة — لكن مفيش نسخ جديد' : 'Connected — but no recent backup',
           description: isAr
             ? 'D1 متصلة، لكن آخر كتابة ناجحة بقالها أكتر من ٦ ساعات. راجع طابور المزامنة.'
             : 'D1 is reachable, but the last successful write is over 6 hours old. Check the sync queue.',

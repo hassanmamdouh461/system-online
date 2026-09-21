@@ -45,17 +45,17 @@ function normalizePhone(p?: string): string {
 /** True when this OnAccount invoice is carried by a company ledger. */
 export function isCompanyBilledOrder(order: Order): boolean {
   if (!order) return false;
-  
+
   // Edge Case: Exclude explicitly cancelled or refunded orders
   if (order.status === 'Cancelled' || order.paymentStatus === 'Refunded') return false;
-  
+
   // Must be strictly OnAccount
   if (order.paymentStatus !== 'OnAccount') return false;
 
   if (order.billedToType === 'customer') return false;
   if (order.billedToType === 'company') return true;
   if (!order.billedToType && order.companyId && order.companyName) return true;
-  
+
   return false;
 }
 
@@ -67,7 +67,7 @@ export function getCustomerAccountBalance(
   customer: Pick<Customer, 'id' | 'phone'>,
   taxRate = 0
 ): number {
-  return sumMoneyBy(getCustomerOpenInvoices(orders, customer), o =>
+  return sumMoneyBy(getCustomerOpenInvoices(orders, customer), (o) =>
     getOrderGrandTotal(o, taxRate)
   );
 }
@@ -87,7 +87,7 @@ export function getCompanyAccountBalance(
 ): number {
   return sumMoneyBy(
     getCompanyOpenInvoices(orders, companyId, memberPhones, memberIds, includeMemberPersonal),
-    o => getOrderGrandTotal(o, taxRate)
+    (o) => getOrderGrandTotal(o, taxRate)
   );
 }
 
@@ -96,13 +96,13 @@ export function getCustomerOpenInvoices(
   customer: Pick<Customer, 'id' | 'phone'>
 ): Order[] {
   if (!orders || !customer) return [];
-  
+
   return orders
-    .filter(o => {
+    .filter((o) => {
       // Exclude invalid or non-debt statuses explicitly
       if (o.status === 'Cancelled' || o.paymentStatus === 'Refunded') return false;
       if (o.paymentStatus !== 'OnAccount') return false;
-      
+
       if (isCompanyBilledOrder(o)) return false;
       if (o.customerId && o.customerId === customer.id) return true;
       return phonesMatch(o.customerPhone, customer.phone);
@@ -126,7 +126,7 @@ export function getCompanyOpenInvoices(
   const idSet = new Set(memberIds.filter(Boolean));
 
   return orders
-    .filter(o => {
+    .filter((o) => {
       // Exclude invalid or non-debt statuses explicitly
       if (o.status === 'Cancelled' || o.paymentStatus === 'Refunded') return false;
       if (o.paymentStatus !== 'OnAccount') return false;
@@ -147,6 +147,6 @@ export function getCompanyOpenInvoices(
 /** Strict company-only invoices (no personal member debts). */
 export function getCompanyBilledOnlyInvoices(orders: Order[], companyId: string): Order[] {
   return orders
-    .filter(o => isCompanyBilledOrder(o) && o.companyId === companyId)
+    .filter((o) => isCompanyBilledOrder(o) && o.companyId === companyId)
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 }

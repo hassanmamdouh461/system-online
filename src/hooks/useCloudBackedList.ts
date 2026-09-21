@@ -71,10 +71,7 @@ export type CloudBackedList = {
   canSync: boolean;
 };
 
-export function useCloudBackedList(
-  key: string,
-  defaults: readonly string[]
-): CloudBackedList {
+export function useCloudBackedList(key: string, defaults: readonly string[]): CloudBackedList {
   // `defaults` is usually an inline literal; freeze the first one so effects do
   // not re-run on every render.
   const defaultsRef = useRef(defaults);

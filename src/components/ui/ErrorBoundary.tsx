@@ -16,7 +16,7 @@ export class ErrorBoundary extends Component<Props, State> {
   public state: State = {
     hasError: false,
     error: null,
-    errorInfo: null
+    errorInfo: null,
   };
 
   public static getDerivedStateFromError(error: Error): State {
@@ -27,8 +27,8 @@ export class ErrorBoundary extends Component<Props, State> {
     console.error('[ErrorBoundary caught error]:', error, errorInfo);
     this.setState({ error, errorInfo });
 
-    const isChunkLoadError = 
-      error.name === 'ChunkLoadError' || 
+    const isChunkLoadError =
+      error.name === 'ChunkLoadError' ||
       error.message?.includes('Failed to fetch dynamically imported module') ||
       error.message?.includes('Expected a JavaScript-or-Wasm module script') ||
       error.message?.includes('importing a module script failed');
@@ -41,7 +41,6 @@ export class ErrorBoundary extends Component<Props, State> {
       }
     }
   }
-
 
   private handleReset = () => {
     this.setState({ hasError: false, error: null, errorInfo: null });

@@ -16,7 +16,24 @@ import { MenuItem } from '../../types/menu';
 import { OrderItem, Order } from '../../types/order';
 import { useLanguage } from '../../context/LanguageContext';
 import { useToast } from '../ui/Toast';
-import { Coffee, Trash2, Plus, Minus, CreditCard, DollarSign, Check, XCircle, Printer, Search, Settings, RotateCcw, X, BookUser, UserRound, Users } from 'lucide-react';
+import {
+  Coffee,
+  Trash2,
+  Plus,
+  Minus,
+  CreditCard,
+  DollarSign,
+  Check,
+  XCircle,
+  Printer,
+  Search,
+  Settings,
+  RotateCcw,
+  X,
+  BookUser,
+  UserRound,
+  Users,
+} from 'lucide-react';
 import { clsx } from 'clsx';
 import { needsStaffSelection } from '../../utils/staffAttribution';
 import { printAllOrderTickets } from '../../utils/printReceipts';
@@ -56,7 +73,7 @@ interface POSViewProps {
 export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSViewProps) {
   const { t, isRtl, language } = useLanguage();
   const toast = useToast();
-  
+
   const [invoiceItems, setInvoiceItems] = useState<OrderItem[]>(() => {
     try {
       const saved = localStorage.getItem('pos_invoiceItems');
@@ -82,7 +99,7 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
   const [tableId, setTableId] = useState<string>(() => {
     return localStorage.getItem('pos_tableId') || '';
   });
-  
+
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -164,14 +181,14 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
     if (!target) return;
     const cleanName = target.replace(/^T(?=\d+$)/i, '');
     if (!tables.includes(cleanName)) {
-      setTables(prev => [...prev, cleanName]);
+      setTables((prev) => [...prev, cleanName]);
     }
     setTableId(cleanName);
     setNewTableName('');
   };
 
   const handleDeleteTable = (num: string) => {
-    setTables(prev => prev.filter(t => t !== num));
+    setTables((prev) => prev.filter((t) => t !== num));
     if (tableId === num) {
       setTableId('');
     }
@@ -181,8 +198,6 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
     // Explicit operator action, so this one DOES upload the defaults.
     setTables([...DEFAULT_TABLES]);
   };
-
-
 
   const handleSetOrderMode = (mode: 'Dine-in' | 'Takeaway') => {
     setOrderMode(mode);
@@ -200,12 +215,12 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
     const cats = Array.from(
       new Set(
         menuItems
-          .filter(item => item.available)
-          .map(item => {
+          .filter((item) => item.available)
+          .map((item) => {
             const parts = item.category ? item.category.split('|') : [];
             return parts[0] || '';
           })
-          .filter(c => c)
+          .filter((c) => c)
       )
     );
     return ['All', ...cats];
@@ -213,31 +228,34 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
 
   // Filtered menu items
   const filteredMenuItems = useMemo(() => {
-    const available = menuItems.filter(item => item.available);
-    
+    const available = menuItems.filter((item) => item.available);
+
     // Filter by category name (part before '|')
-    const categoryFiltered = selectedCategory === 'All' 
-      ? available 
-      : available.filter(item => {
-          const parts = item.category ? item.category.split('|') : [];
-          const catName = parts[0] || '';
-          return catName === selectedCategory;
-        });
-      
+    const categoryFiltered =
+      selectedCategory === 'All'
+        ? available
+        : available.filter((item) => {
+            const parts = item.category ? item.category.split('|') : [];
+            const catName = parts[0] || '';
+            return catName === selectedCategory;
+          });
+
     // Next, filter by search query (Arabic & English support)
     if (!searchQuery.trim()) return categoryFiltered;
-    
+
     const query = searchQuery.toLowerCase().trim();
-    return categoryFiltered.filter(item => {
+    return categoryFiltered.filter((item) => {
       const nameTranslated = t(item.name).toLowerCase();
       const descTranslated = t(item.description || '').toLowerCase();
       const nameOriginal = item.name.toLowerCase();
       const descOriginal = (item.description || '').toLowerCase();
-      
-      return nameOriginal.includes(query) || 
-             descOriginal.includes(query) ||
-             nameTranslated.includes(query) ||
-             descTranslated.includes(query);
+
+      return (
+        nameOriginal.includes(query) ||
+        descOriginal.includes(query) ||
+        nameTranslated.includes(query) ||
+        descTranslated.includes(query)
+      );
     });
   }, [menuItems, selectedCategory, searchQuery, t]);
 
@@ -265,10 +283,10 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
 
   // Add item to invoice
   const handleAddItem = (menuItem: MenuItem) => {
-    setInvoiceItems(prev => {
-      const existing = prev.find(item => item.id === menuItem.id);
+    setInvoiceItems((prev) => {
+      const existing = prev.find((item) => item.id === menuItem.id);
       if (existing) {
-        return prev.map(item =>
+        return prev.map((item) =>
           item.id === menuItem.id ? { ...item, quantity: item.quantity + 1 } : item
         );
       }
@@ -287,9 +305,9 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
 
   // Adjust item quantity
   const handleAdjustQuantity = (itemId: string, amount: number) => {
-    setInvoiceItems(prev => {
+    setInvoiceItems((prev) => {
       return prev
-        .map(item => {
+        .map((item) => {
           if (item.id === itemId) {
             const nextQty = item.quantity + amount;
             return nextQty > 0 ? { ...item, quantity: nextQty } : null;
@@ -302,12 +320,12 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
 
   // Remove item from invoice
   const handleRemoveItem = (itemId: string) => {
-    setInvoiceItems(prev => prev.filter(item => item.id !== itemId));
+    setInvoiceItems((prev) => prev.filter((item) => item.id !== itemId));
   };
 
   // Keypad presses
   const handleKeypadPress = (val: string) => {
-    setReceivedAmount(prev => {
+    setReceivedAmount((prev) => {
       if (val === 'C') return '0';
       if (val === '.') {
         if (prev.includes('.')) return prev;
@@ -374,7 +392,11 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
     if (orderMode === 'Takeaway') {
       const received = safeMoney(receivedAmount);
       if (paymentMethod === 'Cash' && compareMoney(received, grandTotal) < 0) {
-        toast.error(isRtl ? 'يجب دفع الفاتورة أولاً لطلبات التيك أواي' : 'Takeaway orders must be paid in full first');
+        toast.error(
+          isRtl
+            ? 'يجب دفع الفاتورة أولاً لطلبات التيك أواي'
+            : 'Takeaway orders must be paid in full first'
+        );
         return;
       }
     }
@@ -432,10 +454,8 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
             if (!company) {
               const all = await companiesService.getAll();
               company =
-                all.find(c => c.id === result.customer!.companyId) ||
-                all.find(
-                  c => c.name.trim() === String(result.customer!.companyId).trim()
-                ) ||
+                all.find((c) => c.id === result.customer!.companyId) ||
+                all.find((c) => c.name.trim() === String(result.customer!.companyId).trim()) ||
                 null;
               // Never invent a company when only one exists in the DB.
             }
@@ -531,9 +551,7 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
         method = 'OnAccount';
       }
       const paidAmt =
-        finalStatus === 'Paid' || finalStatus === 'OnAccount'
-          ? grandTotal
-          : undefined;
+        finalStatus === 'Paid' || finalStatus === 'OnAccount' ? grandTotal : undefined;
       const accountMeta = buildAccountMeta(customer || linkedCustomer || undefined, company);
 
       const newOrder = await onCreateOrder(
@@ -547,7 +565,11 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
       );
 
       if (!newOrder) {
-        throw new Error(isRtl ? 'فشل حفظ الطلب — لم يُرجع النظام رقم طلب' : 'Failed to save order — no order returned');
+        throw new Error(
+          isRtl
+            ? 'فشل حفظ الطلب — لم يُرجع النظام رقم طلب'
+            : 'Failed to save order — no order returned'
+        );
       }
 
       try {
@@ -603,7 +625,11 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
       );
 
       if (!newOrder) {
-        throw new Error(isRtl ? 'فشل حفظ الطلب — لم يُرجع النظام رقم طلب' : 'Failed to save order — no order returned');
+        throw new Error(
+          isRtl
+            ? 'فشل حفظ الطلب — لم يُرجع النظام رقم طلب'
+            : 'Failed to save order — no order returned'
+        );
       }
 
       try {
@@ -632,7 +658,6 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
 
   return (
     <div className="flex flex-col sm:flex-row gap-2 sm:gap-2.5 md:gap-3 h-full overflow-hidden text-gray-800 w-full">
-      
       {/* 1. LEFT COLUMN: Payments & Calculator (Width 280-320px) - Only visible for Takeaway */}
       {orderMode === 'Takeaway' && (
         <div className="w-full sm:w-[260px] md:w-[280px] lg:w-[300px] xl:w-[320px] sm:h-full bg-white p-2 rounded-2xl border border-gray-200/80 shadow-sm flex flex-col justify-between overflow-hidden pos-calculator shrink-0">
@@ -640,40 +665,50 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
             <h2 className="font-extrabold text-xs md:text-sm text-mocha-800 border-b border-gray-100 pb-1 shrink-0">
               <span className="font-sans">{t('Payment & Invoice')}</span>
             </h2>
-            
+
             {/* Total Due & Received Amount Input */}
             <div className="grid grid-cols-2 gap-1.5 shrink-0">
               <div className="space-y-0.5">
-                <label className="text-[10px] md:text-xs text-gray-500 font-extrabold"><span className="font-sans">{t('Total Due')}</span></label>
+                <label className="text-[10px] md:text-xs text-gray-500 font-extrabold">
+                  <span className="font-sans">{t('Total Due')}</span>
+                </label>
                 <div className="w-full bg-gray-950 text-amber-400 font-mono text-sm md:text-base font-black px-2 py-0.5 rounded-lg border border-gray-800 flex justify-between items-center select-all h-[30px]">
                   <span>{formatMoney(grandTotal)}</span>
-                  <span className="text-[10px] text-gray-500 font-sans font-bold">{isRtl ? 'ج.م' : 'EGP'}</span>
+                  <span className="text-[10px] text-gray-500 font-sans font-bold">
+                    {isRtl ? 'ج.م' : 'EGP'}
+                  </span>
                 </div>
               </div>
 
               <div className="space-y-0.5">
-                <label className="text-[10px] md:text-xs text-gray-500 font-extrabold"><span className="font-sans">{t('Received Amount')}</span></label>
+                <label className="text-[10px] md:text-xs text-gray-500 font-extrabold">
+                  <span className="font-sans">{t('Received Amount')}</span>
+                </label>
                 <div className="w-full bg-gray-950 text-emerald-400 font-mono text-sm md:text-base font-black px-2 py-0.5 rounded-lg border border-gray-800 flex justify-between items-center select-all h-[30px]">
                   <span>{receivedAmount}</span>
-                  <span className="text-[10px] text-gray-500 font-sans font-bold">{isRtl ? 'ج.م' : 'EGP'}</span>
+                  <span className="text-[10px] text-gray-500 font-sans font-bold">
+                    {isRtl ? 'ج.م' : 'EGP'}
+                  </span>
                 </div>
               </div>
             </div>
 
             {/* Change for Customer */}
             <div className="space-y-0.5 shrink-0">
-              <label className="text-[10px] md:text-xs text-gray-500 font-extrabold"><span className="font-sans">{t('Change for Customer')}</span></label>
+              <label className="text-[10px] md:text-xs text-gray-500 font-extrabold">
+                <span className="font-sans">{t('Change for Customer')}</span>
+              </label>
               <div className="w-full bg-gray-950 text-amber-400 font-mono text-sm md:text-base font-black px-2 py-0.5 rounded-lg border border-gray-800 flex justify-between items-center h-[30px]">
                 <span>{formatMoney(changeAmount)}</span>
-                <span className="text-[10px] text-gray-500 font-sans font-bold">{isRtl ? 'ج.م' : 'EGP'}</span>
+                <span className="text-[10px] text-gray-500 font-sans font-bold">
+                  {isRtl ? 'ج.م' : 'EGP'}
+                </span>
               </div>
             </div>
 
-
-
             {/* Keypad */}
             <div className="grid grid-cols-3 grid-rows-5 gap-1 font-mono flex-1 min-h-0 py-0.5">
-              {['7', '8', '9', '4', '5', '6', '1', '2', '3', '.', '0', '00'].map(num => (
+              {['7', '8', '9', '4', '5', '6', '1', '2', '3', '.', '0', '00'].map((num) => (
                 <button
                   key={num}
                   onClick={() => handleKeypadPress(num)}
@@ -688,7 +723,6 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
               >
                 {language === 'ar' ? 'مسح الكل' : 'Clear All'}
               </button>
-
             </div>
 
             {/* Payment Method Selection */}
@@ -702,10 +736,10 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
                     type="button"
                     onClick={() => setPaymentMethod('Cash')}
                     className={clsx(
-                      "py-1.5 rounded-lg text-[10px] font-black transition-all flex flex-col items-center justify-center gap-0.5 border",
+                      'py-1.5 rounded-lg text-[10px] font-black transition-all flex flex-col items-center justify-center gap-0.5 border',
                       paymentMethod === 'Cash'
-                        ? "bg-mocha-600 text-white border-mocha-700 shadow-sm"
-                        : "bg-gray-50 text-gray-600 border-gray-200 hover:bg-white"
+                        ? 'bg-mocha-600 text-white border-mocha-700 shadow-sm'
+                        : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-white'
                     )}
                   >
                     <DollarSign size={14} />
@@ -715,10 +749,10 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
                     type="button"
                     onClick={() => setPaymentMethod('Card')}
                     className={clsx(
-                      "py-1.5 rounded-lg text-[10px] font-black transition-all flex flex-col items-center justify-center gap-0.5 border",
+                      'py-1.5 rounded-lg text-[10px] font-black transition-all flex flex-col items-center justify-center gap-0.5 border',
                       paymentMethod === 'Card'
-                        ? "bg-mocha-600 text-white border-mocha-700 shadow-sm"
-                        : "bg-gray-50 text-gray-600 border-gray-200 hover:bg-white"
+                        ? 'bg-mocha-600 text-white border-mocha-700 shadow-sm'
+                        : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-white'
                     )}
                   >
                     <CreditCard size={14} />
@@ -728,12 +762,16 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
                     type="button"
                     onClick={() => setPaymentMethod('OnAccount')}
                     className={clsx(
-                      "py-1.5 rounded-lg text-[10px] font-black transition-all flex flex-col items-center justify-center gap-0.5 border",
+                      'py-1.5 rounded-lg text-[10px] font-black transition-all flex flex-col items-center justify-center gap-0.5 border',
                       paymentMethod === 'OnAccount'
-                        ? "bg-amber-500 text-white border-amber-600 shadow-sm"
-                        : "bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100"
+                        ? 'bg-amber-500 text-white border-amber-600 shadow-sm'
+                        : 'bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100'
                     )}
-                    title={isRtl ? 'تسجيل على حساب العميل/الشركة (دفع مؤجل)' : 'Charge to customer/company account'}
+                    title={
+                      isRtl
+                        ? 'تسجيل على حساب العميل/الشركة (دفع مؤجل)'
+                        : 'Charge to customer/company account'
+                    }
                   >
                     <BookUser size={14} />
                     <span className="font-sans">{isRtl ? 'على الحساب' : 'On Account'}</span>
@@ -779,9 +817,11 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
               className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400 text-white font-black py-1.5 rounded-xl border border-emerald-700 transition-all active:scale-95 text-xs sm:text-sm text-center flex items-center justify-center gap-1.5 shadow-sm"
             >
               <Printer size={14} />
-              <span className="font-sans">{isProcessing ? t('Processing...') : t('Print & Pay')}</span>
+              <span className="font-sans">
+                {isProcessing ? t('Processing...') : t('Print & Pay')}
+              </span>
             </button>
-            
+
             <button
               onClick={handleReset}
               disabled={isProcessing}
@@ -799,15 +839,15 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-gray-100 shrink-0">
           {/* Categories */}
           <div className="flex gap-2 overflow-x-auto custom-scrollbar pb-1">
-            {categories.map(cat => (
+            {categories.map((cat) => (
               <button
                 key={cat}
                 onClick={() => setSelectedCategory(cat)}
                 className={clsx(
-                  "px-4 md:px-5 py-2 md:py-2.5 rounded-xl text-xs md:text-sm lg:text-base font-black whitespace-nowrap transition-all border",
+                  'px-4 md:px-5 py-2 md:py-2.5 rounded-xl text-xs md:text-sm lg:text-base font-black whitespace-nowrap transition-all border',
                   selectedCategory === cat
-                    ? "bg-mocha-600 text-white border-mocha-700 shadow-sm"
-                    : "bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100"
+                    ? 'bg-mocha-600 text-white border-mocha-700 shadow-sm'
+                    : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100'
                 )}
               >
                 {t(cat)}
@@ -817,7 +857,9 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
 
           {/* Search Input */}
           <div className="relative w-full sm:w-64">
-            <Search className={`absolute top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4 ${isRtl ? 'right-3' : 'left-3'}`} />
+            <Search
+              className={`absolute top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4 ${isRtl ? 'right-3' : 'left-3'}`}
+            />
             <input
               type="text"
               placeholder={t('Search items...')}
@@ -850,19 +892,31 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
             </div>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2 md:gap-2.5">
-              {filteredMenuItems.map(item => (
+              {filteredMenuItems.map((item) => (
                 <button
                   key={item.id}
                   onClick={() => handleAddItem(item)}
                   className="bg-gray-50 hover:bg-gray-100 active:scale-95 transition-all p-2 sm:p-2.5 rounded-xl border border-gray-200/60 hover:border-gray-300 shadow-sm flex flex-col justify-between items-start text-start min-h-[92px] sm:min-h-[100px] h-auto relative overflow-hidden group"
                 >
-                  <span className="font-bold text-xs sm:text-sm md:text-base text-gray-900 group-hover:text-mocha-700 font-sans leading-snug pt-0.5">{t(item.name)}</span>
+                  <span className="font-bold text-xs sm:text-sm md:text-base text-gray-900 group-hover:text-mocha-700 font-sans leading-snug pt-0.5">
+                    {t(item.name)}
+                  </span>
                   <div className="w-full flex justify-between items-center z-10 mt-2">
-                    <span className="font-mono text-sm sm:text-base md:text-lg font-black text-mocha-800">{formatMoney(item.price)} <span className="text-[10px] sm:text-xs text-gray-400 font-sans font-bold">{isRtl ? 'ج.م' : 'EGP'}</span></span>
-                    <span className="bg-mocha-50 text-mocha-600 text-xs sm:text-sm px-2 py-0.5 rounded-lg border border-mocha-200 group-hover:bg-mocha-600 group-hover:text-white transition-colors font-black">+</span>
+                    <span className="font-mono text-sm sm:text-base md:text-lg font-black text-mocha-800">
+                      {formatMoney(item.price)}{' '}
+                      <span className="text-[10px] sm:text-xs text-gray-400 font-sans font-bold">
+                        {isRtl ? 'ج.م' : 'EGP'}
+                      </span>
+                    </span>
+                    <span className="bg-mocha-50 text-mocha-600 text-xs sm:text-sm px-2 py-0.5 rounded-lg border border-mocha-200 group-hover:bg-mocha-600 group-hover:text-white transition-colors font-black">
+                      +
+                    </span>
                   </div>
                   {/* Subtle hover icon decoration */}
-                  <Coffee size={32} className="absolute -right-2 -bottom-2 text-gray-200/20 group-hover:text-mocha-200/10 transition-all pointer-events-none" />
+                  <Coffee
+                    size={32}
+                    className="absolute -right-2 -bottom-2 text-gray-200/20 group-hover:text-mocha-200/10 transition-all pointer-events-none"
+                  />
                 </button>
               ))}
             </div>
@@ -871,33 +925,43 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
       </div>
 
       {/* 3. RIGHT COLUMN: Current Bill & Summary (Expands in Dine-in mode) */}
-      <div className={clsx(
-        "sm:h-full bg-white p-3 md:p-4 rounded-2xl border border-gray-200/80 shadow-sm flex flex-col justify-between overflow-hidden shrink-0 transition-all duration-300",
-        orderMode === 'Dine-in'
-          ? "w-full sm:w-[360px] md:w-[400px] lg:w-[420px] xl:w-[460px]"
-          : "w-full sm:w-[240px] md:w-[250px] lg:w-[260px] xl:w-[280px]"
-      )}>
+      <div
+        className={clsx(
+          'sm:h-full bg-white p-3 md:p-4 rounded-2xl border border-gray-200/80 shadow-sm flex flex-col justify-between overflow-hidden shrink-0 transition-all duration-300',
+          orderMode === 'Dine-in'
+            ? 'w-full sm:w-[360px] md:w-[400px] lg:w-[420px] xl:w-[460px]'
+            : 'w-full sm:w-[240px] md:w-[250px] lg:w-[260px] xl:w-[280px]'
+        )}
+      >
         <div className="flex-1 flex flex-col overflow-hidden">
-          <h2 className="font-extrabold text-xs md:text-sm text-mocha-800 border-b border-gray-100 pb-1 shrink-0">{t('Invoice Details')}</h2>
-          
+          <h2 className="font-extrabold text-xs md:text-sm text-mocha-800 border-b border-gray-100 pb-1 shrink-0">
+            {t('Invoice Details')}
+          </h2>
+
           {/* Staff picker — who is taking this order (printed on the invoice) */}
           <button
             type="button"
             onClick={() => setIsStaffPickerOpen(true)}
             className={clsx(
-              "mt-1.5 w-full flex items-center justify-between gap-2 px-3 py-1.5 rounded-xl border text-xs md:text-sm font-extrabold transition-all shrink-0 shadow-sm",
+              'mt-1.5 w-full flex items-center justify-between gap-2 px-3 py-1.5 rounded-xl border text-xs md:text-sm font-extrabold transition-all shrink-0 shadow-sm',
               selectedStaff
-                ? "bg-mocha-600 text-white border-mocha-700"
-                : "bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100"
+                ? 'bg-mocha-600 text-white border-mocha-700'
+                : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100'
             )}
-            title={isRtl ? 'اختيار الموظف / الكاشير الواقف على الطلب' : 'Pick the staff member taking this order'}
+            title={
+              isRtl
+                ? 'اختيار الموظف / الكاشير الواقف على الطلب'
+                : 'Pick the staff member taking this order'
+            }
           >
             <span className="flex items-center gap-1.5 min-w-0">
               <UserRound size={14} className="shrink-0" />
               <span className="truncate">
                 {selectedStaff
                   ? `${isRtl ? 'الموظف' : 'Staff'}: ${selectedStaff}`
-                  : isRtl ? 'اختر الموظف / الكاشير' : 'Select staff / cashier'}
+                  : isRtl
+                    ? 'اختر الموظف / الكاشير'
+                    : 'Select staff / cashier'}
               </span>
             </span>
             <Users size={14} className="shrink-0 opacity-70" />
@@ -908,8 +972,10 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
             <button
               onClick={() => handleSetOrderMode('Dine-in')}
               className={clsx(
-                "flex-1 py-1.5 rounded-lg text-xs md:text-sm font-extrabold transition-all",
-                orderMode === 'Dine-in' ? "bg-white text-mocha-700 shadow-sm" : "text-gray-500 hover:bg-white/50"
+                'flex-1 py-1.5 rounded-lg text-xs md:text-sm font-extrabold transition-all',
+                orderMode === 'Dine-in'
+                  ? 'bg-white text-mocha-700 shadow-sm'
+                  : 'text-gray-500 hover:bg-white/50'
               )}
             >
               {t('Dine-in')}
@@ -917,15 +983,15 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
             <button
               onClick={() => handleSetOrderMode('Takeaway')}
               className={clsx(
-                "flex-1 py-1.5 rounded-lg text-xs md:text-sm font-extrabold transition-all",
-                orderMode === 'Takeaway' ? "bg-white text-mocha-700 shadow-sm" : "text-gray-500 hover:bg-white/50"
+                'flex-1 py-1.5 rounded-lg text-xs md:text-sm font-extrabold transition-all',
+                orderMode === 'Takeaway'
+                  ? 'bg-white text-mocha-700 shadow-sm'
+                  : 'text-gray-500 hover:bg-white/50'
               )}
             >
               {t('Takeaway')}
             </button>
           </div>
-
-
 
           {/* Table ID Selector (Only visible for Dine-in) - Compact & Dynamic */}
           {orderMode === 'Dine-in' && (
@@ -951,14 +1017,14 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
                   onBlur={() => {
                     const clean = tableId.trim().replace(/^T(?=\d+$)/i, '');
                     if (clean && !tables.includes(clean)) {
-                      setTables(prev => [...prev, clean]);
+                      setTables((prev) => [...prev, clean]);
                     }
                   }}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') {
                       const clean = tableId.trim().replace(/^T(?=\d+$)/i, '');
                       if (clean && !tables.includes(clean)) {
-                        setTables(prev => [...prev, clean]);
+                        setTables((prev) => [...prev, clean]);
                       }
                     }
                   }}
@@ -968,15 +1034,15 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
               </div>
 
               <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto pr-0.5 custom-scrollbar">
-                {tables.map(num => (
+                {tables.map((num) => (
                   <button
                     key={num}
                     onClick={() => setTableId(num)}
                     className={clsx(
-                      "px-2.5 py-1 text-xs font-black rounded-lg border transition-all shadow-sm flex items-center justify-center min-w-[36px]",
+                      'px-2.5 py-1 text-xs font-black rounded-lg border transition-all shadow-sm flex items-center justify-center min-w-[36px]',
                       tableId === num
-                        ? "bg-mocha-600 text-white border-mocha-700 shadow-sm"
-                        : "bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100"
+                        ? 'bg-mocha-600 text-white border-mocha-700 shadow-sm'
+                        : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100'
                     )}
                   >
                     {num}
@@ -1011,10 +1077,19 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
                   >
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-1">
-                        <span className="font-extrabold text-[10px] md:text-xs text-gray-400 font-sans">{idx + 1}.</span>
-                        <span className="font-extrabold text-gray-900 truncate text-xs md:text-sm font-sans">{t(item.name)}</span>
+                        <span className="font-extrabold text-[10px] md:text-xs text-gray-400 font-sans">
+                          {idx + 1}.
+                        </span>
+                        <span className="font-extrabold text-gray-900 truncate text-xs md:text-sm font-sans">
+                          {t(item.name)}
+                        </span>
                       </div>
-                      <span className="text-[11px] md:text-xs text-mocha-700 font-extrabold font-mono">{formatMoney(lineTotal(item.price, item.quantity))} <span className="font-sans text-[9px] md:text-[10px]">{isRtl ? 'ج.م' : 'EGP'}</span></span>
+                      <span className="text-[11px] md:text-xs text-mocha-700 font-extrabold font-mono">
+                        {formatMoney(lineTotal(item.price, item.quantity))}{' '}
+                        <span className="font-sans text-[9px] md:text-[10px]">
+                          {isRtl ? 'ج.م' : 'EGP'}
+                        </span>
+                      </span>
                     </div>
 
                     <div className="flex items-center gap-1 shrink-0">
@@ -1025,7 +1100,9 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
                         >
                           <Minus size={12} />
                         </button>
-                        <span className="px-1.5 font-black text-gray-900 text-xs md:text-sm">{item.quantity}</span>
+                        <span className="px-1.5 font-black text-gray-900 text-xs md:text-sm">
+                          {item.quantity}
+                        </span>
                         <button
                           onClick={() => handleAdjustQuantity(item.id, 1)}
                           className="p-1 hover:bg-gray-100 rounded text-gray-500"
@@ -1061,7 +1138,9 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
             </div>
             <div className="bg-gray-50 px-1.5 py-1 rounded-lg border border-gray-200 flex flex-col items-center justify-center">
               <span className="text-gray-400 font-extrabold text-[8px]">{t('Invoice Date')}</span>
-              <span className="font-bold text-gray-800 mt-0.5">{new Date().toLocaleDateString(isRtl ? 'ar-EG' : 'en-US')}</span>
+              <span className="font-bold text-gray-800 mt-0.5">
+                {new Date().toLocaleDateString(isRtl ? 'ar-EG' : 'en-US')}
+              </span>
             </div>
           </div>
 
@@ -1069,10 +1148,13 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
           <div className="bg-amber-50/80 px-2.5 py-1 rounded-xl border border-amber-200 flex items-center justify-between shadow-xs">
             <span className="text-[11px] font-extrabold text-amber-900">{t('Total')}:</span>
             <span className="font-mono text-sm font-black text-amber-950">
-              {formatMoney(grandTotal)} <span className="text-[9px] font-sans font-bold text-amber-800">{isRtl ? 'ج.م' : 'EGP'}</span>
+              {formatMoney(grandTotal)}{' '}
+              <span className="text-[9px] font-sans font-bold text-amber-800">
+                {isRtl ? 'ج.م' : 'EGP'}
+              </span>
             </span>
           </div>
-          
+
           {/* Action buttons & OnAccount for Dine-in */}
           {orderMode === 'Dine-in' && (
             <div className="space-y-1 pt-0.5">
@@ -1086,12 +1168,16 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
                     type="button"
                     onClick={() => setPaymentMethod('OnAccount')}
                     className={clsx(
-                      "py-1.5 rounded-lg text-[10px] font-black transition-all flex items-center justify-center gap-1.5 border",
+                      'py-1.5 rounded-lg text-[10px] font-black transition-all flex items-center justify-center gap-1.5 border',
                       paymentMethod === 'OnAccount'
-                        ? "bg-amber-500 text-white border-amber-600 shadow-sm"
-                        : "bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100"
+                        ? 'bg-amber-500 text-white border-amber-600 shadow-sm'
+                        : 'bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100'
                     )}
-                    title={isRtl ? 'تسجيل على حساب العميل/الشركة (دفع مؤجل)' : 'Charge to customer/company account'}
+                    title={
+                      isRtl
+                        ? 'تسجيل على حساب العميل/الشركة (دفع مؤجل)'
+                        : 'Charge to customer/company account'
+                    }
                   >
                     <BookUser size={14} />
                     <span className="font-sans">{isRtl ? 'على الحساب' : 'On Account'}</span>
@@ -1179,7 +1265,7 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
                   </p>
                 ) : (
                   <div className="grid grid-cols-2 gap-1.5 max-h-56 overflow-y-auto custom-scrollbar p-0.5">
-                    {staffList.map(name => (
+                    {staffList.map((name) => (
                       <div key={name} className="relative group">
                         <button
                           type="button"
@@ -1188,10 +1274,10 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
                             setIsStaffPickerOpen(false);
                           }}
                           className={clsx(
-                            "w-full px-3 py-2.5 rounded-xl border text-xs md:text-sm font-black transition-all flex items-center justify-center gap-1.5 shadow-sm",
+                            'w-full px-3 py-2.5 rounded-xl border text-xs md:text-sm font-black transition-all flex items-center justify-center gap-1.5 shadow-sm',
                             selectedStaff === name
-                              ? "bg-mocha-600 text-white border-mocha-700"
-                              : "bg-gray-50 text-gray-800 border-gray-200 hover:bg-gray-100"
+                              ? 'bg-mocha-600 text-white border-mocha-700'
+                              : 'bg-gray-50 text-gray-800 border-gray-200 hover:bg-gray-100'
                           )}
                         >
                           <UserRound size={13} className="shrink-0" />
@@ -1201,7 +1287,7 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
                         <button
                           type="button"
                           onClick={() => {
-                            setStaffList(prev => prev.filter(n => n !== name));
+                            setStaffList((prev) => prev.filter((n) => n !== name));
                             if (selectedStaff === name) setSelectedStaff('');
                           }}
                           className="absolute -top-1.5 -end-1.5 bg-white text-red-500 hover:text-red-700 border border-red-200 rounded-full p-0.5 shadow-sm opacity-0 group-hover:opacity-100 transition-opacity"
@@ -1222,7 +1308,7 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
                   const clean = newStaffName.trim();
                   if (!clean) return;
                   if (!staffList.includes(clean)) {
-                    setStaffList(prev => [...prev, clean]);
+                    setStaffList((prev) => [...prev, clean]);
                   }
                   setSelectedStaff(clean);
                   setNewStaffName('');
@@ -1307,7 +1393,11 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
                   type="text"
                   value={newTableName}
                   onChange={(e) => setNewTableName(e.target.value)}
-                  placeholder={isRtl ? 'رقم أو اسم الطاولة (مثال: 9 أو VIP)' : 'Table Name / No (e.g. 9 or VIP)'}
+                  placeholder={
+                    isRtl
+                      ? 'رقم أو اسم الطاولة (مثال: 9 أو VIP)'
+                      : 'Table Name / No (e.g. 9 or VIP)'
+                  }
                   className="flex-1 px-4 py-2 bg-gray-50 border border-gray-300 rounded-xl text-sm font-extrabold text-gray-900 focus:outline-none focus:border-mocha-600"
                 />
                 <button
@@ -1322,15 +1412,19 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
               {/* Table Badges List */}
               <div className="space-y-1.5">
                 <label className="text-xs text-gray-500 font-extrabold uppercase block">
-                  {isRtl ? 'الطاولات الحالية (اضغط على × للحذف):' : 'Current Tables (click × to delete):'}
+                  {isRtl
+                    ? 'الطاولات الحالية (اضغط على × للحذف):'
+                    : 'Current Tables (click × to delete):'}
                 </label>
                 <div className="flex flex-wrap gap-2 max-h-48 overflow-y-auto p-2 bg-gray-50 rounded-xl border border-gray-200 custom-scrollbar">
-                  {tables.map(num => (
+                  {tables.map((num) => (
                     <div
                       key={num}
                       className={clsx(
-                        "flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-black transition-all shadow-sm",
-                        tableId === num ? "bg-mocha-600 text-white border-mocha-700" : "bg-white text-gray-800 border-gray-200"
+                        'flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-black transition-all shadow-sm',
+                        tableId === num
+                          ? 'bg-mocha-600 text-white border-mocha-700'
+                          : 'bg-white text-gray-800 border-gray-200'
                       )}
                     >
                       <span>{num}</span>
@@ -1370,43 +1464,43 @@ export function POSView({ menuItems, onCreateOrder, estimatedOrderNumber }: POSV
       )}
 
       {/* Customer phone lookup before checkout (skippable) */}
-      {pendingCheckout && createPortal(
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
-          <div
-            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-            onClick={() => setPendingCheckout(null)}
-          />
-          <div className="relative bg-white rounded-2xl w-full max-w-md tablet:max-w-lg shadow-2xl z-10 overflow-hidden p-5">
-            <div className="flex justify-between items-center mb-2">
-              <h3 className="text-sm font-extrabold text-gray-900">
-                {language === 'ar' ? 'قبل إتمام الطلب' : 'Before completing order'}
-              </h3>
-              <button
-                type="button"
-                onClick={() => setPendingCheckout(null)}
-                className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500"
-              >
-                <X size={18} />
-              </button>
-            </div>
-            <CustomerLookupStep
-              initialPhone={customerPhone}
-              onResolved={handleCustomerLookupResolved}
-              onCancel={() => setPendingCheckout(null)}
-              compact
-              accountMode={
-                paymentMethod === 'OnAccount'
-                  ? billTo === 'company'
-                    ? 'company'
-                    : 'customer'
-                  : 'any'
-              }
+      {pendingCheckout &&
+        createPortal(
+          <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
+            <div
+              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+              onClick={() => setPendingCheckout(null)}
             />
-          </div>
-        </div>,
-        document.body
-      )}
-
+            <div className="relative bg-white rounded-2xl w-full max-w-md tablet:max-w-lg shadow-2xl z-10 overflow-hidden p-5">
+              <div className="flex justify-between items-center mb-2">
+                <h3 className="text-sm font-extrabold text-gray-900">
+                  {language === 'ar' ? 'قبل إتمام الطلب' : 'Before completing order'}
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => setPendingCheckout(null)}
+                  className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+              <CustomerLookupStep
+                initialPhone={customerPhone}
+                onResolved={handleCustomerLookupResolved}
+                onCancel={() => setPendingCheckout(null)}
+                compact
+                accountMode={
+                  paymentMethod === 'OnAccount'
+                    ? billTo === 'company'
+                      ? 'company'
+                      : 'customer'
+                    : 'any'
+                }
+              />
+            </div>
+          </div>,
+          document.body
+        )}
     </div>
   );
 }

@@ -1,12 +1,5 @@
 import { useState } from 'react';
-import {
-  User,
-  LogOut,
-  Store,
-  QrCode,
-  Send,
-  Settings as SettingsIcon,
-} from 'lucide-react';
+import { User, LogOut, Store, QrCode, Send, Settings as SettingsIcon } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { DatabaseStatus } from '../components/ui/DatabaseStatus';
 import { SyncStatus } from '../components/ui/SyncStatus';
@@ -50,7 +43,10 @@ export default function Settings() {
               {
                 icon: Store,
                 label: language === 'ar' ? 'إعدادات المتجر' : 'Store Configuration',
-                desc: language === 'ar' ? 'نسبة الضريبة والإعدادات العامة' : 'Tax rate and store options',
+                desc:
+                  language === 'ar'
+                    ? 'نسبة الضريبة والإعدادات العامة'
+                    : 'Tax rate and store options',
                 onClick: () => setOpenModal('store'),
               },
             ],
@@ -71,7 +67,10 @@ export default function Settings() {
               {
                 icon: Send,
                 label: language === 'ar' ? 'تقارير تيليجرام' : 'Telegram Reports',
-                desc: language === 'ar' ? 'تقارير المبيعات اليومية' : 'Daily sales report notifications',
+                desc:
+                  language === 'ar'
+                    ? 'تقارير المبيعات اليومية'
+                    : 'Daily sales report notifications',
                 onClick: () => setOpenModal('telegram'),
               },
             ]
@@ -127,10 +126,18 @@ export default function Settings() {
         ))}
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.28 }}>
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.28 }}
+          >
             <DatabaseStatus />
           </motion.div>
-          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.32 }}>
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.32 }}
+          >
             <SyncStatus />
           </motion.div>
         </div>

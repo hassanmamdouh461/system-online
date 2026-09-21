@@ -189,7 +189,6 @@ export class IndexedDbMenuRepository implements IMenuRepository {
       }
     }
 
-
     // Always hide soft-deleted items from consumers.
     const live = localItems.filter((item) => !item.deletedAt);
 
@@ -202,8 +201,7 @@ export class IndexedDbMenuRepository implements IMenuRepository {
     // Cashier devices never push menu writes (see canPushMenuWrite): the server
     // would 403 every row and fill the queue with dead records.
     if (!canPushMenuWrite()) return 0;
-    const list =
-      items || ((await withDB((db) => db.getAll('menu_items'))) as MenuItem[]);
+    const list = items || ((await withDB((db) => db.getAll('menu_items'))) as MenuItem[]);
     if (!list.length) return 0;
     // Never push tombstoned rows back to the cloud as live items.
     const live = list.filter((i) => !i.deletedAt);

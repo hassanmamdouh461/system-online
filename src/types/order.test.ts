@@ -41,17 +41,17 @@ describe('getOrderGrandTotal', () => {
 describe('getOrderGrandTotal corrupt snapshot guard (OT-007)', () => {
   it('recomputes when the stored total is below the subtotal', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    expect(
-      getOrderGrandTotal({ totalAmount: 100, taxAmount: 14, grandTotal: 50 } as any)
-    ).toBe(114);
+    expect(getOrderGrandTotal({ totalAmount: 100, taxAmount: 14, grandTotal: 50 } as any)).toBe(
+      114
+    );
     expect(warn).toHaveBeenCalled();
     warn.mockRestore();
   });
 
   it('still trusts a consistent stored total', () => {
-    expect(
-      getOrderGrandTotal({ totalAmount: 100, taxAmount: 14, grandTotal: 114 } as any)
-    ).toBe(114);
+    expect(getOrderGrandTotal({ totalAmount: 100, taxAmount: 14, grandTotal: 114 } as any)).toBe(
+      114
+    );
   });
 
   it('tolerates piaster-level float drift', () => {

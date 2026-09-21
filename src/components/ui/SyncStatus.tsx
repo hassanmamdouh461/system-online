@@ -207,7 +207,9 @@ export function SyncStatus() {
           label: language === 'ar' ? 'خطأ مزامنة' : 'Sync Error',
           description:
             syncStatus.lastError ||
-            (language === 'ar' ? 'فشل رفع بعض السجلات إلى D1' : 'Some records failed to upload to D1'),
+            (language === 'ar'
+              ? 'فشل رفع بعض السجلات إلى D1'
+              : 'Some records failed to upload to D1'),
           spin: false,
         };
       case 'idle':
@@ -226,7 +228,9 @@ export function SyncStatus() {
                 ? 'جاهز'
                 : 'Ready',
           description:
-            language === 'ar' ? 'محرك المزامنة جاهز للرفع إلى D1' : 'Sync engine ready to push to D1',
+            language === 'ar'
+              ? 'محرك المزامنة جاهز للرفع إلى D1'
+              : 'Sync engine ready to push to D1',
           spin: false,
         };
     }

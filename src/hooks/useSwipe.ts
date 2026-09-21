@@ -11,7 +11,7 @@ interface SwipeHandlers {
 
 interface SwipeConfig {
   minSwipeDistance?: number; // Minimum distance for a swipe (in pixels)
-  maxSwipeTime?: number;     // Maximum time for a swipe (in ms)
+  maxSwipeTime?: number; // Maximum time for a swipe (in ms)
 }
 
 export function useSwipe(handlers: SwipeHandlers, config: SwipeConfig = {}) {
@@ -30,9 +30,6 @@ export function useSwipe(handlers: SwipeHandlers, config: SwipeConfig = {}) {
 
   const onTouchMove = (_e: TouchEvent) => {
     if (!touchStart) return;
-
-
-
   };
 
   const onTouchEnd = (e: TouchEvent) => {

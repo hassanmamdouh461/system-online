@@ -72,12 +72,7 @@ export interface BrewMasterDBSchema extends DBSchema {
 }
 
 export type StoreName =
-  | 'menu_items'
-  | 'orders'
-  | 'customers'
-  | 'companies'
-  | 'inventory'
-  | 'sync_queue';
+  'menu_items' | 'orders' | 'customers' | 'companies' | 'inventory' | 'sync_queue';
 
 const DB_NAME = 'system-online-v2-client-db';
 /** v5: hardened connection lifecycle; customers phone index non-unique */
@@ -252,7 +247,9 @@ export async function getDB(): Promise<IDBPDatabase<BrewMasterDBSchema>> {
 /**
  * Run an async fn with a healthy DB. Retries once if connection is closing.
  */
-export async function withDB<T>(fn: (db: IDBPDatabase<BrewMasterDBSchema>) => Promise<T>): Promise<T> {
+export async function withDB<T>(
+  fn: (db: IDBPDatabase<BrewMasterDBSchema>) => Promise<T>
+): Promise<T> {
   try {
     const db = await getDB();
     return await fn(db);
@@ -282,10 +279,7 @@ export function enqueueWrite<T>(fn: () => Promise<T>): Promise<T> {
 /**
  * Put many rows into one store, one transaction, row-level skip on bad data.
  */
-export async function putMany(
-  storeName: StoreName,
-  rows: any[]
-): Promise<number> {
+export async function putMany(storeName: StoreName, rows: any[]): Promise<number> {
   if (!rows.length) return 0;
   return withDB(async (db) => {
     const tx = db.transaction(storeName, 'readwrite');
@@ -325,5 +319,3 @@ export function resetDBConnection() {
   dbInstance = null;
   openPromise = null;
 }
-
-

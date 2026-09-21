@@ -2,7 +2,12 @@ import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { X, ShieldCheck, AlertCircle, Lock, ShieldAlert } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
-import { getAdminCredentials, setAdminCredentials, getManagerCredentials, setManagerCredentials } from '../../utils/settingsConfig';
+import {
+  getAdminCredentials,
+  setAdminCredentials,
+  getManagerCredentials,
+  setManagerCredentials,
+} from '../../utils/settingsConfig';
 import { useAuth } from '../../context/AuthContext';
 import { getSessionRole } from '../../services/cloudConfig';
 
@@ -56,7 +61,9 @@ export function ProfileSettingsModal({ isOpen, onClose }: ProfileSettingsModalPr
 
     if (!isManager) {
       // Should not happen — the form is hidden for cashiers — but fail-closed.
-      setError('تغيير كلمة المرور يحتاج صلاحية مدير. / Changing login passwords requires manager access.');
+      setError(
+        'تغيير كلمة المرور يحتاج صلاحية مدير. / Changing login passwords requires manager access.'
+      );
       return;
     }
 
@@ -103,7 +110,9 @@ export function ProfileSettingsModal({ isOpen, onClose }: ProfileSettingsModalPr
       // Surface the typed error from setAdminCredentials / setManagerCredentials
       // when the D1 write was denied (canPushSettingKey returned false).
       if (msg.includes('credential_sync_denied') || msg.includes('manager')) {
-        setError('تغيير كلمة المرور يحتاج صلاحية مدير. / Changing login passwords requires manager access.');
+        setError(
+          'تغيير كلمة المرور يحتاج صلاحية مدير. / Changing login passwords requires manager access.'
+        );
       } else {
         setError(t('Failed to change password. Please try again.') + (msg ? ` (${msg})` : ''));
       }
@@ -127,10 +136,15 @@ export function ProfileSettingsModal({ isOpen, onClose }: ProfileSettingsModalPr
             </div>
             <div>
               <h2 className="text-lg font-bold text-white">{t('Change Password')}</h2>
-              <p className="text-blue-100 text-xs">{t('Update the password used to log into the system')}</p>
+              <p className="text-blue-100 text-xs">
+                {t('Update the password used to log into the system')}
+              </p>
             </div>
           </div>
-          <button onClick={onClose} className="text-white/80 hover:text-white p-2 rounded-lg hover:bg-white/10 transition-colors">
+          <button
+            onClick={onClose}
+            className="text-white/80 hover:text-white p-2 rounded-lg hover:bg-white/10 transition-colors"
+          >
             <X size={20} />
           </button>
         </div>
@@ -146,10 +160,12 @@ export function ProfileSettingsModal({ isOpen, onClose }: ProfileSettingsModalPr
               <div className="space-y-2">
                 <p className="font-bold text-gray-800 text-base">تغيير كلمة المرور غير متاح</p>
                 <p className="text-sm text-gray-600 leading-relaxed">
-                  تغيير كلمات مرور تسجيل الدخول يحتاج صلاحية <strong>مدير</strong>. تواصل مع المدير لتغيير كلمة المرور.
+                  تغيير كلمات مرور تسجيل الدخول يحتاج صلاحية <strong>مدير</strong>. تواصل مع المدير
+                  لتغيير كلمة المرور.
                 </p>
                 <p className="text-sm text-gray-500 leading-relaxed mt-1">
-                  Only a <strong>manager</strong> can change login passwords. Contact the manager to update your password.
+                  Only a <strong>manager</strong> can change login passwords. Contact the manager to
+                  update your password.
                 </p>
               </div>
               <button
@@ -164,7 +180,9 @@ export function ProfileSettingsModal({ isOpen, onClose }: ProfileSettingsModalPr
             <>
               {/* Role target selector */}
               <div className="space-y-2">
-                <label className="text-sm font-bold text-gray-700 block">تغيير كلمة مرور / Change password for</label>
+                <label className="text-sm font-bold text-gray-700 block">
+                  تغيير كلمة مرور / Change password for
+                </label>
                 <div className="grid grid-cols-2 gap-2">
                   <button
                     type="button"
@@ -193,7 +211,9 @@ export function ProfileSettingsModal({ isOpen, onClose }: ProfileSettingsModalPr
 
               <div className="space-y-4">
                 <div className="space-y-1">
-                  <label className="text-sm font-bold text-gray-700 block">{t('New Password')}</label>
+                  <label className="text-sm font-bold text-gray-700 block">
+                    {t('New Password')}
+                  </label>
                   <input
                     type="password"
                     value={password}
@@ -205,7 +225,9 @@ export function ProfileSettingsModal({ isOpen, onClose }: ProfileSettingsModalPr
                 </div>
 
                 <div className="space-y-1">
-                  <label className="text-sm font-bold text-gray-700 block">{t('Confirm New Password')}</label>
+                  <label className="text-sm font-bold text-gray-700 block">
+                    {t('Confirm New Password')}
+                  </label>
                   <input
                     type="password"
                     value={confirmPassword}
@@ -230,7 +252,9 @@ export function ProfileSettingsModal({ isOpen, onClose }: ProfileSettingsModalPr
                     <p>{t('Password updated successfully!')}</p>
                   </div>
                   {target === 'manager' && (
-                    <p className="text-xs text-blue-600 ml-6">{t('Logging you out to apply changes...')}</p>
+                    <p className="text-xs text-blue-600 ml-6">
+                      {t('Logging you out to apply changes...')}
+                    </p>
                   )}
                 </div>
               )}

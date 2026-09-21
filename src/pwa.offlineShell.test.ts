@@ -54,9 +54,7 @@ describe('offline app shell', () => {
   });
 
   it('the manifest is valid JSON with a usable start_url and scope', () => {
-    const manifest = JSON.parse(
-      readFileSync(resolve(root, 'public/manifest.webmanifest'), 'utf8')
-    );
+    const manifest = JSON.parse(readFileSync(resolve(root, 'public/manifest.webmanifest'), 'utf8'));
     expect(manifest.start_url).toBeTruthy();
     expect(manifest.scope).toBe('/');
     expect(manifest.display).toBe('standalone');

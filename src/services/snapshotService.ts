@@ -98,8 +98,13 @@ export async function buildSnapshotPayload(branchId?: string): Promise<SnapshotP
     .filter((m: any) => m && !m.deletedAt)
     .map((m: any) => {
       // Prevent oversized base64 images from exploding Cloudflare D1 SQL parameter limits
-      if (m.image && typeof m.image === 'string' && m.image.startsWith('data:image') && m.image.length > 50000) {
-        const { image, ...rest } = m;
+      if (
+        m.image &&
+        typeof m.image === 'string' &&
+        m.image.startsWith('data:image') &&
+        m.image.length > 50000
+      ) {
+        const { image: _image, ...rest } = m;
         return rest;
       }
       return m;
@@ -341,7 +346,10 @@ export async function applySnapshotPayload(payload: SnapshotPayload): Promise<Re
     (rows || []).filter((r: any) => r && r.id && !r.deletedAt);
 
   await withDB(async (db) => {
-    const mergeInto = async (store: 'orders' | 'menu_items' | 'customers' | 'companies' | 'inventory', rows: any[]) => {
+    const mergeInto = async (
+      store: 'orders' | 'menu_items' | 'customers' | 'companies' | 'inventory',
+      rows: any[]
+    ) => {
       const tx = db.transaction(store, 'readwrite');
       for (const row of rows) {
         const existing = (await tx.store.get(row.id)) as any;
@@ -395,10 +403,7 @@ export async function applySnapshotPayload(payload: SnapshotPayload): Promise<Re
         // other setting is restored normally.
         if (isCredentialSettingKey(key)) continue;
         if (localStorage.getItem(key) === null) {
-          localStorage.setItem(
-            key,
-            typeof value === 'string' ? value : JSON.stringify(value)
-          );
+          localStorage.setItem(key, typeof value === 'string' ? value : JSON.stringify(value));
           counts.settings++;
         }
       } catch {

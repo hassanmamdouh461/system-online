@@ -5,7 +5,6 @@ import { multiplyMoney, sumMoneyBy } from '../utils/money';
 
 const WEB_RECIPES_STORAGE_KEY = 'web_menu_recipes_store';
 
-
 function getWebRecipeStore(): Record<string, RecipeIngredient[]> {
   try {
     const raw = localStorage.getItem(WEB_RECIPES_STORAGE_KEY);
@@ -107,7 +106,7 @@ function getWebTransactions(): InventoryTransaction[] {
   try {
     const raw = localStorage.getItem(WEB_TX_KEY);
     if (raw) return JSON.parse(raw);
-  } catch (e) {}
+  } catch {}
 
   return [];
 }
@@ -115,7 +114,7 @@ function getWebTransactions(): InventoryTransaction[] {
 function saveWebTransactions(txs: InventoryTransaction[]) {
   try {
     localStorage.setItem(WEB_TX_KEY, JSON.stringify(txs));
-  } catch (e) {}
+  } catch {}
 }
 
 /**
@@ -182,14 +181,13 @@ export const inventoryService = {
                   // Resolve the effective tombstone: whichever side has a NEWER
                   // deletedAt wins. This prevents a stale cloud row from
                   // resurrecting a locally-deleted item.
-                  const effectiveDeletedAt =
-                    !localDeletedAt
-                      ? remoteDeletedAt
-                      : !remoteDeletedAt
+                  const effectiveDeletedAt = !localDeletedAt
+                    ? remoteDeletedAt
+                    : !remoteDeletedAt
+                      ? localDeletedAt
+                      : new Date(localDeletedAt).getTime() >= new Date(remoteDeletedAt).getTime()
                         ? localDeletedAt
-                        : new Date(localDeletedAt).getTime() >= new Date(remoteDeletedAt).getTime()
-                          ? localDeletedAt
-                          : remoteDeletedAt;
+                        : remoteDeletedAt;
 
                   // If there's a pending DELETE for this id, keep it deleted
                   if (pendingDeleteIds.has(id) && !effectiveDeletedAt) {
@@ -215,15 +213,13 @@ export const inventoryService = {
                     stock: Number(doc.stock ?? local?.stock) || 0,
                     minStock: Number(doc.minStock ?? local?.minStock) || 0,
                     costPerUnit: Number(doc.costPerUnit ?? local?.costPerUnit) || 0,
-                    branchId:
-                      doc.branch_id || doc.branchId || local?.branchId || 'main_branch',
+                    branchId: doc.branch_id || doc.branchId || local?.branchId || 'main_branch',
                     createdAt:
                       doc.createdAt ||
                       doc.created_at ||
                       local?.createdAt ||
                       new Date().toISOString(),
-                    updatedAt:
-                      remoteUpdated || local?.updatedAt || new Date().toISOString(),
+                    updatedAt: remoteUpdated || local?.updatedAt || new Date().toISOString(),
                     deletedAt: effectiveDeletedAt || undefined,
                   });
                 }
@@ -256,16 +252,16 @@ export const inventoryService = {
       // Always hide soft-deleted items from consumers.
       const live = (localItems as InventoryItem[]).filter((i) => !i.deletedAt);
       if (!branchId) return live;
-      return live.filter(
-        (i) => !i.branchId || i.branchId === branchId
-      );
+      return live.filter((i) => !i.branchId || i.branchId === branchId);
     } catch (error) {
       console.warn('[inventoryService] Error fetching inventory:', error);
       return [];
     }
   },
 
-  async create(item: Omit<InventoryItem, 'id' | 'createdAt' | 'updatedAt'>): Promise<InventoryItem> {
+  async create(
+    item: Omit<InventoryItem, 'id' | 'createdAt' | 'updatedAt'>
+  ): Promise<InventoryItem> {
     try {
       const newItem = await enqueueWrite(async () => {
         return withDB(async (db) => {
@@ -316,19 +312,22 @@ export const inventoryService = {
           quantity: newItem.stock,
           referenceId: 'MANUAL',
           notes: 'إضافة صنف مخزون جديد',
-          branchId: newItem.branchId
+          branchId: newItem.branchId,
         });
       } catch (txErr) {
         console.warn('[inventory] failed to create initial transaction:', txErr);
       }
 
       return newItem;
-    } catch (error) {
+    } catch {
       throw new Error('Failed to create inventory item');
     }
   },
 
-  async update(id: string, data: Partial<Omit<InventoryItem, 'id' | 'createdAt' | 'updatedAt'>>): Promise<InventoryItem> {
+  async update(
+    id: string,
+    data: Partial<Omit<InventoryItem, 'id' | 'createdAt' | 'updatedAt'>>
+  ): Promise<InventoryItem> {
     try {
       const updated = await enqueueWrite(async () => {
         return withDB(async (db) => {
@@ -376,7 +375,7 @@ export const inventoryService = {
         void syncService.syncPendingData();
       }
       return updated;
-    } catch (error) {
+    } catch {
       throw new Error('Failed to update inventory item');
     }
   },
@@ -390,9 +389,18 @@ export const inventoryService = {
       // via hydrate/sync, even if the hard cloud DELETE races or a stale copy lingers.
       const tombstone: InventoryItem = await enqueueWrite(async () => {
         return withDB(async (db) => {
-          const existing = await db.get('inventory', id) as InventoryItem | undefined;
+          const existing = (await db.get('inventory', id)) as InventoryItem | undefined;
           const ts: InventoryItem = {
-            ...(existing || { id, name: 'deleted', unit: 'unit', stock: 0, minStock: 0, costPerUnit: 0, createdAt: now } as InventoryItem),
+            ...(existing ||
+              ({
+                id,
+                name: 'deleted',
+                unit: 'unit',
+                stock: 0,
+                minStock: 0,
+                costPerUnit: 0,
+                createdAt: now,
+              } as InventoryItem)),
             id,
             deletedAt: now,
             updatedAt: now,
@@ -439,7 +447,7 @@ export const inventoryService = {
   async getByIdLocal(itemId: string): Promise<InventoryItem | undefined> {
     try {
       return await withDB(async (db) => {
-        const byId = await db.get('inventory', itemId) as InventoryItem | undefined;
+        const byId = (await db.get('inventory', itemId)) as InventoryItem | undefined;
         if (byId && !byId.deletedAt) return byId;
         if (byId) return undefined; // soft-deleted
         const all = (await db.getAll('inventory')) as InventoryItem[];
@@ -516,7 +524,12 @@ export const inventoryService = {
     return updated;
   },
 
-  async deductStock(itemId: string, quantityDeducted: number, notes?: string, referenceId?: string): Promise<void> {
+  async deductStock(
+    itemId: string,
+    quantityDeducted: number,
+    notes?: string,
+    referenceId?: string
+  ): Promise<void> {
     try {
       // A deduction is strictly a decrease. Without this guard a negative
       // quantity (a corrupt recipe line, a sign flip upstream) INCREASED stock
@@ -541,7 +554,7 @@ export const inventoryService = {
           unit: target.unit,
           referenceId: referenceId || 'POS-SALE',
           notes: notes || 'خصم تلقائي مبيعات الكاشير',
-          branchId: target.branchId
+          branchId: target.branchId,
         });
       }
     } catch (err) {
@@ -550,7 +563,12 @@ export const inventoryService = {
   },
 
   /** Reverse a previous sale deduction (e.g. unpaid order cancel). */
-  async restoreStock(itemId: string, quantityRestored: number, notes?: string, referenceId?: string): Promise<void> {
+  async restoreStock(
+    itemId: string,
+    quantityRestored: number,
+    notes?: string,
+    referenceId?: string
+  ): Promise<void> {
     try {
       if (quantityRestored <= 0) return;
       const target = await this.applyStockDelta(itemId, quantityRestored);
@@ -563,7 +581,7 @@ export const inventoryService = {
           unit: target.unit,
           referenceId: referenceId || 'ORDER-CANCEL',
           notes: notes || 'استرجاع مخزون — إلغاء طلب',
-          branchId: target.branchId
+          branchId: target.branchId,
         });
       }
     } catch (err) {
@@ -575,23 +593,25 @@ export const inventoryService = {
     try {
       let list = getWebTransactions();
       if (itemId) {
-        list = list.filter(t => t.itemId === itemId);
+        list = list.filter((t) => t.itemId === itemId);
       }
       if (branchId) {
-        list = list.filter(t => !t.branchId || t.branchId === branchId);
+        list = list.filter((t) => !t.branchId || t.branchId === branchId);
       }
       return list;
-    } catch (error) {
+    } catch {
       return [];
     }
   },
 
-  async createTransaction(tx: Omit<InventoryTransaction, 'id' | 'createdAt'>): Promise<InventoryTransaction> {
+  async createTransaction(
+    tx: Omit<InventoryTransaction, 'id' | 'createdAt'>
+  ): Promise<InventoryTransaction> {
     try {
       const newTx: InventoryTransaction = {
         ...tx,
         id: `tx_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
       };
       const list = getWebTransactions();
       list.unshift(newTx);
@@ -600,7 +620,7 @@ export const inventoryService = {
       saveWebTransactions(list);
       void pushTransactionToCloud(newTx);
       return newTx;
-    } catch (error) {
+    } catch {
       throw new Error('Failed to create transaction');
     }
   },
@@ -613,16 +633,16 @@ export const inventoryService = {
       // Recipes are user-defined only — no hardcoded fallbacks.
       for (const menuItemId of Object.keys(store)) {
         const ingredients = store[menuItemId] || [];
-        ingredients.forEach(ing => {
+        ingredients.forEach((ing) => {
           allIngredients.push({
             ...ing,
-            menuItemId
+            menuItemId,
           });
         });
       }
 
       return allIngredients;
-    } catch (error) {
+    } catch {
       return [];
     }
   },
@@ -639,32 +659,35 @@ export const inventoryService = {
       // wrong stock deductions in a financial system).
       const currentInv = await this.getAll();
       if (currentInv.length > 0) {
-        const knownIds = new Set(currentInv.map(i => i.id));
-        const resolved = ingredients.filter(ing => knownIds.has(ing.inventoryItemId));
+        const knownIds = new Set(currentInv.map((i) => i.id));
+        const resolved = ingredients.filter((ing) => knownIds.has(ing.inventoryItemId));
         if (resolved.length < ingredients.length) {
           console.warn(
             '[inventoryService] Dropped recipe ingredients with unknown inventory item ids for menu',
             menuItemId,
-            ingredients.filter(ing => !knownIds.has(ing.inventoryItemId))
+            ingredients.filter((ing) => !knownIds.has(ing.inventoryItemId))
           );
         }
         return resolved;
       }
 
       return ingredients;
-    } catch (error) {
+    } catch {
       return [];
     }
   },
 
-  async saveMenuRecipe(menuItemId: string, ingredients: RecipeIngredient[]): Promise<RecipeIngredient[]> {
+  async saveMenuRecipe(
+    menuItemId: string,
+    ingredients: RecipeIngredient[]
+  ): Promise<RecipeIngredient[]> {
     try {
       const store = getWebRecipeStore();
       store[menuItemId] = ingredients;
       setWebRecipeStore(store);
       void pushRecipeToCloud(menuItemId, ingredients);
       return ingredients;
-    } catch (error) {
+    } catch {
       return [];
     }
   },
@@ -674,12 +697,12 @@ export const inventoryService = {
       const recipe = await this.getMenuItemRecipe(menuItemId);
       const inventory = await this.getAll();
       // Money math routed through utils/money so recipe cost is piaster-exact.
-      return sumMoneyBy(recipe, ing => {
-        const item = inventory.find(i => i.id === ing.inventoryItemId);
+      return sumMoneyBy(recipe, (ing) => {
+        const item = inventory.find((i) => i.id === ing.inventoryItemId);
         return item ? multiplyMoney(item.costPerUnit, ing.quantity) : 0;
       });
-    } catch (error) {
+    } catch {
       return 0;
     }
-  }
+  },
 };

@@ -12,7 +12,7 @@ export function useIsMobile(breakpoint: number = 768): boolean {
 
   useEffect(() => {
     const mediaQuery = window.matchMedia(`(max-width: ${breakpoint}px)`);
-    
+
     // Set initial value
     setIsMobile(mediaQuery.matches);
 

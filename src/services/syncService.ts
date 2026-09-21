@@ -66,7 +66,9 @@ export class SyncService {
   private lastError: string | null = null;
 
   constructor() {
-    if (typeof window !== 'undefined') {
+    // Node/test environments may expose a bare `window` global with no
+    // addEventListener — the real check is for the event API, not the global.
+    if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
       window.addEventListener('online', () => {
         this.enableWorker();
         void this.syncPendingData();
@@ -112,7 +114,10 @@ export class SyncService {
         const pending = open.filter((r) => !r.dead && (r.attempts || 0) < MAX_ATTEMPTS).length;
         const failed = open.filter((r) => r.dead || (r.attempts || 0) >= MAX_ATTEMPTS).length;
         const lastErr =
-          open.map((r) => r.lastError).filter(Boolean).slice(-1)[0] || this.lastError;
+          open
+            .map((r) => r.lastError)
+            .filter(Boolean)
+            .slice(-1)[0] || this.lastError;
         // this.lastSuccessAt only covers writes made since this tab loaded, so
         // after a refresh it is null and a caller cannot tell "never synced"
         // apart from "synced five minutes ago". syncedAt is already persisted on
@@ -259,8 +264,7 @@ export class SyncService {
           .then((b: any) => b?.stale === true)
           .catch(() => false);
         if (stale) {
-          const msg =
-            'الكتابة اترفضت من السيرفر لوجود نسخة أحدث — لسه بيحاول (لم تُحفظ في السحاب)';
+          const msg = 'الكتابة اترفضت من السيرفر لوجود نسخة أحدث — لسه بيحاول (لم تُحفظ في السحاب)';
           this.lastError = msg;
           console.warn(
             '[SyncService] Write discarded by the server freshness guard:',

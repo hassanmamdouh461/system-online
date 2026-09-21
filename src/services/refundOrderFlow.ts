@@ -83,12 +83,10 @@ export type RefundFlowDeps = {
 };
 
 const MSG = {
-  notAuthorized:
-    'تم رفض الاسترجاع من السيرفر — سجّل الدخول تاني وحاول مرة أخرى.',
+  notAuthorized: 'تم رفض الاسترجاع من السيرفر — سجّل الدخول تاني وحاول مرة أخرى.',
   offline:
     'تعذّر التأكد من الصلاحية — الاسترجاع يحتاج اتصال بالإنترنت حتى لا تختلف بيانات الأجهزة.',
-  unreachableAfterAuth:
-    'تم قبول الصلاحية لكن تعذّر الوصول للسيرفر — حاول تاني لما النت يرجع.',
+  unreachableAfterAuth: 'تم قبول الصلاحية لكن تعذّر الوصول للسيرفر — حاول تاني لما النت يرجع.',
 };
 
 /**
@@ -132,8 +130,7 @@ export async function performRefund(
   // browser's cookie with a different role". Re-mint once from the held
   // credential and try again before telling the operator no.
   const worthRemint =
-    (push.kind === 'unauthenticated' ||
-      (push.kind === 'denied' && deps.cachedRole() !== probed)) &&
+    (push.kind === 'unauthenticated' || (push.kind === 'denied' && deps.cachedRole() !== probed)) &&
     deps.canRemint();
 
   if (worthRemint) {
@@ -144,10 +141,7 @@ export async function performRefund(
 
   if (push.kind === 'denied') {
     // Deterministic refusal. Local state is untouched — no divergence.
-    throw new RefundRejectedError(
-      push.code || 'refund_denied',
-      push.message || MSG.notAuthorized
-    );
+    throw new RefundRejectedError(push.code || 'refund_denied', push.message || MSG.notAuthorized);
   }
   if (push.kind === 'unauthenticated') {
     throw new RefundRejectedError('refund_session_expired', MSG.notAuthorized);
@@ -160,7 +154,10 @@ export async function performRefund(
     const updated = await deps.applyLocal();
     await deps.restoreInventory();
     deps.triggerSync();
-    console.warn('[refund] server unreachable after authorisation — queued:', MSG.unreachableAfterAuth);
+    console.warn(
+      '[refund] server unreachable after authorisation — queued:',
+      MSG.unreachableAfterAuth
+    );
     return updated;
   }
 

@@ -8,11 +8,12 @@ export function LoadingScreen({ message = 'BrewMaster Coffee POS' }: { message?:
           <Loader2 className="w-8 h-8 animate-spin" />
         </div>
         <div>
-          <h2 className="text-base font-bold text-gray-800">Brew<span className="text-caramel">Master</span></h2>
+          <h2 className="text-base font-bold text-gray-800">
+            Brew<span className="text-caramel">Master</span>
+          </h2>
           <p className="text-xs text-gray-500 font-medium mt-0.5">{message}</p>
         </div>
       </div>
     </div>
   );
 }
-

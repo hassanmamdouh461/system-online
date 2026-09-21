@@ -33,9 +33,9 @@ describe('parseOrderSeq', () => {
 describe('orderSeqSortValue', () => {
   it('sorts valid numbers ahead of unknown ones', () => {
     expect(orderSeqSortValue({ orderNumber: '3' })).toBe(3);
-    expect(orderSeqSortValue({ orderNumber: '—', createdAt: '2026-01-01T00:00:00Z' })).toBeGreaterThanOrEqual(
-      1_000_000
-    );
+    expect(
+      orderSeqSortValue({ orderNumber: '—', createdAt: '2026-01-01T00:00:00Z' })
+    ).toBeGreaterThanOrEqual(1_000_000);
   });
 });
 

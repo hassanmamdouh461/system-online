@@ -16,9 +16,10 @@ function mapPublicMenuDoc(doc: any): MenuItem {
     // guarantees it — so a missing flag means "the guest-safe projection did
     // not carry the column", NOT "unavailable". Treating absent as false made
     // the whole QR menu render empty against a worker that omits it.
-    available: doc.available === undefined || doc.available === null
-      ? true
-      : doc.available !== false && doc.available !== 0,
+    available:
+      doc.available === undefined || doc.available === null
+        ? true
+        : doc.available !== false && doc.available !== 0,
     branchId: doc.branch_id || doc.branchId,
     createdAt: doc.created_at || doc.createdAt,
     updatedAt: doc.updated_at || doc.updatedAt,
@@ -56,7 +57,7 @@ export const menuService = {
   async create(item: Omit<MenuItem, 'id'>, branchId?: string): Promise<MenuItem> {
     try {
       return await menuRepository.create(item, branchId);
-    } catch (error) {
+    } catch {
       return await menuRepository.create(item, branchId);
     }
   },
@@ -64,7 +65,7 @@ export const menuService = {
   async update(id: string, data: Partial<Omit<MenuItem, 'id'>>): Promise<MenuItem> {
     try {
       return await menuRepository.update(id, data);
-    } catch (error) {
+    } catch {
       return await menuRepository.update(id, data);
     }
   },
@@ -72,15 +73,18 @@ export const menuService = {
   async delete(id: string): Promise<void> {
     try {
       await menuRepository.delete(id);
-    } catch (error) {
+    } catch {
       await menuRepository.delete(id);
     }
   },
 
-  async resetToDefaults(defaultItems: Omit<MenuItem, 'id'>[], branchId?: string): Promise<MenuItem[]> {
+  async resetToDefaults(
+    defaultItems: Omit<MenuItem, 'id'>[],
+    branchId?: string
+  ): Promise<MenuItem[]> {
     try {
       return await menuRepository.resetToDefaults(defaultItems, branchId);
-    } catch (error) {
+    } catch {
       return await menuRepository.resetToDefaults(defaultItems, branchId);
     }
   },

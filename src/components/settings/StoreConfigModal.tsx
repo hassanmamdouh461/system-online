@@ -1,13 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Store, Percent, ShieldCheck, MapPin, Phone, Type, Clock, AlertTriangle } from 'lucide-react';
-import { useLanguage } from '../../context/LanguageContext';
 import {
-  getTaxRate,
-  setTaxRate,
-  getStoreConfig,
-  setStoreConfig,
-} from '../../utils/settingsConfig';
+  X,
+  Store,
+  Percent,
+  ShieldCheck,
+  MapPin,
+  Phone,
+  Type,
+  Clock,
+  AlertTriangle,
+} from 'lucide-react';
+import { useLanguage } from '../../context/LanguageContext';
+import { getTaxRate, setTaxRate, getStoreConfig, setStoreConfig } from '../../utils/settingsConfig';
 import { formatPercent, percentToFraction } from '../../utils/percent';
 
 interface StoreConfigModalProps {
@@ -175,7 +180,7 @@ export function StoreConfigModal({ isOpen, onClose }: StoreConfigModalProps) {
                 min="0"
                 step="1"
                 value={taxInput}
-                onChange={e => setTaxInput(e.target.value)}
+                onChange={(e) => setTaxInput(e.target.value)}
                 className="w-full bg-gray-50 border border-gray-300 rounded-xl pl-11 pr-4 py-3 text-lg font-semibold focus:ring-2 focus:ring-emerald-500 outline-none"
                 placeholder="14"
               />
@@ -196,7 +201,7 @@ export function StoreConfigModal({ isOpen, onClose }: StoreConfigModalProps) {
                 max="23"
                 step="1"
                 value={dayStartHour}
-                onChange={e => setDayStartHour(e.target.value)}
+                onChange={(e) => setDayStartHour(e.target.value)}
                 className="w-full bg-gray-50 border border-gray-300 rounded-xl pl-11 pr-4 py-3 text-lg font-semibold focus:ring-2 focus:ring-emerald-500 outline-none"
                 placeholder="0"
               />
@@ -227,11 +232,7 @@ export function StoreConfigModal({ isOpen, onClose }: StoreConfigModalProps) {
             disabled={saving}
             className="w-full bg-emerald-600 hover:bg-emerald-700 active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed text-white font-bold py-3.5 rounded-xl transition-all shadow-sm"
           >
-            {saving
-              ? language === 'ar'
-                ? 'جاري الحفظ…'
-                : 'Saving…'
-              : t('Save Changes')}
+            {saving ? (language === 'ar' ? 'جاري الحفظ…' : 'Saving…') : t('Save Changes')}
           </button>
         </div>
       </div>
@@ -261,7 +262,7 @@ function Field({
         <input
           type="text"
           value={value}
-          onChange={e => onChange(e.target.value)}
+          onChange={(e) => onChange(e.target.value)}
           className="w-full bg-gray-50 border border-gray-300 rounded-xl pl-11 pr-4 py-3 text-sm font-semibold focus:ring-2 focus:ring-emerald-500 outline-none"
         />
       </div>

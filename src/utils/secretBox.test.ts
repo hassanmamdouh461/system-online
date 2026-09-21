@@ -6,12 +6,7 @@
  * Node's webcrypto, so the real Web Crypto path executes unchanged.
  */
 import { describe, it, expect } from 'vitest';
-import {
-  encryptSecret,
-  decryptSecret,
-  serializeSecretBox,
-  parseSecretBox,
-} from './secretBox';
+import { encryptSecret, decryptSecret, serializeSecretBox, parseSecretBox } from './secretBox';
 
 const PW = 'correct horse battery staple';
 const OTHER_PW = 'cashier-does-not-know-this';

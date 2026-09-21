@@ -72,10 +72,7 @@ function managerPassword(): string | null {
  * (we never push a plaintext token, and never overwrite a good cloud token
  * with an empty one just because this device cannot decrypt right now).
  */
-async function buildStoredValue(
-  config: TelegramConfig,
-  existingEncToken: string,
-): Promise<string> {
+async function buildStoredValue(config: TelegramConfig, existingEncToken: string): Promise<string> {
   const stored: StoredTelegramConfig = {
     v: 1,
     enabled: !!config.enabled,
@@ -107,7 +104,7 @@ export type TelegramPersistOutcome =
 
 export async function persistTelegramConfigToCloud(
   config: TelegramConfig,
-  branchId?: string,
+  branchId?: string
 ): Promise<TelegramPersistOutcome> {
   if (!isCloudConfigured()) return { pushed: false, reason: 'not_configured' };
 
@@ -161,12 +158,11 @@ export async function persistTelegramConfigToCloud(
   // while a live manager password is held in memory — after a reload it is
   // gone, so the previously stored ciphertext is preserved untouched. Report
   // that distinction instead of implying a full sync.
-  const tokenSynced =
-    !((config.botToken || '').trim()) || managerPassword() !== null;
+  const tokenSynced = !(config.botToken || '').trim() || managerPassword() !== null;
   if (!tokenSynced) {
     console.warn(
       '[telegramCloud] config pushed, but the bot token was NOT re-encrypted: ' +
-      'no live manager password on this device (sign in again to sync the token).'
+        'no live manager password on this device (sign in again to sync the token).'
     );
   }
   return { pushed: true, tokenSynced };

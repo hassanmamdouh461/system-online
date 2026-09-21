@@ -2,10 +2,21 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  Users, Building2, Plus, Search, Phone, X, Save,
-  ShoppingBag, Trash2, Edit3, Printer,
-  Wallet, Star,
-  AlertCircle, Check
+  Users,
+  Building2,
+  Plus,
+  Search,
+  Phone,
+  X,
+  Save,
+  ShoppingBag,
+  Trash2,
+  Edit3,
+  Printer,
+  Wallet,
+  Star,
+  AlertCircle,
+  Check,
 } from 'lucide-react';
 import { customersService } from '../services/customersService';
 import { companiesService } from '../services/companiesService';
@@ -28,7 +39,11 @@ import {
   getCompanyOpenInvoices,
   isCompanyBilledOrder,
 } from '../utils/accountBalance';
-import { printCompanyStatement, printCustomerStatement, printCustomerReceipt } from '../utils/printReceipts';
+import {
+  printCompanyStatement,
+  printCustomerStatement,
+  printCustomerReceipt,
+} from '../utils/printReceipts';
 import { formatOrderNumber } from '../utils/orderNumber';
 import { countLinkedOrders } from '../utils/linkedOrders';
 
@@ -42,7 +57,7 @@ interface CustomersPageProps {
 function parseTags(input: string): string[] {
   return input
     .split(/[,،]/)
-    .map(t => t.trim())
+    .map((t) => t.trim())
     .filter(Boolean);
 }
 
@@ -51,8 +66,8 @@ function tagsToString(tags?: string[]): string {
 }
 
 function orderStats(orders: Order[], taxRate: number) {
-  const paid = orders.filter(o => o.paymentStatus === 'Paid');
-  const revenue = sumMoneyBy(paid, o => getOrderGrandTotal(o, taxRate));
+  const paid = orders.filter((o) => o.paymentStatus === 'Paid');
+  const revenue = sumMoneyBy(paid, (o) => getOrderGrandTotal(o, taxRate));
   return {
     totalOrders: orders.length,
     paidOrders: paid.length,
@@ -133,18 +148,21 @@ export default function CustomersPage(_props: CustomersPageProps) {
 
   const companyMap = useMemo(() => {
     const m: Record<string, Company> = {};
-    companies.forEach(c => { m[c.id] = c; });
+    companies.forEach((c) => {
+      m[c.id] = c;
+    });
     return m;
   }, [companies]);
 
   const filteredCustomers = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return customers;
-    return customers.filter(c => {
+    return customers.filter((c) => {
       const co = c.companyId ? companyMap[c.companyId] : null;
-      const hay = [
-        c.name, c.phone, ...(c.tags || []), co?.name, ...(co?.tags || [])
-      ].filter(Boolean).join(' ').toLowerCase();
+      const hay = [c.name, c.phone, ...(c.tags || []), co?.name, ...(co?.tags || [])]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
       return hay.includes(q);
     });
   }, [customers, search, companyMap]);
@@ -152,7 +170,7 @@ export default function CustomersPage(_props: CustomersPageProps) {
   const filteredCompanies = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return companies;
-    return companies.filter(c => {
+    return companies.filter((c) => {
       const hay = [c.name, c.phone, ...(c.tags || [])].filter(Boolean).join(' ').toLowerCase();
       return hay.includes(q);
     });
@@ -161,7 +179,7 @@ export default function CustomersPage(_props: CustomersPageProps) {
   const customerOrders = useCallback(
     (phone: string, customerId?: string) =>
       orders
-        .filter(o => {
+        .filter((o) => {
           if (customerId && o.customerId === customerId) return true;
           return !!(o.customerPhone && o.customerPhone === phone);
         })
@@ -170,14 +188,14 @@ export default function CustomersPage(_props: CustomersPageProps) {
   );
 
   const companyMembers = useCallback(
-    (companyId: string) => customers.filter(c => c.companyId === companyId),
+    (companyId: string) => customers.filter((c) => c.companyId === companyId),
     [customers]
   );
 
   const companyOrders = useCallback(
     (companyId: string) => {
       return orders
-        .filter(o => {
+        .filter((o) => {
           if (isCompanyBilledOrder(o) && o.companyId === companyId) return true;
           if (o.companyId === companyId && o.billedToType !== 'customer') return true;
           return false;
@@ -189,23 +207,32 @@ export default function CustomersPage(_props: CustomersPageProps) {
 
   // Total Receivables calculated across all customers & companies
   const totalCustomerReceivables = useMemo(() => {
-    return sumMoneyBy(customers, c => getCustomerAccountBalance(orders, c, taxRate));
+    return sumMoneyBy(customers, (c) => getCustomerAccountBalance(orders, c, taxRate));
   }, [customers, orders, taxRate]);
 
   const totalCompanyReceivables = useMemo(() => {
-    return sumMoneyBy(companies, co => {
+    return sumMoneyBy(companies, (co) => {
       const members = companyMembers(co.id);
       return getCompanyAccountBalance(
-        orders, co.id, taxRate,
-        members.map(m => m.phone),
-        members.map(m => m.id),
+        orders,
+        co.id,
+        taxRate,
+        members.map((m) => m.phone),
+        members.map((m) => m.id),
         false
       );
     });
   }, [companies, orders, taxRate, companyMembers]);
 
   // ── Customer form state ──────────────────────────────────────────
-  const [cForm, setCForm] = useState({ name: '', phone: '', points: '0', companyId: '', tags: '', notes: '' });
+  const [cForm, setCForm] = useState({
+    name: '',
+    phone: '',
+    points: '0',
+    companyId: '',
+    tags: '',
+    notes: '',
+  });
   const [coForm, setCoForm] = useState({ name: '', phone: '', tags: '', notes: '' });
 
   const openNewCustomer = () => {
@@ -245,7 +272,10 @@ export default function CustomersPage(_props: CustomersPageProps) {
   };
 
   const toast = useToast();
-  const [deleteTarget, setDeleteTarget] = useState<{ id: string; type: 'customer' | 'company' } | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{
+    id: string;
+    type: 'customer' | 'company';
+  } | null>(null);
 
   const saveCustomer = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -346,7 +376,9 @@ export default function CustomersPage(_props: CustomersPageProps) {
               {language === 'ar' ? 'إدارة العملاء والشركات' : 'Customers & Companies'}
             </h1>
             <p className="text-xs text-gray-500 font-medium mt-0.5">
-              {language === 'ar' ? 'متابعة سجلات العملاء، حسابات الآجل، ونقاط الولاء' : 'Manage customer profiles, credit accounts, and loyalty rewards.'}
+              {language === 'ar'
+                ? 'متابعة سجلات العملاء، حسابات الآجل، ونقاط الولاء'
+                : 'Manage customer profiles, credit accounts, and loyalty rewards.'}
             </p>
           </div>
         </div>
@@ -396,7 +428,11 @@ export default function CustomersPage(_props: CustomersPageProps) {
           icon={ShoppingBag}
           title={language === 'ar' ? 'الطلبات المرتبطة' : 'Linked Orders'}
           value={countLinkedOrders(orders).toLocaleString()}
-          subtitle={language === 'ar' ? 'طلبات منسوبة لعملاء وشركات (بدون الملغاة)' : 'Non-cancelled orders on an account'}
+          subtitle={
+            language === 'ar'
+              ? 'طلبات منسوبة لعملاء وشركات (بدون الملغاة)'
+              : 'Non-cancelled orders on an account'
+          }
           gradient="from-emerald-50 to-teal-50/40 border-emerald-100/80 text-emerald-700"
           iconBg="bg-emerald-100/80 text-emerald-800"
         />
@@ -427,10 +463,12 @@ export default function CustomersPage(_props: CustomersPageProps) {
           >
             <Users size={15} className={tab === 'customers' ? 'text-mocha-600' : 'text-gray-400'} />
             <span>{language === 'ar' ? 'العملاء' : 'Customers'}</span>
-            <span className={clsx(
-              'px-2 py-0.5 rounded-full text-[10px] font-bold',
-              tab === 'customers' ? 'bg-mocha-100 text-mocha-800' : 'bg-gray-200 text-gray-600'
-            )}>
+            <span
+              className={clsx(
+                'px-2 py-0.5 rounded-full text-[10px] font-bold',
+                tab === 'customers' ? 'bg-mocha-100 text-mocha-800' : 'bg-gray-200 text-gray-600'
+              )}
+            >
               {filteredCustomers.length}
             </span>
           </button>
@@ -444,12 +482,17 @@ export default function CustomersPage(_props: CustomersPageProps) {
                 : 'text-gray-500 hover:text-gray-800'
             )}
           >
-            <Building2 size={15} className={tab === 'companies' ? 'text-purple-600' : 'text-gray-400'} />
+            <Building2
+              size={15}
+              className={tab === 'companies' ? 'text-purple-600' : 'text-gray-400'}
+            />
             <span>{language === 'ar' ? 'الشركات والمؤسسات' : 'Companies'}</span>
-            <span className={clsx(
-              'px-2 py-0.5 rounded-full text-[10px] font-bold',
-              tab === 'companies' ? 'bg-purple-100 text-purple-800' : 'bg-gray-200 text-gray-600'
-            )}>
+            <span
+              className={clsx(
+                'px-2 py-0.5 rounded-full text-[10px] font-bold',
+                tab === 'companies' ? 'bg-purple-100 text-purple-800' : 'bg-gray-200 text-gray-600'
+              )}
+            >
               {filteredCompanies.length}
             </span>
           </button>
@@ -457,15 +500,24 @@ export default function CustomersPage(_props: CustomersPageProps) {
 
         {/* Search Input */}
         <div className="relative w-full sm:w-80">
-          <Search className={clsx('absolute top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4 pointer-events-none', isRtl ? 'right-3.5' : 'left-3.5')} />
+          <Search
+            className={clsx(
+              'absolute top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4 pointer-events-none',
+              isRtl ? 'right-3.5' : 'left-3.5'
+            )}
+          />
           <input
             type="search"
             value={search}
-            onChange={e => setSearch(e.target.value)}
+            onChange={(e) => setSearch(e.target.value)}
             placeholder={
               tab === 'customers'
-                ? (language === 'ar' ? 'بحث باسم العميل أو رقم الهاتف أو الوسم...' : 'Search customer by name, phone or tag...')
-                : (language === 'ar' ? 'بحث باسم الشركة أو الرقم...' : 'Search company name or phone...')
+                ? language === 'ar'
+                  ? 'بحث باسم العميل أو رقم الهاتف أو الوسم...'
+                  : 'Search customer by name, phone or tag...'
+                : language === 'ar'
+                  ? 'بحث باسم الشركة أو الرقم...'
+                  : 'Search company name or phone...'
             }
             className={clsx(
               'w-full py-2.5 bg-gray-50/80 border border-gray-200 rounded-xl text-xs font-medium text-gray-900',
@@ -481,17 +533,25 @@ export default function CustomersPage(_props: CustomersPageProps) {
         <div className="flex items-center justify-center py-20 bg-white rounded-2xl border border-gray-150">
           <div className="text-center space-y-3">
             <AlertCircle className="w-10 h-10 text-rose-500 mx-auto" />
-            <p className="text-sm font-bold text-gray-800">{language === 'ar' ? 'فشل تحميل بيانات العملاء' : 'Failed to load customer data'}</p>
+            <p className="text-sm font-bold text-gray-800">
+              {language === 'ar' ? 'فشل تحميل بيانات العملاء' : 'Failed to load customer data'}
+            </p>
             <p className="text-xs text-gray-400">{loadError}</p>
-            <button onClick={() => load()} className="px-5 py-2.5 rounded-xl bg-mocha-700 text-white text-xs font-bold shadow-sm">
+            <button
+              onClick={() => load()}
+              className="px-5 py-2.5 rounded-xl bg-mocha-700 text-white text-xs font-bold shadow-sm"
+            >
               {language === 'ar' ? 'إعادة المحاولة' : 'Retry'}
             </button>
           </div>
         </div>
       ) : loading ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {[1, 2, 3, 4, 5, 6].map(i => (
-            <div key={i} className="bg-white rounded-2xl border border-gray-200/80 p-5 shadow-xs animate-pulse space-y-3">
+          {[1, 2, 3, 4, 5, 6].map((i) => (
+            <div
+              key={i}
+              className="bg-white rounded-2xl border border-gray-200/80 p-5 shadow-xs animate-pulse space-y-3"
+            >
               <div className="flex items-center gap-3">
                 <div className="h-12 w-12 rounded-2xl bg-gray-200" />
                 <div className="flex-1 space-y-2">
@@ -507,13 +567,15 @@ export default function CustomersPage(_props: CustomersPageProps) {
       ) : tab === 'customers' ? (
         filteredCustomers.length === 0 ? (
           <EmptyState
-            title={language === 'ar' ? 'لا يوجد عملاء مطابقين للبحث' : 'No matching customers found'}
+            title={
+              language === 'ar' ? 'لا يوجد عملاء مطابقين للبحث' : 'No matching customers found'
+            }
             action={openNewCustomer}
             actionLabel={language === 'ar' ? '+ إضافة عميل جديد' : '+ Add Customer'}
           />
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {filteredCustomers.map(c => {
+            {filteredCustomers.map((c) => {
               const co = c.companyId ? companyMap[c.companyId] : null;
               const allTags = [...(co?.tags || []), ...(c.tags || [])];
               const stats = orderStats(customerOrders(c.phone, c.id), taxRate);
@@ -531,14 +593,19 @@ export default function CustomersPage(_props: CustomersPageProps) {
                     {/* Top Row: Avatar + Name + Balance Badge */}
                     <div className="flex items-start justify-between gap-3">
                       <div className="flex items-center gap-3 min-w-0">
-                        <div className={`w-12 h-12 rounded-2xl bg-gradient-to-br ${gradient} flex items-center justify-center font-black text-sm shadow-md shrink-0`}>
+                        <div
+                          className={`w-12 h-12 rounded-2xl bg-gradient-to-br ${gradient} flex items-center justify-center font-black text-sm shadow-md shrink-0`}
+                        >
                           {getInitials(c.name)}
                         </div>
                         <div className="min-w-0">
                           <h3 className="font-extrabold text-gray-900 text-sm truncate group-hover:text-mocha-700 transition-colors">
                             {c.name}
                           </h3>
-                          <p className="text-xs font-mono font-bold text-gray-500 flex items-center gap-1 mt-0.5" dir="ltr">
+                          <p
+                            className="text-xs font-mono font-bold text-gray-500 flex items-center gap-1 mt-0.5"
+                            dir="ltr"
+                          >
                             <Phone size={11} className="text-gray-400 shrink-0" />
                             <span>{c.phone}</span>
                           </p>
@@ -550,7 +617,11 @@ export default function CustomersPage(_props: CustomersPageProps) {
                         {balance > 0 ? (
                           <span className="inline-flex items-center gap-1 text-[10px] font-black bg-rose-50 text-rose-700 border border-rose-200/80 px-2.5 py-1 rounded-xl shadow-xs">
                             <Wallet size={10} />
-                            <span>{language === 'ar' ? `عليه ${balance.toFixed(0)} ${currency}` : `Owes ${balance.toFixed(0)} ${currency}`}</span>
+                            <span>
+                              {language === 'ar'
+                                ? `عليه ${balance.toFixed(0)} ${currency}`
+                                : `Owes ${balance.toFixed(0)} ${currency}`}
+                            </span>
                           </span>
                         ) : (
                           <span className="inline-flex items-center gap-1 text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200/60 px-2 py-0.5 rounded-xl">
@@ -572,20 +643,27 @@ export default function CustomersPage(_props: CustomersPageProps) {
                     {/* Tags & Loyalty */}
                     <div className="flex items-center justify-between gap-2 pt-1">
                       <div className="flex flex-wrap gap-1 min-w-0">
-                        {allTags.slice(0, 3).map(tag => (
-                          <span key={tag} className="text-[10px] px-2 py-0.5 rounded-lg bg-gray-100 text-gray-700 font-semibold border border-gray-200/60">
+                        {allTags.slice(0, 3).map((tag) => (
+                          <span
+                            key={tag}
+                            className="text-[10px] px-2 py-0.5 rounded-lg bg-gray-100 text-gray-700 font-semibold border border-gray-200/60"
+                          >
                             {tag}
                           </span>
                         ))}
                         {allTags.length > 3 && (
-                          <span className="text-[10px] text-gray-400 font-bold">+{allTags.length - 3}</span>
+                          <span className="text-[10px] text-gray-400 font-bold">
+                            +{allTags.length - 3}
+                          </span>
                         )}
                       </div>
 
                       {Boolean(c.points) && c.points > 0 && (
                         <span className="inline-flex items-center gap-1 text-[10px] font-extrabold bg-amber-50 text-amber-700 border border-amber-200/60 px-2 py-0.5 rounded-lg shrink-0">
                           <Star size={10} className="fill-amber-500 text-amber-500" />
-                          <span>{c.points} {language === 'ar' ? 'نقطة' : 'pts'}</span>
+                          <span>
+                            {c.points} {language === 'ar' ? 'نقطة' : 'pts'}
+                          </span>
                         </span>
                       )}
                     </div>
@@ -593,8 +671,16 @@ export default function CustomersPage(_props: CustomersPageProps) {
 
                   {/* Card Footer Metrics */}
                   <div className="mt-4 pt-3 border-t border-gray-100 flex items-center justify-between text-xs text-gray-500">
-                    <span className="font-semibold">{stats.paidOrders} {language === 'ar' ? 'طلب مكتمل' : 'paid orders'}</span>
-                    <span className="font-extrabold text-gray-900">{stats.revenue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {currency}</span>
+                    <span className="font-semibold">
+                      {stats.paidOrders} {language === 'ar' ? 'طلب مكتمل' : 'paid orders'}
+                    </span>
+                    <span className="font-extrabold text-gray-900">
+                      {stats.revenue.toLocaleString('en-US', {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}{' '}
+                      {currency}
+                    </span>
                   </div>
                 </motion.div>
               );
@@ -610,13 +696,15 @@ export default function CustomersPage(_props: CustomersPageProps) {
         />
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filteredCompanies.map(co => {
+          {filteredCompanies.map((co) => {
             const members = companyMembers(co.id);
             const stats = orderStats(companyOrders(co.id), taxRate);
             const balance = getCompanyAccountBalance(
-              orders, co.id, taxRate,
-              members.map(m => m.phone),
-              members.map(m => m.id),
+              orders,
+              co.id,
+              taxRate,
+              members.map((m) => m.phone),
+              members.map((m) => m.id),
               false
             );
 
@@ -639,7 +727,10 @@ export default function CustomersPage(_props: CustomersPageProps) {
                           {co.name}
                         </h3>
                         {co.phone && (
-                          <p className="text-xs font-mono font-bold text-gray-500 flex items-center gap-1 mt-0.5" dir="ltr">
+                          <p
+                            className="text-xs font-mono font-bold text-gray-500 flex items-center gap-1 mt-0.5"
+                            dir="ltr"
+                          >
                             <Phone size={11} className="text-gray-400 shrink-0" />
                             <span>{co.phone}</span>
                           </p>
@@ -652,7 +743,11 @@ export default function CustomersPage(_props: CustomersPageProps) {
                       {balance > 0 ? (
                         <span className="inline-flex items-center gap-1 text-[10px] font-black bg-rose-50 text-rose-700 border border-rose-200/80 px-2.5 py-1 rounded-xl shadow-xs">
                           <Wallet size={10} />
-                          <span>{language === 'ar' ? `عليه ${balance.toFixed(0)} ${currency}` : `Owes ${balance.toFixed(0)} ${currency}`}</span>
+                          <span>
+                            {language === 'ar'
+                              ? `عليه ${balance.toFixed(0)} ${currency}`
+                              : `Owes ${balance.toFixed(0)} ${currency}`}
+                          </span>
                         </span>
                       ) : (
                         <span className="inline-flex items-center gap-1 text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200/60 px-2 py-0.5 rounded-xl">
@@ -666,8 +761,11 @@ export default function CustomersPage(_props: CustomersPageProps) {
                   {/* Company Tags */}
                   {(co.tags || []).length > 0 && (
                     <div className="flex flex-wrap gap-1 pt-1">
-                      {co.tags.map(tag => (
-                        <span key={tag} className="text-[10px] px-2 py-0.5 rounded-lg bg-purple-50 text-purple-700 font-bold border border-purple-100">
+                      {co.tags.map((tag) => (
+                        <span
+                          key={tag}
+                          className="text-[10px] px-2 py-0.5 rounded-lg bg-purple-50 text-purple-700 font-bold border border-purple-100"
+                        >
                           {tag}
                         </span>
                       ))}
@@ -679,11 +777,15 @@ export default function CustomersPage(_props: CustomersPageProps) {
                 <div className="mt-4 pt-3 border-t border-gray-100 grid grid-cols-3 gap-2 text-center text-xs">
                   <div className="bg-gray-50/80 p-2 rounded-xl border border-gray-100">
                     <p className="font-black text-gray-900">{members.length}</p>
-                    <p className="text-[10px] text-gray-400 font-bold mt-0.5">{language === 'ar' ? 'عميل تابع' : 'Members'}</p>
+                    <p className="text-[10px] text-gray-400 font-bold mt-0.5">
+                      {language === 'ar' ? 'عميل تابع' : 'Members'}
+                    </p>
                   </div>
                   <div className="bg-gray-50/80 p-2 rounded-xl border border-gray-100">
                     <p className="font-black text-gray-900">{stats.paidOrders}</p>
-                    <p className="text-[10px] text-gray-400 font-bold mt-0.5">{language === 'ar' ? 'طلب مبيعات' : 'Orders'}</p>
+                    <p className="text-[10px] text-gray-400 font-bold mt-0.5">
+                      {language === 'ar' ? 'طلب مبيعات' : 'Orders'}
+                    </p>
                   </div>
                   <div className="bg-gray-50/80 p-2 rounded-xl border border-gray-100">
                     <p className="font-black text-mocha-800">{stats.revenue.toFixed(0)}</p>
@@ -699,38 +801,80 @@ export default function CustomersPage(_props: CustomersPageProps) {
       {/* ── Customer Form Modal ─────────────────────────────────────────────────── */}
       <AnimatePresence>
         {customerFormOpen && (
-          <ModalShell onClose={() => setCustomerFormOpen(false)} title={editingCustomer ? (language === 'ar' ? 'تعديل بيانات العميل' : 'Edit Customer') : (language === 'ar' ? 'تسجيل عميل جديد' : 'Register New Customer')} zLevel={9100}>
+          <ModalShell
+            onClose={() => setCustomerFormOpen(false)}
+            title={
+              editingCustomer
+                ? language === 'ar'
+                  ? 'تعديل بيانات العميل'
+                  : 'Edit Customer'
+                : language === 'ar'
+                  ? 'تسجيل عميل جديد'
+                  : 'Register New Customer'
+            }
+            zLevel={9100}
+          >
             <form onSubmit={saveCustomer} className="space-y-4 p-6">
               <Field label={t('Customer Name')}>
-                <input required value={cForm.name} onChange={e => setCForm({ ...cForm, name: e.target.value })}
-                  className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm bg-white outline-none focus:ring-2 focus:ring-mocha-500/40 font-medium" placeholder={t('Customer Name')} />
+                <input
+                  required
+                  value={cForm.name}
+                  onChange={(e) => setCForm({ ...cForm, name: e.target.value })}
+                  className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm bg-white outline-none focus:ring-2 focus:ring-mocha-500/40 font-medium"
+                  placeholder={t('Customer Name')}
+                />
               </Field>
               <Field label={t('Phone Number')}>
-                <input required value={cForm.phone} onChange={e => setCForm({ ...cForm, phone: e.target.value })}
-                  className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm bg-white outline-none focus:ring-2 focus:ring-mocha-500/40 font-mono" placeholder={t('Enter customer phone')} />
+                <input
+                  required
+                  value={cForm.phone}
+                  onChange={(e) => setCForm({ ...cForm, phone: e.target.value })}
+                  className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm bg-white outline-none focus:ring-2 focus:ring-mocha-500/40 font-mono"
+                  placeholder={t('Enter customer phone')}
+                />
               </Field>
               <Field label={t('Assign Company')}>
-                <select value={cForm.companyId} onChange={e => setCForm({ ...cForm, companyId: e.target.value })}
-                  className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm bg-white outline-none focus:ring-2 focus:ring-mocha-500/40 font-medium">
+                <select
+                  value={cForm.companyId}
+                  onChange={(e) => setCForm({ ...cForm, companyId: e.target.value })}
+                  className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm bg-white outline-none focus:ring-2 focus:ring-mocha-500/40 font-medium"
+                >
                   <option value="">{language === 'ar' ? '— بدون شركة —' : '— No company —'}</option>
-                  {companies.map(co => (
-                    <option key={co.id} value={co.id}>{co.name}</option>
+                  {companies.map((co) => (
+                    <option key={co.id} value={co.id}>
+                      {co.name}
+                    </option>
                   ))}
                 </select>
               </Field>
               <Field label={t('Tags')}>
-                <input value={cForm.tags} onChange={e => setCForm({ ...cForm, tags: e.target.value })}
-                  className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm bg-white outline-none focus:ring-2 focus:ring-mocha-500/40 font-medium" placeholder={language === 'ar' ? 'مثال: VIP, توصيل' : 'e.g. VIP, delivery'} />
+                <input
+                  value={cForm.tags}
+                  onChange={(e) => setCForm({ ...cForm, tags: e.target.value })}
+                  className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm bg-white outline-none focus:ring-2 focus:ring-mocha-500/40 font-medium"
+                  placeholder={language === 'ar' ? 'مثال: VIP, توصيل' : 'e.g. VIP, delivery'}
+                />
               </Field>
               <Field label={t('Notes')}>
-                <textarea rows={2} value={cForm.notes} onChange={e => setCForm({ ...cForm, notes: e.target.value })}
-                  className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm bg-white outline-none focus:ring-2 focus:ring-mocha-500/40 resize-none font-medium" />
+                <textarea
+                  rows={2}
+                  value={cForm.notes}
+                  onChange={(e) => setCForm({ ...cForm, notes: e.target.value })}
+                  className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm bg-white outline-none focus:ring-2 focus:ring-mocha-500/40 resize-none font-medium"
+                />
               </Field>
               <div className="flex gap-3 pt-3 border-t border-gray-100">
-                <button type="button" onClick={() => setCustomerFormOpen(false)} className="flex-1 py-2.5 rounded-xl border border-gray-200 text-xs font-bold text-gray-600 hover:bg-gray-50">
+                <button
+                  type="button"
+                  onClick={() => setCustomerFormOpen(false)}
+                  className="flex-1 py-2.5 rounded-xl border border-gray-200 text-xs font-bold text-gray-600 hover:bg-gray-50"
+                >
                   {t('Cancel')}
                 </button>
-                <button type="submit" className="flex-1 py-2.5 rounded-xl bg-mocha-700 hover:bg-mocha-800 text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-md shadow-mocha-700/20">
+                <button
+                  type="submit"
+                  className="flex-1 py-2.5 rounded-xl bg-mocha-700 hover:bg-mocha-800 text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-md shadow-mocha-700/20"
+                >
                   <Save size={15} /> {t('Save')}
                 </button>
               </div>
@@ -742,29 +886,65 @@ export default function CustomersPage(_props: CustomersPageProps) {
       {/* ── Company Form Modal ──────────────────────────────────────────────────── */}
       <AnimatePresence>
         {companyFormOpen && (
-          <ModalShell onClose={() => setCompanyFormOpen(false)} title={editingCompany ? (language === 'ar' ? 'تعديل بيانات الشركة' : 'Edit Company') : (language === 'ar' ? 'إضافة شركة جديدة' : 'Add Company')} zLevel={9100}>
+          <ModalShell
+            onClose={() => setCompanyFormOpen(false)}
+            title={
+              editingCompany
+                ? language === 'ar'
+                  ? 'تعديل بيانات الشركة'
+                  : 'Edit Company'
+                : language === 'ar'
+                  ? 'إضافة شركة جديدة'
+                  : 'Add Company'
+            }
+            zLevel={9100}
+          >
             <form onSubmit={saveCompany} className="space-y-4 p-6">
               <Field label={t('Company Name')}>
-                <input required value={coForm.name} onChange={e => setCoForm({ ...coForm, name: e.target.value })}
-                  className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm bg-white outline-none focus:ring-2 focus:ring-purple-500/40 font-medium" />
+                <input
+                  required
+                  value={coForm.name}
+                  onChange={(e) => setCoForm({ ...coForm, name: e.target.value })}
+                  className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm bg-white outline-none focus:ring-2 focus:ring-purple-500/40 font-medium"
+                />
               </Field>
               <Field label={t('Phone Number')}>
-                <input value={coForm.phone} onChange={e => setCoForm({ ...coForm, phone: e.target.value })}
-                  className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm bg-white outline-none focus:ring-2 focus:ring-purple-500/40 font-mono" />
+                <input
+                  value={coForm.phone}
+                  onChange={(e) => setCoForm({ ...coForm, phone: e.target.value })}
+                  className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm bg-white outline-none focus:ring-2 focus:ring-purple-500/40 font-mono"
+                />
               </Field>
               <Field label={t('Tags')}>
-                <input value={coForm.tags} onChange={e => setCoForm({ ...coForm, tags: e.target.value })}
-                  className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm bg-white outline-none focus:ring-2 focus:ring-purple-500/40 font-medium" placeholder={language === 'ar' ? 'مثال: شركات, حساب آجل' : 'e.g. corporate, credit'} />
+                <input
+                  value={coForm.tags}
+                  onChange={(e) => setCoForm({ ...coForm, tags: e.target.value })}
+                  className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm bg-white outline-none focus:ring-2 focus:ring-purple-500/40 font-medium"
+                  placeholder={
+                    language === 'ar' ? 'مثال: شركات, حساب آجل' : 'e.g. corporate, credit'
+                  }
+                />
               </Field>
               <Field label={t('Notes')}>
-                <textarea rows={2} value={coForm.notes} onChange={e => setCoForm({ ...coForm, notes: e.target.value })}
-                  className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm bg-white outline-none focus:ring-2 focus:ring-purple-500/40 resize-none font-medium" />
+                <textarea
+                  rows={2}
+                  value={coForm.notes}
+                  onChange={(e) => setCoForm({ ...coForm, notes: e.target.value })}
+                  className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm bg-white outline-none focus:ring-2 focus:ring-purple-500/40 resize-none font-medium"
+                />
               </Field>
               <div className="flex gap-3 pt-3 border-t border-gray-100">
-                <button type="button" onClick={() => setCompanyFormOpen(false)} className="flex-1 py-2.5 rounded-xl border border-gray-200 text-xs font-bold text-gray-600 hover:bg-gray-50">
+                <button
+                  type="button"
+                  onClick={() => setCompanyFormOpen(false)}
+                  className="flex-1 py-2.5 rounded-xl border border-gray-200 text-xs font-bold text-gray-600 hover:bg-gray-50"
+                >
                   {t('Cancel')}
                 </button>
-                <button type="submit" className="flex-1 py-2.5 rounded-xl bg-purple-700 hover:bg-purple-800 text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-md shadow-purple-700/20">
+                <button
+                  type="submit"
+                  className="flex-1 py-2.5 rounded-xl bg-purple-700 hover:bg-purple-800 text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-md shadow-purple-700/20"
+                >
                   <Save size={15} /> {t('Save')}
                 </button>
               </div>
@@ -801,7 +981,9 @@ export default function CustomersPage(_props: CustomersPageProps) {
           >
             <CustomerProfileDetail
               customer={profileCustomer}
-              company={profileCustomer.companyId ? companyMap[profileCustomer.companyId] : undefined}
+              company={
+                profileCustomer.companyId ? companyMap[profileCustomer.companyId] : undefined
+              }
               orders={customerOrders(profileCustomer.phone, profileCustomer.id)}
               taxRate={taxRate}
               currency={currency}
@@ -809,7 +991,6 @@ export default function CustomersPage(_props: CustomersPageProps) {
               language={language}
               allOrders={orders}
             />
-
           </ModalShell>
         )}
       </AnimatePresence>
@@ -832,8 +1013,9 @@ export default function CustomersPage(_props: CustomersPageProps) {
                       orders: companyOrders(profileCompany.id),
                       taxRate,
                       lang: language === 'ar' ? 'ar' : 'en',
-                      resolveCustomerLabel: o =>
-                        customers.find(c => c.id === o.customerId || c.phone === o.customerPhone)?.name ||
+                      resolveCustomerLabel: (o) =>
+                        customers.find((c) => c.id === o.customerId || c.phone === o.customerPhone)
+                          ?.name ||
                         o.customerName ||
                         o.customerPhone ||
                         '—',
@@ -869,7 +1051,7 @@ export default function CustomersPage(_props: CustomersPageProps) {
               currency={currency}
               t={t}
               language={language}
-              onOpenCustomer={c => {
+              onOpenCustomer={(c) => {
                 setProfileCompany(null);
                 setProfileCustomer(c);
               }}
@@ -882,8 +1064,20 @@ export default function CustomersPage(_props: CustomersPageProps) {
       <ConfirmDialog
         isOpen={!!deleteTarget}
         key={deleteTarget ? `${deleteTarget.type}-${deleteTarget.id}` : 'none'}
-        title={deleteTarget?.type === 'customer' ? (language === 'ar' ? 'حذف العميل' : 'Delete Customer') : (language === 'ar' ? 'حذف الشركة' : 'Delete Company')}
-        message={language === 'ar' ? 'هل أنت تأكد من رغبتك في الحذف نهائياً؟' : 'Are you sure you want to delete this record?'}
+        title={
+          deleteTarget?.type === 'customer'
+            ? language === 'ar'
+              ? 'حذف العميل'
+              : 'Delete Customer'
+            : language === 'ar'
+              ? 'حذف الشركة'
+              : 'Delete Company'
+        }
+        message={
+          language === 'ar'
+            ? 'هل أنت تأكد من رغبتك في الحذف نهائياً؟'
+            : 'Are you sure you want to delete this record?'
+        }
         confirmText={language === 'ar' ? 'نعم، حذف' : 'Yes, Delete'}
         cancelText={language === 'ar' ? 'إلغاء' : 'Cancel'}
         type="danger"
@@ -902,7 +1096,7 @@ function StatCard({
   value,
   subtitle,
   gradient,
-  iconBg
+  iconBg,
 }: {
   icon: any;
   title: string;
@@ -912,7 +1106,9 @@ function StatCard({
   iconBg: string;
 }) {
   return (
-    <div className={`bg-gradient-to-br ${gradient} p-4 sm:p-5 rounded-2xl border shadow-xs transition-all hover:shadow-md hover:-translate-y-0.5 flex flex-col justify-between`}>
+    <div
+      className={`bg-gradient-to-br ${gradient} p-4 sm:p-5 rounded-2xl border shadow-xs transition-all hover:shadow-md hover:-translate-y-0.5 flex flex-col justify-between`}
+    >
       <div className="flex items-center justify-between mb-3">
         <div className={`p-2.5 rounded-xl shadow-xs ${iconBg}`}>
           <Icon size={20} />
@@ -927,7 +1123,17 @@ function StatCard({
   );
 }
 
-function EmptyState({ title, action, actionLabel, icon }: { title: string; action: () => void; actionLabel: string; icon?: 'users' | 'building' }) {
+function EmptyState({
+  title,
+  action,
+  actionLabel,
+  icon,
+}: {
+  title: string;
+  action: () => void;
+  actionLabel: string;
+  icon?: 'users' | 'building';
+}) {
   const Icon = icon === 'building' ? Building2 : Users;
   return (
     <div className="py-16 px-4 text-center bg-white rounded-2xl border border-dashed border-gray-200 shadow-xs space-y-3">
@@ -935,7 +1141,10 @@ function EmptyState({ title, action, actionLabel, icon }: { title: string; actio
         <Icon size={28} />
       </div>
       <p className="text-sm font-bold text-gray-700">{title}</p>
-      <button onClick={action} className="px-5 py-2.5 rounded-xl bg-mocha-700 hover:bg-mocha-800 text-white text-xs font-bold shadow-md shadow-mocha-700/20 transition-all active:scale-95">
+      <button
+        onClick={action}
+        className="px-5 py-2.5 rounded-xl bg-mocha-700 hover:bg-mocha-800 text-white text-xs font-bold shadow-md shadow-mocha-700/20 transition-all active:scale-95"
+      >
         {actionLabel}
       </button>
     </div>
@@ -952,7 +1161,12 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 }
 
 function ModalShell({
-  children, onClose, title, actions, wide, zLevel = 9000,
+  children,
+  onClose,
+  title,
+  actions,
+  wide,
+  zLevel = 9000,
 }: {
   children: React.ReactNode;
   onClose: () => void;
@@ -968,12 +1182,16 @@ function ModalShell({
       style={{ zIndex: zLevel }}
     >
       <motion.div
-        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
         className="absolute inset-0 bg-black/50 backdrop-blur-sm"
         onClick={onClose}
       />
       <motion.div
-        initial={{ opacity: 0, y: 40 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 40 }}
+        initial={{ opacity: 0, y: 40 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: 40 }}
         className={clsx(
           'relative bg-white w-full shadow-2xl overflow-hidden max-h-[92dvh] flex flex-col',
           wide ? 'max-w-3xl sm:rounded-3xl' : 'max-w-lg sm:rounded-3xl',
@@ -984,7 +1202,10 @@ function ModalShell({
           <h3 className="font-extrabold text-gray-900 text-base">{title}</h3>
           <div className="flex items-center gap-2">
             {actions}
-            <button onClick={onClose} className="p-1.5 text-gray-400 hover:text-gray-700 rounded-xl hover:bg-gray-200/60 transition-colors">
+            <button
+              onClick={onClose}
+              className="p-1.5 text-gray-400 hover:text-gray-700 rounded-xl hover:bg-gray-200/60 transition-colors"
+            >
               <X size={18} />
             </button>
           </div>
@@ -997,7 +1218,14 @@ function ModalShell({
 }
 
 function CustomerProfileDetail({
-  customer, company, orders, taxRate, currency, t, language, allOrders,
+  customer,
+  company,
+  orders,
+  taxRate,
+  currency,
+  t,
+  language,
+  allOrders,
 }: {
   customer: Customer;
   company?: Company;
@@ -1017,12 +1245,17 @@ function CustomerProfileDetail({
     <div className="p-6 space-y-6">
       {/* Top Header Card */}
       <div className="flex items-start gap-4 p-4 rounded-2xl bg-gradient-to-br from-gray-50 to-mocha-50/30 border border-mocha-100/60">
-        <div className={`w-14 h-14 rounded-2xl bg-gradient-to-br ${gradient} flex items-center justify-center font-black text-lg shadow-md shrink-0`}>
+        <div
+          className={`w-14 h-14 rounded-2xl bg-gradient-to-br ${gradient} flex items-center justify-center font-black text-lg shadow-md shrink-0`}
+        >
           {getInitials(customer.name)}
         </div>
         <div className="flex-1 min-w-0">
           <h3 className="text-lg font-black text-gray-900">{customer.name}</h3>
-          <p className="text-xs font-mono font-bold text-gray-600 flex items-center gap-1 mt-1" dir="ltr">
+          <p
+            className="text-xs font-mono font-bold text-gray-600 flex items-center gap-1 mt-1"
+            dir="ltr"
+          >
             <Phone size={13} className="text-gray-400" /> {customer.phone}
           </p>
           {company && (
@@ -1034,13 +1267,21 @@ function CustomerProfileDetail({
         <div className="text-right shrink-0">
           {balance > 0 ? (
             <div className="bg-rose-50 border border-rose-200 px-3 py-1.5 rounded-xl text-right">
-              <p className="text-xs font-extrabold text-rose-700">{language === 'ar' ? 'رصيد مستحق' : 'Due Balance'}</p>
-              <p className="text-base font-black text-rose-800">{formatMoney(balance)} {currency}</p>
+              <p className="text-xs font-extrabold text-rose-700">
+                {language === 'ar' ? 'رصيد مستحق' : 'Due Balance'}
+              </p>
+              <p className="text-base font-black text-rose-800">
+                {formatMoney(balance)} {currency}
+              </p>
             </div>
           ) : (
             <div className="bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-xl text-right">
-              <p className="text-xs font-bold text-emerald-700">{language === 'ar' ? 'حالة الحساب' : 'Account Status'}</p>
-              <p className="text-sm font-black text-emerald-800">{language === 'ar' ? 'سليم (لا يوجد دين)' : 'Clear'}</p>
+              <p className="text-xs font-bold text-emerald-700">
+                {language === 'ar' ? 'حالة الحساب' : 'Account Status'}
+              </p>
+              <p className="text-sm font-black text-emerald-800">
+                {language === 'ar' ? 'سليم (لا يوجد دين)' : 'Clear'}
+              </p>
             </div>
           )}
         </div>
@@ -1051,7 +1292,10 @@ function CustomerProfileDetail({
         <MiniMetric label={t('Total Orders')} value={String(stats.totalOrders)} />
         <MiniMetric label={t('Paid Orders')} value={String(stats.paidOrders)} />
         <MiniMetric label={t('Total Spent')} value={`${stats.revenue.toFixed(0)} ${currency}`} />
-        <MiniMetric label={language === 'ar' ? 'نقاط الولاء' : 'Loyalty Points'} value={`${customer.points || 0} pts`} />
+        <MiniMetric
+          label={language === 'ar' ? 'نقاط الولاء' : 'Loyalty Points'}
+          value={`${customer.points || 0} pts`}
+        />
       </div>
 
       {/* Action: Print Customer Statement */}
@@ -1070,7 +1314,11 @@ function CustomerProfileDetail({
           className="w-full py-2.5 rounded-xl bg-mocha-50 hover:bg-mocha-100 text-mocha-900 border border-mocha-200 font-bold text-xs flex items-center justify-center gap-2 transition-colors"
         >
           <Printer size={15} />
-          <span>{language === 'ar' ? `طباعة كشف حساب كلي للعميل «${customer.name}»` : `Print complete customer statement`}</span>
+          <span>
+            {language === 'ar'
+              ? `طباعة كشف حساب كلي للعميل «${customer.name}»`
+              : `Print complete customer statement`}
+          </span>
         </button>
       )}
 
@@ -1081,14 +1329,18 @@ function CustomerProfileDetail({
             {language === 'ar' ? 'فواتير آجلة غير مسددة على العميل' : 'Open Receivable Invoices'}
           </h4>
           <div className="divide-y divide-rose-100 border border-rose-200/80 rounded-2xl overflow-hidden bg-rose-50/20">
-            {openInvoices.map(o => (
+            {openInvoices.map((o) => (
               <div key={o.id} className="flex items-center justify-between p-3 text-xs">
                 <div>
                   <p className="font-extrabold text-gray-900">#{formatOrderNumber(o)}</p>
-                  <p className="text-[11px] text-gray-500 mt-0.5">{new Date(o.createdAt).toLocaleString()}</p>
+                  <p className="text-[11px] text-gray-500 mt-0.5">
+                    {new Date(o.createdAt).toLocaleString()}
+                  </p>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="font-black text-rose-700 text-sm">{formatMoney(getOrderGrandTotal(o, taxRate))} {currency}</span>
+                  <span className="font-black text-rose-700 text-sm">
+                    {formatMoney(getOrderGrandTotal(o, taxRate))} {currency}
+                  </span>
                   <button
                     onClick={() => printCustomerReceipt(o, language === 'ar' ? 'ar' : 'en')}
                     className="p-1.5 rounded-lg text-rose-700 hover:bg-rose-100 transition-colors"
@@ -1112,26 +1364,43 @@ function CustomerProfileDetail({
         </h4>
         {orders.length === 0 ? (
           <p className="text-xs text-gray-400 py-8 text-center bg-gray-50 rounded-2xl border border-dashed border-gray-200">
-            {language === 'ar' ? 'لا توجد معاملات سابقة لهذا العميل' : 'No order history for this customer'}
+            {language === 'ar'
+              ? 'لا توجد معاملات سابقة لهذا العميل'
+              : 'No order history for this customer'}
           </p>
         ) : (
           <div className="divide-y divide-gray-150 border border-gray-200 rounded-2xl overflow-hidden max-h-64 overflow-y-auto">
-            {orders.slice(0, 50).map(o => (
-              <div key={o.id} className="flex items-center justify-between p-3 bg-white hover:bg-gray-50/80 transition-colors text-xs">
+            {orders.slice(0, 50).map((o) => (
+              <div
+                key={o.id}
+                className="flex items-center justify-between p-3 bg-white hover:bg-gray-50/80 transition-colors text-xs"
+              >
                 <div className="min-w-0 flex-1">
                   <p className="font-bold text-gray-900">#{formatOrderNumber(o)}</p>
-                  <p className="text-[11px] text-gray-400 mt-0.5">{new Date(o.createdAt).toLocaleString()}</p>
+                  <p className="text-[11px] text-gray-400 mt-0.5">
+                    {new Date(o.createdAt).toLocaleString()}
+                  </p>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                   <div className="text-right">
-                    <p className="font-extrabold text-gray-900">{formatMoney(getOrderGrandTotal(o, taxRate))} {currency}</p>
-                    <p className={clsx(
-                      'text-[10px] font-extrabold mt-0.5',
-                      o.paymentStatus === 'Paid' ? 'text-emerald-600'
-                      : o.paymentStatus === 'OnAccount' ? 'text-rose-600'
-                      : 'text-amber-600'
-                    )}>
-                      {o.paymentStatus === 'OnAccount' ? (language === 'ar' ? 'على الحساب' : 'On Account') : o.paymentStatus}
+                    <p className="font-extrabold text-gray-900">
+                      {formatMoney(getOrderGrandTotal(o, taxRate))} {currency}
+                    </p>
+                    <p
+                      className={clsx(
+                        'text-[10px] font-extrabold mt-0.5',
+                        o.paymentStatus === 'Paid'
+                          ? 'text-emerald-600'
+                          : o.paymentStatus === 'OnAccount'
+                            ? 'text-rose-600'
+                            : 'text-amber-600'
+                      )}
+                    >
+                      {o.paymentStatus === 'OnAccount'
+                        ? language === 'ar'
+                          ? 'على الحساب'
+                          : 'On Account'
+                        : o.paymentStatus}
                     </p>
                   </div>
                   <button
@@ -1149,14 +1418,20 @@ function CustomerProfileDetail({
           </div>
         )}
       </div>
-
     </div>
   );
 }
 
-
 function CompanyProfileDetail({
-  company, members, orders, taxRate, currency, t, language, onOpenCustomer, allOrders,
+  company,
+  members,
+  orders,
+  taxRate,
+  currency,
+  t,
+  language,
+  onOpenCustomer,
+  allOrders,
 }: {
   company: Company;
   members: Customer[];
@@ -1170,15 +1445,18 @@ function CompanyProfileDetail({
 }) {
   const stats = orderStats(orders, taxRate);
   const balance = getCompanyAccountBalance(
-    allOrders, company.id, taxRate,
-    members.map(m => m.phone),
-    members.map(m => m.id),
+    allOrders,
+    company.id,
+    taxRate,
+    members.map((m) => m.phone),
+    members.map((m) => m.id),
     false
   );
   const openInvoices = getCompanyOpenInvoices(
-    allOrders, company.id,
-    members.map(m => m.phone),
-    members.map(m => m.id),
+    allOrders,
+    company.id,
+    members.map((m) => m.phone),
+    members.map((m) => m.id),
     false
   );
 
@@ -1192,7 +1470,10 @@ function CompanyProfileDetail({
         <div className="flex-1 min-w-0">
           <h3 className="text-lg font-black text-gray-900">{company.name}</h3>
           {company.phone && (
-            <p className="text-xs font-mono font-bold text-gray-600 flex items-center gap-1 mt-1" dir="ltr">
+            <p
+              className="text-xs font-mono font-bold text-gray-600 flex items-center gap-1 mt-1"
+              dir="ltr"
+            >
               <Phone size={13} className="text-gray-400" /> {company.phone}
             </p>
           )}
@@ -1200,13 +1481,21 @@ function CompanyProfileDetail({
         <div className="text-right shrink-0">
           {balance > 0 ? (
             <div className="bg-rose-50 border border-rose-200 px-3 py-1.5 rounded-xl text-right">
-              <p className="text-xs font-extrabold text-rose-700">{language === 'ar' ? 'رصيد الشركة المستحق' : 'Due Company Balance'}</p>
-              <p className="text-base font-black text-rose-800">{formatMoney(balance)} {currency}</p>
+              <p className="text-xs font-extrabold text-rose-700">
+                {language === 'ar' ? 'رصيد الشركة المستحق' : 'Due Company Balance'}
+              </p>
+              <p className="text-base font-black text-rose-800">
+                {formatMoney(balance)} {currency}
+              </p>
             </div>
           ) : (
             <div className="bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-xl text-right">
-              <p className="text-xs font-bold text-emerald-700">{language === 'ar' ? 'حالة حساب الشركة' : 'Account Status'}</p>
-              <p className="text-sm font-black text-emerald-800">{language === 'ar' ? 'سليم (لا يوجد دين)' : 'Clear'}</p>
+              <p className="text-xs font-bold text-emerald-700">
+                {language === 'ar' ? 'حالة حساب الشركة' : 'Account Status'}
+              </p>
+              <p className="text-sm font-black text-emerald-800">
+                {language === 'ar' ? 'سليم (لا يوجد دين)' : 'Clear'}
+              </p>
             </div>
           )}
         </div>
@@ -1214,10 +1503,16 @@ function CompanyProfileDetail({
 
       {/* Metrics Row */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <MiniMetric label={language === 'ar' ? 'العملاء التابعون' : 'Affiliated Members'} value={String(members.length)} />
+        <MiniMetric
+          label={language === 'ar' ? 'العملاء التابعون' : 'Affiliated Members'}
+          value={String(members.length)}
+        />
         <MiniMetric label={t('Total Orders')} value={String(stats.totalOrders)} />
         <MiniMetric label={t('Total Revenue')} value={`${stats.revenue.toFixed(0)} ${currency}`} />
-        <MiniMetric label={language === 'ar' ? 'الديون المفتوحة' : 'Company Due'} value={`${balance.toFixed(0)} ${currency}`} />
+        <MiniMetric
+          label={language === 'ar' ? 'الديون المفتوحة' : 'Company Due'}
+          value={`${balance.toFixed(0)} ${currency}`}
+        />
       </div>
 
       {/* Open Company Invoices */}
@@ -1227,16 +1522,23 @@ function CompanyProfileDetail({
             {language === 'ar' ? 'فواتير آجلة مفتوحة على حساب الشركة' : 'Open Corporate Invoices'}
           </h4>
           <div className="divide-y divide-rose-100 border border-rose-200/80 rounded-2xl overflow-hidden bg-rose-50/20">
-            {openInvoices.map(o => (
+            {openInvoices.map((o) => (
               <div key={o.id} className="flex items-center justify-between p-3 text-xs">
                 <div>
                   <p className="font-extrabold text-gray-900">#{formatOrderNumber(o)}</p>
                   <p className="text-[11px] text-gray-500 mt-0.5">
-                    {o.customerName || members.find(m => m.id === o.customerId || m.phone === o.customerPhone)?.name || o.customerPhone || '—'} · {new Date(o.createdAt).toLocaleString()}
+                    {o.customerName ||
+                      members.find((m) => m.id === o.customerId || m.phone === o.customerPhone)
+                        ?.name ||
+                      o.customerPhone ||
+                      '—'}{' '}
+                    · {new Date(o.createdAt).toLocaleString()}
                   </p>
                 </div>
                 <div className="flex items-center gap-3">
-                  <span className="font-black text-rose-700 text-sm">{formatMoney(getOrderGrandTotal(o, taxRate))} {currency}</span>
+                  <span className="font-black text-rose-700 text-sm">
+                    {formatMoney(getOrderGrandTotal(o, taxRate))} {currency}
+                  </span>
                   <button
                     onClick={() => printCustomerReceipt(o, language === 'ar' ? 'ar' : 'en')}
                     className="p-1.5 rounded-lg text-rose-700 hover:bg-rose-100 transition-colors"
@@ -1258,11 +1560,13 @@ function CompanyProfileDetail({
         </h4>
         {members.length === 0 ? (
           <p className="text-xs text-gray-400 py-6 text-center bg-gray-50 rounded-2xl border border-dashed border-gray-200">
-            {language === 'ar' ? 'لا يوجد عملاء منسوبون لهذه الشركة بعد' : 'No members linked to this company yet'}
+            {language === 'ar'
+              ? 'لا يوجد عملاء منسوبون لهذه الشركة بعد'
+              : 'No members linked to this company yet'}
           </p>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-            {members.map(m => (
+            {members.map((m) => (
               <button
                 key={m.id}
                 type="button"
@@ -1274,7 +1578,9 @@ function CompanyProfileDetail({
                     {getInitials(m.name)}
                   </div>
                   <div className="min-w-0">
-                    <p className="text-xs font-bold text-gray-900 truncate group-hover:text-purple-700 transition-colors">{m.name}</p>
+                    <p className="text-xs font-bold text-gray-900 truncate group-hover:text-purple-700 transition-colors">
+                      {m.name}
+                    </p>
                     <p className="text-[10px] font-mono text-gray-400">{m.phone}</p>
                   </div>
                 </div>
@@ -1294,7 +1600,9 @@ function MiniMetric({ label, value }: { label: string; value: string }) {
   return (
     <div className="bg-gray-50/90 rounded-2xl p-3.5 text-center border border-gray-150 shadow-xs">
       <p className="text-base font-black text-gray-900 truncate">{value}</p>
-      <p className="text-[10px] text-gray-400 font-extrabold mt-0.5 uppercase tracking-wide">{label}</p>
+      <p className="text-[10px] text-gray-400 font-extrabold mt-0.5 uppercase tracking-wide">
+        {label}
+      </p>
     </div>
   );
 }

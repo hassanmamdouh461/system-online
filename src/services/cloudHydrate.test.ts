@@ -18,7 +18,9 @@ const readSrc = (rel: string) => readFileSync(resolve(__dirname, rel), 'utf8');
 describe('cloud hydration paymentStatus default', () => {
   it('cloudHydrate mapOrder defaults a missing paymentStatus to Unpaid', () => {
     const src = readSrc('./cloudHydrate.ts');
-    expect(src).toContain("paymentStatus: (doc.paymentStatus as Order['paymentStatus']) || 'Unpaid'");
+    expect(src).toContain(
+      "paymentStatus: (doc.paymentStatus as Order['paymentStatus']) || 'Unpaid'"
+    );
     expect(src).not.toContain("|| 'Paid'");
   });
 
@@ -28,10 +30,7 @@ describe('cloud hydration paymentStatus default', () => {
   });
 
   it('matches the Worker-side default for the same field', () => {
-    const worker = readFileSync(
-      resolve(__dirname, '../../cloudflare-worker/src/index.ts'),
-      'utf8',
-    );
+    const worker = readFileSync(resolve(__dirname, '../../cloudflare-worker/src/index.ts'), 'utf8');
     expect(worker).toContain("doc.paymentStatus = row.paymentStatus || 'Unpaid'");
   });
 });

@@ -76,7 +76,9 @@ describe('applySnapshotPayload merge guard', () => {
 
   it('never overwrites when the LOCAL timestamp is corrupt (cannot be proven older)', async () => {
     stores.orders.set('o1', { id: 'o1', total: 100, updatedAt: 'not-a-date' });
-    await applySnapshotPayload(payload([{ id: 'o1', total: 1, updatedAt: '2026-08-03T10:00:00Z' }]));
+    await applySnapshotPayload(
+      payload([{ id: 'o1', total: 1, updatedAt: '2026-08-03T10:00:00Z' }])
+    );
     expect(stores.orders.get('o1').total).toBe(100);
   });
 
@@ -88,13 +90,17 @@ describe('applySnapshotPayload merge guard', () => {
 
   it('still restores a genuinely newer row (the whole point of a restore)', async () => {
     stores.orders.set('o1', { id: 'o1', total: 100, updatedAt: '2026-08-01T10:00:00Z' });
-    await applySnapshotPayload(payload([{ id: 'o1', total: 1, updatedAt: '2026-08-03T10:00:00Z' }]));
+    await applySnapshotPayload(
+      payload([{ id: 'o1', total: 1, updatedAt: '2026-08-03T10:00:00Z' }])
+    );
     expect(stores.orders.get('o1').total).toBe(1);
   });
 
   it('leaves a newer local row alone when the snapshot is stale', async () => {
     stores.orders.set('o1', { id: 'o1', total: 100, updatedAt: '2026-08-03T10:00:00Z' });
-    await applySnapshotPayload(payload([{ id: 'o1', total: 1, updatedAt: '2026-08-01T10:00:00Z' }]));
+    await applySnapshotPayload(
+      payload([{ id: 'o1', total: 1, updatedAt: '2026-08-01T10:00:00Z' }])
+    );
     expect(stores.orders.get('o1').total).toBe(100);
   });
 

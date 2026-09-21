@@ -24,12 +24,7 @@
 import type { Order } from '../types/order';
 import { getOrderMoney } from '../types/order';
 import { inBusinessPeriod, revenueTimestamp, countTimestamp, getDayStartHour } from './businessDay';
-import {
-  addMoney,
-  sumMoneyBy,
-  moneyPercent,
-  formatMoney,
-} from './money';
+import { addMoney, sumMoneyBy, moneyPercent, formatMoney } from './money';
 import { escapeTelegramHtml } from '../services/telegramService';
 
 export interface DailyReportStats {
@@ -59,39 +54,39 @@ export function computeDailyReportStats(
   orders: readonly Order[],
   taxRate: number,
   now: Date = new Date(),
-  startHour: number = getDayStartHour(),
+  startHour: number = getDayStartHour()
 ): DailyReportStats {
   const dayOrders = orders.filter(
-    o => o.status !== 'Cancelled' && inBusinessPeriod(countTimestamp(o), 'Today', startHour, now),
+    (o) => o.status !== 'Cancelled' && inBusinessPeriod(countTimestamp(o), 'Today', startHour, now)
   );
 
   const paid = orders.filter(
-    o =>
+    (o) =>
       o.paymentStatus === 'Paid' &&
       o.status !== 'Cancelled' &&
-      inBusinessPeriod(revenueTimestamp(o), 'Today', startHour, now),
+      inBusinessPeriod(revenueTimestamp(o), 'Today', startHour, now)
   );
 
   const orderTotal = (o: Order) => getOrderMoney(o, taxRate).grandTotal;
 
   const totalRevenue = sumMoneyBy(paid, orderTotal);
   const cashAmount = sumMoneyBy(
-    paid.filter(o => o.paymentMethod === 'Cash'),
-    orderTotal,
+    paid.filter((o) => o.paymentMethod === 'Cash'),
+    orderTotal
   );
   const cardAmount = sumMoneyBy(
-    paid.filter(o => o.paymentMethod === 'Card'),
-    orderTotal,
+    paid.filter((o) => o.paymentMethod === 'Card'),
+    orderTotal
   );
   const cashCardTotal = addMoney(cashAmount, cardAmount);
 
   const unpaid = dayOrders.filter(
-    o => o.paymentStatus === 'Unpaid' || o.paymentStatus === 'OnAccount',
+    (o) => o.paymentStatus === 'Unpaid' || o.paymentStatus === 'OnAccount'
   );
 
   const itemCounts = new Map<string, number>();
-  paid.forEach(order => {
-    (order.items || []).forEach(item => {
+  paid.forEach((order) => {
+    (order.items || []).forEach((item) => {
       if (!item || typeof item.name !== 'string') return;
       itemCounts.set(item.name, (itemCounts.get(item.name) || 0) + (Number(item.quantity) || 0));
     });
@@ -109,8 +104,8 @@ export function computeDailyReportStats(
     cardAmount,
     cashPercentage: moneyPercent(cashAmount, cashCardTotal),
     cardPercentage: moneyPercent(cardAmount, cashCardTotal),
-    takeawayCount: paid.filter(o => o.tableId === 'Takeaway').length,
-    dineInCount: paid.filter(o => o.tableId !== 'Takeaway').length,
+    takeawayCount: paid.filter((o) => o.tableId === 'Takeaway').length,
+    dineInCount: paid.filter((o) => o.tableId !== 'Takeaway').length,
     unpaidAmount: sumMoneyBy(unpaid, orderTotal),
     unpaidCount: unpaid.length,
     topItems,
@@ -125,7 +120,7 @@ export function computeDailyReportStats(
 export function buildDailyReportMessage(
   stats: DailyReportStats,
   branchName: string,
-  now: Date = new Date(),
+  now: Date = new Date()
 ): string {
   const safeBranch = escapeTelegramHtml(branchName);
   const todayStr = now.toLocaleDateString('en-CA');
@@ -148,7 +143,7 @@ export function buildDailyReportMessage(
 
   if (stats.topItems.length > 0) {
     message += `☕ <b>أكثر الأصناف مبيعاً اليوم:</b>\n`;
-    stats.topItems.forEach(item => {
+    stats.topItems.forEach((item) => {
       message += `• ${escapeTelegramHtml(item.name)}: عدد <b>${item.count}</b>\n`;
     });
     message += `\n`;

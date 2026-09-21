@@ -1,14 +1,14 @@
 import { NavLink, useNavigate } from 'react-router-dom';
-import { 
-  ClipboardList, 
-  CreditCard, 
-  Users, 
-  BarChart3, 
-  Settings, 
+import {
+  ClipboardList,
+  CreditCard,
+  Users,
+  BarChart3,
+  Settings,
   Coffee,
   Building2,
   Package,
-  LogOut
+  LogOut,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
@@ -25,25 +25,29 @@ export function TopNav() {
   };
 
   // Build items based on role (excluding Dashboard for branch accounts)
-  const navItems = user?.role === 'manager' 
-    ? [
-        { icon: Building2, label: language === 'ar' ? 'لوحة المدير' : 'Manager Dashboard', to: '/manager-dashboard' },
-        { icon: Package, label: t('Inventory'), to: '/inventory' },
-        { icon: BarChart3, label: t('Reports'), to: '/reports' },
-        { icon: Settings, label: t('Settings'), to: '/settings' },
-      ]
-    : [
-        { icon: ClipboardList, label: t('Cashier Board'), to: '/orders' },
-        { icon: CreditCard, label: t('Payment & Invoice'), to: '/payment' },
-        { icon: Users, label: t('Customers'), to: '/customers' },
-        { icon: Settings, label: t('Settings'), to: '/settings' },
-      ];
+  const navItems =
+    user?.role === 'manager'
+      ? [
+          {
+            icon: Building2,
+            label: language === 'ar' ? 'لوحة المدير' : 'Manager Dashboard',
+            to: '/manager-dashboard',
+          },
+          { icon: Package, label: t('Inventory'), to: '/inventory' },
+          { icon: BarChart3, label: t('Reports'), to: '/reports' },
+          { icon: Settings, label: t('Settings'), to: '/settings' },
+        ]
+      : [
+          { icon: ClipboardList, label: t('Cashier Board'), to: '/orders' },
+          { icon: CreditCard, label: t('Payment & Invoice'), to: '/payment' },
+          { icon: Users, label: t('Customers'), to: '/customers' },
+          { icon: Settings, label: t('Settings'), to: '/settings' },
+        ];
 
   return (
     <header className="hidden sm:block w-full bg-white border-b border-gray-200 shadow-sm relative z-30">
       <div className="w-full px-3 sm:px-4 lg:px-6">
         <div className="flex items-center justify-between h-14 sm:h-16">
-          
           {/* Brand/Logo */}
           <div className="flex items-center gap-2 sm:gap-3 shrink-0">
             <div className="bg-gradient-to-br from-mocha-600 to-coffee-dark p-1.5 sm:p-2 rounded-lg shadow-md shadow-mocha-500/10">
@@ -67,10 +71,10 @@ export function TopNav() {
                   to={item.to}
                   className={({ isActive }) =>
                     clsx(
-                      "flex items-center gap-2 px-2.5 sm:px-3 lg:px-4 py-2 rounded-lg text-xs lg:text-sm font-extrabold transition-all duration-200",
+                      'flex items-center gap-2 px-2.5 sm:px-3 lg:px-4 py-2 rounded-lg text-xs lg:text-sm font-extrabold transition-all duration-200',
                       isActive
-                        ? "bg-gray-900 text-white shadow-sm"
-                        : "text-gray-500 hover:text-gray-700 hover:bg-gray-200/50"
+                        ? 'bg-gray-900 text-white shadow-sm'
+                        : 'text-gray-500 hover:text-gray-700 hover:bg-gray-200/50'
                     )
                   }
                 >
@@ -83,17 +87,22 @@ export function TopNav() {
 
           {/* Right Action Section (User Profile & Logout) */}
           <div className="flex items-center gap-2 sm:gap-3 shrink-0">
-
             {/* User Profile Mini Card */}
             <div className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-gray-50 border border-gray-200/40">
-              <div className={clsx("text-left", isRtl && "text-right")}>
+              <div className={clsx('text-left', isRtl && 'text-right')}>
                 <p className="text-xs font-bold text-gray-800 leading-tight">
                   {language === 'ar' && user?.role === 'manager'
                     ? 'الإدارة العامة'
-                    : user?.name ?? 'Admin User'}
+                    : (user?.name ?? 'Admin User')}
                 </p>
                 <p className="text-[10px] text-gray-400 font-semibold">
-                  {user?.role === 'manager' ? (language === 'ar' ? 'المدير' : 'Manager') : (language === 'ar' ? 'الفرع' : 'Branch')}
+                  {user?.role === 'manager'
+                    ? language === 'ar'
+                      ? 'المدير'
+                      : 'Manager'
+                    : language === 'ar'
+                      ? 'الفرع'
+                      : 'Branch'}
                 </p>
               </div>
             </div>
@@ -107,7 +116,6 @@ export function TopNav() {
               <LogOut size={16} />
             </button>
           </div>
-
         </div>
       </div>
     </header>

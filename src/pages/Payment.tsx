@@ -18,9 +18,7 @@ import { motion } from 'framer-motion';
 import { useOrders } from '../hooks/useOrders';
 import { useLanguage } from '../context/LanguageContext';
 import { useToast } from '../components/ui/Toast';
-import {
-  getTaxRate,
-} from '../utils/settingsConfig';
+import { getTaxRate } from '../utils/settingsConfig';
 import { isMoney } from '../utils/money';
 import { customersService } from '../services/customersService';
 import { companiesService } from '../services/companiesService';
@@ -44,7 +42,10 @@ type AccountHolder = {
 };
 
 function normalize(s: string) {
-  return s.replace(/[\s\-()]/g, '').trim().toLowerCase();
+  return s
+    .replace(/[\s\-()]/g, '')
+    .trim()
+    .toLowerCase();
 }
 
 /** Treat generic placeholders as missing so we fall through to phone / lookup. */
@@ -52,13 +53,20 @@ function realName(name?: string | null): string | undefined {
   const n = (name || '').trim();
   if (!n) return undefined;
   const lower = n.toLowerCase();
-  if (lower === 'عميل' || lower === 'customer' || lower === 'شركة' || lower === 'company' || n === '—') {
+  if (
+    lower === 'عميل' ||
+    lower === 'customer' ||
+    lower === 'شركة' ||
+    lower === 'company' ||
+    n === '—'
+  ) {
     return undefined;
   }
   return n;
 }
 
-export type SearchFieldType = 'all' | 'invoice' | 'phone' | 'customer' | 'table' | 'item' | 'amount';
+export type SearchFieldType =
+  'all' | 'invoice' | 'phone' | 'customer' | 'table' | 'item' | 'amount';
 
 export const SEARCH_FIELDS: {
   id: SearchFieldType;
@@ -68,13 +76,62 @@ export const SEARCH_FIELDS: {
   placeholderAr: string;
   placeholderEn: string;
 }[] = [
-  { id: 'all', icon: '', labelAr: 'الكل (بحث شامل)', labelEn: 'All Fields', placeholderAr: 'بحث شامل بجميع البيانات (فاتورة / هاتف / عميل / صنف)...', placeholderEn: 'Search all fields (invoice / phone / customer / item)...' },
-  { id: 'invoice', icon: '📄', labelAr: 'رقم الفاتورة #', labelEn: 'Invoice #', placeholderAr: 'ابحث برقم الفاتورة (مثال: 12 أو #12)...', placeholderEn: 'Search invoice # (e.g. 12 or #12)...' },
-  { id: 'phone', icon: '📞', labelAr: 'رقم الهاتف', labelEn: 'Phone Number', placeholderAr: 'ابحث برقم هاتف العميل...', placeholderEn: 'Search customer phone number...' },
-  { id: 'customer', icon: '👤', labelAr: 'اسم العميل / الشركة', labelEn: 'Customer / Company Name', placeholderAr: 'ابحث باسم العميل أو الشركة...', placeholderEn: 'Search customer or company name...' },
-  { id: 'table', icon: '🪑', labelAr: 'رقم الطاولة', labelEn: 'Table Number', placeholderAr: 'ابحث برقم أو اسم الطاولة (مثال: 1 أو VIP)...', placeholderEn: 'Search table # or name...' },
-  { id: 'item', icon: '☕', labelAr: 'اسم الصنف', labelEn: 'Item Name', placeholderAr: 'ابحث باسم الصنف في الفاتورة (مثال: لاتيه)...', placeholderEn: 'Search item name in invoice...' },
-  { id: 'amount', icon: '💵', labelAr: 'المبلغ / القيمة', labelEn: 'Amount / Price', placeholderAr: 'ابحث بمبلغ الفاتورة (مثال: 120)...', placeholderEn: 'Search invoice total amount...' },
+  {
+    id: 'all',
+    icon: '',
+    labelAr: 'الكل (بحث شامل)',
+    labelEn: 'All Fields',
+    placeholderAr: 'بحث شامل بجميع البيانات (فاتورة / هاتف / عميل / صنف)...',
+    placeholderEn: 'Search all fields (invoice / phone / customer / item)...',
+  },
+  {
+    id: 'invoice',
+    icon: '📄',
+    labelAr: 'رقم الفاتورة #',
+    labelEn: 'Invoice #',
+    placeholderAr: 'ابحث برقم الفاتورة (مثال: 12 أو #12)...',
+    placeholderEn: 'Search invoice # (e.g. 12 or #12)...',
+  },
+  {
+    id: 'phone',
+    icon: '📞',
+    labelAr: 'رقم الهاتف',
+    labelEn: 'Phone Number',
+    placeholderAr: 'ابحث برقم هاتف العميل...',
+    placeholderEn: 'Search customer phone number...',
+  },
+  {
+    id: 'customer',
+    icon: '👤',
+    labelAr: 'اسم العميل / الشركة',
+    labelEn: 'Customer / Company Name',
+    placeholderAr: 'ابحث باسم العميل أو الشركة...',
+    placeholderEn: 'Search customer or company name...',
+  },
+  {
+    id: 'table',
+    icon: '🪑',
+    labelAr: 'رقم الطاولة',
+    labelEn: 'Table Number',
+    placeholderAr: 'ابحث برقم أو اسم الطاولة (مثال: 1 أو VIP)...',
+    placeholderEn: 'Search table # or name...',
+  },
+  {
+    id: 'item',
+    icon: '☕',
+    labelAr: 'اسم الصنف',
+    labelEn: 'Item Name',
+    placeholderAr: 'ابحث باسم الصنف في الفاتورة (مثال: لاتيه)...',
+    placeholderEn: 'Search item name in invoice...',
+  },
+  {
+    id: 'amount',
+    icon: '💵',
+    labelAr: 'المبلغ / القيمة',
+    labelEn: 'Amount / Price',
+    placeholderAr: 'ابحث بمبلغ الفاتورة (مثال: 120)...',
+    placeholderEn: 'Search invoice total amount...',
+  },
 ];
 
 function orderMatchesSearch(
@@ -177,7 +234,7 @@ function orderMatchesSearch(
   if (searchField === 'all' || searchField === 'item') {
     let itemMatch = false;
     if (o.items && Array.isArray(o.items)) {
-      itemMatch = o.items.some(item => {
+      itemMatch = o.items.some((item) => {
         const iName = (item.name || '').toLowerCase();
         const iCat = (item.category || '').toLowerCase();
         return iName.includes(qLower) || iCat.includes(qLower);
@@ -224,7 +281,8 @@ function holderMatchesSearch(
   if (searchField === 'all' || searchField === 'phone') {
     if (h.phone && normalize(h.phone).includes(qDigits)) return true;
   }
-  if (h.orders.some(o => orderMatchesSearch(o, term, searchField, customerMap, companyMap))) return true;
+  if (h.orders.some((o) => orderMatchesSearch(o, term, searchField, customerMap, companyMap)))
+    return true;
   return false;
 }
 
@@ -247,12 +305,18 @@ export default function Payment() {
   useEffect(() => {
     let cancelled = false;
     const load = () => {
-      customersService.getAll().then(list => {
-        if (!cancelled) setCustomers(list);
-      }).catch(() => {});
-      companiesService.getAll().then(list => {
-        if (!cancelled) setCompanies(list);
-      }).catch(() => {});
+      customersService
+        .getAll()
+        .then((list) => {
+          if (!cancelled) setCustomers(list);
+        })
+        .catch(() => {});
+      companiesService
+        .getAll()
+        .then((list) => {
+          if (!cancelled) setCompanies(list);
+        })
+        .catch(() => {});
     };
     load();
     // Re-load after cloud hydrate / sync so company affiliation appears
@@ -275,7 +339,7 @@ export default function Payment() {
 
   const companyById = useMemo(() => {
     const m = new Map<string, Company>();
-    companies.forEach(c => m.set(c.id, c));
+    companies.forEach((c) => m.set(c.id, c));
     return m;
   }, [companies]);
 
@@ -338,17 +402,17 @@ export default function Payment() {
   };
 
   const pendingOrders = useMemo(
-    () => allOrders.filter(o => o.paymentStatus === 'Unpaid' && o.status !== 'Cancelled'),
+    () => allOrders.filter((o) => o.paymentStatus === 'Unpaid' && o.status !== 'Cancelled'),
     [allOrders]
   );
 
   const accountOrders = useMemo(
-    () => allOrders.filter(o => o.paymentStatus === 'OnAccount' && o.status !== 'Cancelled'),
+    () => allOrders.filter((o) => o.paymentStatus === 'OnAccount' && o.status !== 'Cancelled'),
     [allOrders]
   );
 
   const paidOrders = useMemo(
-    () => allOrders.filter(o => o.paymentStatus === 'Paid' || o.paymentStatus === 'Refunded'),
+    () => allOrders.filter((o) => o.paymentStatus === 'Paid' || o.paymentStatus === 'Refunded'),
     [allOrders]
   );
 
@@ -375,7 +439,10 @@ export default function Payment() {
           existing.balance = addMoney(existing.balance, total);
           existing.invoiceCount += 1;
           existing.orders.push(o);
-          if (coName && (existing.name === (language === 'ar' ? 'شركة' : 'Company') || !existing.name)) {
+          if (
+            coName &&
+            (existing.name === (language === 'ar' ? 'شركة' : 'Company') || !existing.name)
+          ) {
             existing.name = coName;
           } else if (coName) {
             existing.name = coName;
@@ -401,9 +468,7 @@ export default function Payment() {
       const existing = map.get(key);
       // Prefer real name → phone → last-resort generic (only when nothing else)
       const displayName =
-        custName ||
-        o.customerPhone?.trim() ||
-        (language === 'ar' ? 'عميل' : 'Customer');
+        custName || o.customerPhone?.trim() || (language === 'ar' ? 'عميل' : 'Customer');
 
       if (existing) {
         existing.balance = addMoney(existing.balance, total);
@@ -413,10 +478,7 @@ export default function Payment() {
         // Upgrade placeholder title when we later discover a real name/phone
         if (custName) {
           existing.name = custName;
-        } else if (
-          o.customerPhone &&
-          (existing.name === 'عميل' || existing.name === 'Customer')
-        ) {
+        } else if (o.customerPhone && (existing.name === 'عميل' || existing.name === 'Customer')) {
           existing.name = o.customerPhone;
         }
       } else {
@@ -451,13 +513,15 @@ export default function Payment() {
 
   const filteredHolders = useMemo(() => {
     if (!searchTerm.trim()) return accountHolders;
-    return accountHolders.filter(h => holderMatchesSearch(h, searchTerm, searchField, customerByPhone, companyById));
+    return accountHolders.filter((h) =>
+      holderMatchesSearch(h, searchTerm, searchField, customerByPhone, companyById)
+    );
   }, [accountHolders, searchTerm, searchField, customerByPhone, companyById]);
 
   // When a holder is selected (or single search match), focus their invoices
   const focusedHolder = useMemo(() => {
     if (selectedHolderKey) {
-      return filteredHolders.find(h => h.key === selectedHolderKey) || null;
+      return filteredHolders.find((h) => h.key === selectedHolderKey) || null;
     }
     if (searchTerm.trim() && filteredHolders.length === 1) {
       return filteredHolders[0];
@@ -466,16 +530,12 @@ export default function Payment() {
   }, [selectedHolderKey, filteredHolders, searchTerm]);
 
   const searchTotalBalance = useMemo(
-    () => sumMoneyBy(filteredHolders, h => h.balance),
+    () => sumMoneyBy(filteredHolders, (h) => h.balance),
     [filteredHolders]
   );
 
   const orders =
-    activeTab === 'pending'
-      ? pendingOrders
-      : activeTab === 'accounts'
-        ? accountOrders
-        : paidOrders;
+    activeTab === 'pending' ? pendingOrders : activeTab === 'accounts' ? accountOrders : paidOrders;
 
   const handleOpenPayment = (order: Order) => {
     setSelectedOrder(order);
@@ -484,7 +544,7 @@ export default function Payment() {
 
   const handlePaymentComplete = async (payload: PaymentCompletePayload) => {
     try {
-      const order = allOrders.find(o => o.id === payload.orderId);
+      const order = allOrders.find((o) => o.id === payload.orderId);
       // Piaster-exact frozen triple — these three fields are written to the DB,
       // so they must never carry float drift (see utils/money).
       //
@@ -549,7 +609,7 @@ export default function Payment() {
     const dayStartHour = getDayStartHour();
     const todayKey = businessDayKey(new Date().toISOString(), dayStartHour);
 
-    const list = source.filter(o => {
+    const list = source.filter((o) => {
       const matchesSearch =
         activeTab === 'accounts' && focusedHolder
           ? true
@@ -633,13 +693,13 @@ export default function Payment() {
   const todayKey = businessDayKey(new Date().toISOString(), dayStartHour);
   const totalRevenue = allOrders
     .filter(
-      o =>
+      (o) =>
         o.paymentStatus === 'Paid' &&
         businessDayKey(o.paidAt || o.createdAt, dayStartHour) === todayKey
     )
     .reduce((sum, o) => addMoney(sum, getOrderGrandTotal(o, fallbackTax)), 0);
 
-  const totalReceivables = sumMoneyBy(accountHolders, h => h.balance);
+  const totalReceivables = sumMoneyBy(accountHolders, (h) => h.balance);
 
   const renderOrderCard = (order: Order) => (
     <motion.div
@@ -664,8 +724,7 @@ export default function Payment() {
           {(() => {
             const { name: cName, phone, company: coName } = orderDisplayLabel(order);
             const coId = resolveCompanyId(order);
-            const resolvedCo =
-              coName || (coId ? realName(companyById.get(coId)?.name) : undefined);
+            const resolvedCo = coName || (coId ? realName(companyById.get(coId)?.name) : undefined);
             // Resolve via customer affiliation if no direct coId
             const affCoName = !resolvedCo
               ? (() => {
@@ -682,9 +741,7 @@ export default function Payment() {
               <>
                 {(cName || phone) && (
                   <p className="text-xs text-gray-700 font-bold mt-2 bg-gray-50 px-2.5 py-1.5 rounded-lg border border-gray-200/80 space-y-0.5">
-                    {cName && (
-                      <span className="block text-gray-900 font-extrabold">{cName}</span>
-                    )}
+                    {cName && <span className="block text-gray-900 font-extrabold">{cName}</span>}
                     {!cName && phone && (
                       <span className="block text-gray-900 font-extrabold font-mono" dir="ltr">
                         {phone}
@@ -812,9 +869,7 @@ export default function Payment() {
               <DollarSign size={18} />
             </div>
             <div>
-              <p className="text-[10px] text-gray-500 font-medium">
-                {t("Today's Revenue")}
-              </p>
+              <p className="text-[10px] text-gray-500 font-medium">{t("Today's Revenue")}</p>
               <p className="text-base font-bold text-gray-900">
                 {formatMoney(totalRevenue)} {currency}
               </p>
@@ -845,20 +900,31 @@ export default function Payment() {
             {
               id: 'pending' as const,
               label: t('Pending Payments'),
-              count: pendingOrders.filter(o => !filterDate || businessDayKey(o.paidAt || o.createdAt, dayStartHour) === filterDate).length,
+              count: pendingOrders.filter(
+                (o) =>
+                  !filterDate ||
+                  businessDayKey(o.paidAt || o.createdAt, dayStartHour) === filterDate
+              ).length,
             },
             {
               id: 'accounts' as const,
               label: language === 'ar' ? 'على الحساب' : 'On Account',
-              count: accountOrders.filter(o => !filterDate || businessDayKey(o.paidAt || o.createdAt, dayStartHour) === filterDate).length,
+              count: accountOrders.filter(
+                (o) =>
+                  !filterDate ||
+                  businessDayKey(o.paidAt || o.createdAt, dayStartHour) === filterDate
+              ).length,
             },
             {
               id: 'paid' as const,
               label: t('Paid Invoices'),
-              count: paidOrders.filter(o => businessDayKey(o.paidAt || o.createdAt, dayStartHour) === (filterDate || todayKey)).length,
+              count: paidOrders.filter(
+                (o) =>
+                  businessDayKey(o.paidAt || o.createdAt, dayStartHour) === (filterDate || todayKey)
+              ).length,
             },
           ] as const
-        ).map(tab => (
+        ).map((tab) => (
           <button
             key={tab.id}
             onClick={() => {
@@ -898,11 +964,11 @@ export default function Payment() {
               dir={isRtl ? 'rtl' : 'ltr'}
               placeholder={
                 language === 'ar'
-                  ? (SEARCH_FIELDS.find(f => f.id === searchField)?.placeholderAr || 'بحث شامل...')
-                  : (SEARCH_FIELDS.find(f => f.id === searchField)?.placeholderEn || 'Search...')
+                  ? SEARCH_FIELDS.find((f) => f.id === searchField)?.placeholderAr || 'بحث شامل...'
+                  : SEARCH_FIELDS.find((f) => f.id === searchField)?.placeholderEn || 'Search...'
               }
               value={searchTerm}
-              onChange={e => {
+              onChange={(e) => {
                 setSearchTerm(e.target.value);
                 setSelectedHolderKey(null);
               }}
@@ -929,11 +995,11 @@ export default function Payment() {
                 title={language === 'ar' ? 'تخصيص هدف البحث' : 'Filter search target'}
               >
                 <SlidersHorizontal size={14} className="text-mocha-700" />
-                <span>{SEARCH_FIELDS.find(f => f.id === searchField)?.icon}</span>
+                <span>{SEARCH_FIELDS.find((f) => f.id === searchField)?.icon}</span>
                 <span className="hidden sm:inline">
                   {language === 'ar'
-                    ? SEARCH_FIELDS.find(f => f.id === searchField)?.labelAr
-                    : SEARCH_FIELDS.find(f => f.id === searchField)?.labelEn}
+                    ? SEARCH_FIELDS.find((f) => f.id === searchField)?.labelAr
+                    : SEARCH_FIELDS.find((f) => f.id === searchField)?.labelEn}
                 </span>
                 <ChevronDown
                   size={14}
@@ -954,7 +1020,7 @@ export default function Payment() {
                   <div className="px-3.5 py-1.5 text-[10px] font-extrabold text-gray-400 uppercase tracking-wide border-b border-gray-100">
                     {language === 'ar' ? 'البحث بواسطة:' : 'Filter Search By:'}
                   </div>
-                  {SEARCH_FIELDS.map(field => (
+                  {SEARCH_FIELDS.map((field) => (
                     <button
                       key={field.id}
                       type="button"
@@ -987,10 +1053,14 @@ export default function Payment() {
             <input
               type="date"
               value={filterDate || new Date().toLocaleDateString('en-CA')}
-              onChange={e => setFilterDate(e.target.value)}
+              onChange={(e) => setFilterDate(e.target.value)}
               className="py-2.5 px-3 bg-white border border-gray-200 rounded-xl text-sm text-gray-700 shadow-sm min-w-[150px]"
             />
-            {(filterDate || filterStartTime || filterEndTime || searchTerm || selectedHolderKey) && (
+            {(filterDate ||
+              filterStartTime ||
+              filterEndTime ||
+              searchTerm ||
+              selectedHolderKey) && (
               <button
                 type="button"
                 onClick={() => {
@@ -1039,7 +1109,6 @@ export default function Payment() {
                   <p className="text-[10px] text-slate-400 font-semibold">
                     {language === 'ar' ? 'اختر حساباً لعرض فواتيره' : 'Click to focus account'}
                   </p>
-
                 </div>
               </div>
 
@@ -1064,7 +1133,7 @@ export default function Payment() {
               </div>
             ) : (
               <div className="space-y-2.5 max-h-[62vh] overflow-y-auto pr-0.5">
-                {filteredHolders.map(h => {
+                {filteredHolders.map((h) => {
                   const active = focusedHolder?.key === h.key;
                   return (
                     <div
@@ -1082,7 +1151,7 @@ export default function Payment() {
                       <button
                         type="button"
                         onClick={() =>
-                          setSelectedHolderKey(prev => (prev === h.key ? null : h.key))
+                          setSelectedHolderKey((prev) => (prev === h.key ? null : h.key))
                         }
                         className="w-full text-right"
                       >
@@ -1096,18 +1165,17 @@ export default function Payment() {
                                   : 'bg-mocha-700 text-white'
                               )}
                             >
-                              {h.type === 'company' ? (
-                                <Building2 size={16} />
-                              ) : (
-                                <User size={16} />
-                              )}
+                              {h.type === 'company' ? <Building2 size={16} /> : <User size={16} />}
                             </div>
                             <div className="min-w-0">
                               <p className="font-extrabold text-slate-900 truncate text-xs">
                                 {h.name}
                               </p>
                               {h.phone && (
-                                <p className="text-[10px] font-mono font-bold text-slate-500 mt-0.5" dir="ltr">
+                                <p
+                                  className="text-[10px] font-mono font-bold text-slate-500 mt-0.5"
+                                  dir="ltr"
+                                >
                                   {h.phone}
                                 </p>
                               )}
@@ -1125,8 +1193,12 @@ export default function Payment() {
                         <div className="flex items-center justify-between pt-2 mt-2 border-t border-slate-200/60 text-[10px] font-bold text-slate-400">
                           <span>
                             {h.type === 'company'
-                              ? language === 'ar' ? 'شركة' : 'Company'
-                              : language === 'ar' ? 'عميل' : 'Customer'}
+                              ? language === 'ar'
+                                ? 'شركة'
+                                : 'Company'
+                              : language === 'ar'
+                                ? 'عميل'
+                                : 'Customer'}
                           </span>
                           <span>
                             {h.invoiceCount} {language === 'ar' ? 'فاتورة مفتوحة' : 'open invoices'}
@@ -1139,7 +1211,7 @@ export default function Payment() {
                         <div className="mt-2.5 pt-2 border-t border-purple-200/70">
                           <button
                             type="button"
-                            onClick={e => {
+                            onClick={(e) => {
                               e.stopPropagation();
                               printCompanyStatement({
                                 companyName: h.name,
@@ -1147,7 +1219,7 @@ export default function Payment() {
                                 orders: h.orders,
                                 taxRate: fallbackTax,
                                 lang: language === 'ar' ? 'ar' : 'en',
-                                resolveCustomerLabel: o =>
+                                resolveCustomerLabel: (o) =>
                                   resolveCustomerName(o) || o.customerPhone || '—',
                               });
                             }}
@@ -1200,7 +1272,8 @@ export default function Payment() {
               {focusedHolder && (
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-black bg-rose-500/30 text-rose-100 border border-rose-400/40 px-3 py-1.5 rounded-xl">
-                    {language === 'ar' ? 'إجمالي المطلوب:' : 'Due:'} {formatMoney(focusedHolder.balance)} {currency}
+                    {language === 'ar' ? 'إجمالي المطلوب:' : 'Due:'}{' '}
+                    {formatMoney(focusedHolder.balance)} {currency}
                   </span>
                   <button
                     type="button"

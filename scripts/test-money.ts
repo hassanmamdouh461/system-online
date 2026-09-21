@@ -1,7 +1,7 @@
 /**
  * test-money.ts — regression suite for issue B.1 (float money).
  *
- * Run:  node --experimental-strip-types scripts/test-money.ts
+ * Run:  npm run test:money   (bundles via esbuild, then node)
  *   or bundle it:  esbuild scripts/test-money.ts --bundle --platform=node | node
  *
  * Exits non-zero on any failure so it can gate CI.

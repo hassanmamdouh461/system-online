@@ -88,7 +88,10 @@ describe('getWorkerUrl() in a dev environment', () => {
     expect(getWorkerUrl()).toBe('');
 
     resetWorkerUrlWarningForTests();
-    localStorage.setItem('brewmaster_d1_worker_url', 'https://system-online.YOUR_SUBDOMAIN.workers.dev');
+    localStorage.setItem(
+      'brewmaster_d1_worker_url',
+      'https://system-online.YOUR_SUBDOMAIN.workers.dev'
+    );
     expect(getWorkerUrl()).toBe('');
   });
 });
