@@ -49,7 +49,13 @@ describe('countLinkedOrders', () => {
 
   it('counts an order billed to a company for a named member exactly once', () => {
     const orders = [
-      order({ id: '1', customerId: 'cust1', customerPhone: '0100', companyId: 'c1', billedToType: 'company' }),
+      order({
+        id: '1',
+        customerId: 'cust1',
+        customerPhone: '0100',
+        companyId: 'c1',
+        billedToType: 'company',
+      }),
     ];
     expect(countLinkedOrders(orders)).toBe(1);
   });
@@ -62,21 +68,33 @@ describe('countLinkedOrders', () => {
     expect(countLinkedOrders(orders)).toBe(2);
   });
 
-  it('never exceeds the dashboard\'s total non-cancelled order volume', () => {
+  it("never exceeds the dashboard's total non-cancelled order volume", () => {
     const orders = [
       order({ id: '1', customerPhone: '0100' }),
       order({ id: '2' }),
       order({ id: '3', customerId: 'cust1', status: 'Cancelled' }),
     ];
-    const dashboardTotal = orders.filter(o => o.status !== 'Cancelled').length;
+    const dashboardTotal = orders.filter((o) => o.status !== 'Cancelled').length;
     expect(countLinkedOrders(orders)).toBeLessThanOrEqual(dashboardTotal);
   });
 
   it('isAccountLinkedOrder recognises all three attribution fields', () => {
-    expect(isAccountLinkedOrder({ customerId: 'x', customerPhone: undefined, companyId: undefined })).toBe(true);
-    expect(isAccountLinkedOrder({ customerId: undefined, customerPhone: '0100', companyId: undefined })).toBe(true);
-    expect(isAccountLinkedOrder({ customerId: undefined, customerPhone: undefined, companyId: 'c1' })).toBe(true);
-    expect(isAccountLinkedOrder({ customerId: undefined, customerPhone: undefined, companyId: undefined })).toBe(false);
+    expect(
+      isAccountLinkedOrder({ customerId: 'x', customerPhone: undefined, companyId: undefined })
+    ).toBe(true);
+    expect(
+      isAccountLinkedOrder({ customerId: undefined, customerPhone: '0100', companyId: undefined })
+    ).toBe(true);
+    expect(
+      isAccountLinkedOrder({ customerId: undefined, customerPhone: undefined, companyId: 'c1' })
+    ).toBe(true);
+    expect(
+      isAccountLinkedOrder({
+        customerId: undefined,
+        customerPhone: undefined,
+        companyId: undefined,
+      })
+    ).toBe(false);
   });
 });
 
@@ -85,6 +103,6 @@ describe('Customers page wiring', () => {
 
   it('the card uses the shared counter, not a raw filter over every order', () => {
     expect(src).toContain('countLinkedOrders(orders)');
-    expect(src).not.toContain("orders.filter(o => o.customerPhone || o.customerId).length");
+    expect(src).not.toContain('orders.filter(o => o.customerPhone || o.customerId).length');
   });
 });

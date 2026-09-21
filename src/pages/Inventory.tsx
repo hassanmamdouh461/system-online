@@ -1,10 +1,20 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { 
-  Package, History, Plus, Search, Trash2, Edit2, 
-  Scale, AlertTriangle, ArrowUpRight, 
-  ArrowDownRight, RefreshCw, X, TrendingUp
+import {
+  Package,
+  History,
+  Plus,
+  Search,
+  Trash2,
+  Edit2,
+  Scale,
+  AlertTriangle,
+  ArrowUpRight,
+  ArrowDownRight,
+  RefreshCw,
+  X,
+  TrendingUp,
 } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
 import { inventoryService } from '../services/inventoryService';
@@ -15,7 +25,17 @@ import { useToast } from '../components/ui/Toast';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 import { getIngredientBaseQtySafe } from '../utils/units';
 import { resolveInvItem as sharedResolveInvItem } from '../utils/inventoryHelpers';
-import { addMoney, divideMoney, formatMoney, maxMoney, moneyRatio, multiplyMoney, roundMoney, subtractMoney, sumMoneyBy } from '../utils/money';
+import {
+  addMoney,
+  divideMoney,
+  formatMoney,
+  maxMoney,
+  moneyRatio,
+  multiplyMoney,
+  roundMoney,
+  subtractMoney,
+  sumMoneyBy,
+} from '../utils/money';
 
 export default function Inventory() {
   const { t, isRtl } = useLanguage();
@@ -26,26 +46,28 @@ export default function Inventory() {
   const [recipes, setRecipes] = useState<RecipeIngredient[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
-  const [filterDate, setFilterDate] = useState<string>(() => new Date().toLocaleDateString('en-CA'));
-  
+  const [filterDate, setFilterDate] = useState<string>(() =>
+    new Date().toLocaleDateString('en-CA')
+  );
+
   // Modals state
   const [isItemModalOpen, setIsItemModalOpen] = useState(false);
   const [isAdjustModalOpen, setIsAdjustModalOpen] = useState(false);
   const [selectedItem, setSelectedItem] = useState<InventoryItem | null>(null);
-  
+
   // Forms state
   const [itemForm, setItemForm] = useState({
     name: '',
     unit: 'kg',
     stock: '0',
     minStock: '1',
-    costPerUnit: '0'
+    costPerUnit: '0',
   });
-  
+
   const [adjustForm, setAdjustForm] = useState({
     quantity: '',
     type: 'IN' as 'IN' | 'OUT' | 'ADJUST',
-    notes: ''
+    notes: '',
   });
 
   const fetchData = async () => {
@@ -55,7 +77,7 @@ export default function Inventory() {
         inventoryService.getAll(),
         inventoryService.getTransactions(),
         menuService.getAll().catch(() => []),
-        inventoryService.getMenuRecipes().catch(() => [])
+        inventoryService.getMenuRecipes().catch(() => []),
       ]);
       setInventory(invData);
       setTransactions(txData);
@@ -78,7 +100,7 @@ export default function Inventory() {
 
     // 1. Build lookup maps of all inventory items
     const invMapById = new Map<string, InventoryItem>();
-    inventory.forEach(item => {
+    inventory.forEach((item) => {
       invMapById.set(item.id, item);
     });
 
@@ -93,10 +115,9 @@ export default function Inventory() {
       return sharedResolveInvItem(inventoryItemId, inventory);
     };
 
-
     // 3. Group recipes by menuItemId
     const menuRecipeMap: Record<string, RecipeIngredient[]> = {};
-    recipes.forEach(r => {
+    recipes.forEach((r) => {
       if (r.menuItemId) {
         if (!menuRecipeMap[r.menuItemId]) menuRecipeMap[r.menuItemId] = [];
         menuRecipeMap[r.menuItemId].push(r);
@@ -104,7 +125,7 @@ export default function Inventory() {
     });
 
     // 4. Map menu items by String(id)
-    const menuMap = new Map(menuItems.map(m => [String(m.id), m]));
+    const menuMap = new Map(menuItems.map((m) => [String(m.id), m]));
 
     // 5. Compute total recipe cost for every menu item
     const menuTotalCostMap = new Map<string, number>();
@@ -120,9 +141,12 @@ export default function Inventory() {
     });
 
     // 6. Map recipe entries to target inventory items
-    const invRecipesMap = new Map<string, { menuItemId: string; quantity: number; unit?: string }[]>();
+    const invRecipesMap = new Map<
+      string,
+      { menuItemId: string; quantity: number; unit?: string }[]
+    >();
 
-    recipes.forEach(r => {
+    recipes.forEach((r) => {
       const invItem = resolveInvItem(r.inventoryItemId);
       const targetId = invItem ? invItem.id : r.inventoryItemId;
 
@@ -132,12 +156,12 @@ export default function Inventory() {
       invRecipesMap.get(targetId)!.push({
         menuItemId: String(r.menuItemId),
         quantity: r.quantity,
-        unit: r.unit
+        unit: r.unit,
       });
     });
 
     // 7. Dynamically calculate expected unit revenue yield for EVERY inventory item automatically
-    inventory.forEach(item => {
+    inventory.forEach((item) => {
       const itemRecipes = invRecipesMap.get(item.id) || [];
       const itemUnitCost = item.costPerUnit && item.costPerUnit > 0 ? item.costPerUnit : 1;
 
@@ -150,7 +174,7 @@ export default function Inventory() {
       let totalUnitYield = 0;
       let validCount = 0;
 
-      itemRecipes.forEach(rec => {
+      itemRecipes.forEach((rec) => {
         const menuItem = menuMap.get(String(rec.menuItemId));
         const totalRecipeCost = menuTotalCostMap.get(String(rec.menuItemId)) || 1;
         if (menuItem && rec.quantity > 0) {
@@ -178,21 +202,23 @@ export default function Inventory() {
 
   // Filtered Stock list
   const filteredStock = useMemo(() => {
-    return inventory.filter(item => {
-      const matchesSearch = item.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
-                            t(item.name).toLowerCase().includes(searchQuery.toLowerCase());
+    return inventory.filter((item) => {
+      const matchesSearch =
+        item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        t(item.name).toLowerCase().includes(searchQuery.toLowerCase());
       return matchesSearch;
     });
   }, [inventory, searchQuery, t]);
 
   // Filtered Transaction history
   const filteredTransactions = useMemo(() => {
-    return transactions.filter(tx => {
+    return transactions.filter((tx) => {
       const itemName = tx.itemName || '';
-      const matchesSearch = itemName.toLowerCase().includes(searchQuery.toLowerCase()) || 
-                            t(itemName).toLowerCase().includes(searchQuery.toLowerCase()) ||
-                            (tx.referenceId && tx.referenceId.toLowerCase().includes(searchQuery.toLowerCase())) ||
-                            (tx.notes && tx.notes.toLowerCase().includes(searchQuery.toLowerCase()));
+      const matchesSearch =
+        itemName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        t(itemName).toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (tx.referenceId && tx.referenceId.toLowerCase().includes(searchQuery.toLowerCase())) ||
+        (tx.notes && tx.notes.toLowerCase().includes(searchQuery.toLowerCase()));
 
       let matchesDate = true;
       if (filterDate && tx.createdAt) {
@@ -206,12 +232,12 @@ export default function Inventory() {
 
   // Total Inventory Cost Value
   const totalValue = useMemo(() => {
-    return sumMoneyBy(inventory, item => multiplyMoney(item.costPerUnit, item.stock));
+    return sumMoneyBy(inventory, (item) => multiplyMoney(item.costPerUnit, item.stock));
   }, [inventory]);
 
   // Low stock warning count
   const lowStockCount = useMemo(() => {
-    return inventory.filter(item => item.stock <= item.minStock).length;
+    return inventory.filter((item) => item.stock <= item.minStock).length;
   }, [inventory]);
 
   // Total Potential Profit
@@ -219,9 +245,10 @@ export default function Inventory() {
     return inventory.reduce((sum, item) => {
       const avgYield = itemYields[item.id] || 0;
       const potSales = multiplyMoney(avgYield, item.stock);
-      const potProfit = potSales > 0
-        ? maxMoney(subtractMoney(potSales, multiplyMoney(item.costPerUnit, item.stock)), 0)
-        : 0;
+      const potProfit =
+        potSales > 0
+          ? maxMoney(subtractMoney(potSales, multiplyMoney(item.costPerUnit, item.stock)), 0)
+          : 0;
       return addMoney(sum, potProfit);
     }, 0);
   }, [inventory, itemYields]);
@@ -234,7 +261,7 @@ export default function Inventory() {
         unit: item.unit,
         stock: item.stock.toString(),
         minStock: item.minStock.toString(),
-        costPerUnit: item.costPerUnit.toString()
+        costPerUnit: item.costPerUnit.toString(),
       });
     } else {
       setSelectedItem(null);
@@ -243,7 +270,7 @@ export default function Inventory() {
         unit: 'kg',
         stock: '0',
         minStock: '1',
-        costPerUnit: '0'
+        costPerUnit: '0',
       });
     }
     setIsItemModalOpen(true);
@@ -265,9 +292,15 @@ export default function Inventory() {
       };
 
       if (!data.name) {
-        toast.error(t('Please enter a valid quantity greater than 0').includes('quantity')
-          ? (isRtl ? 'أدخل اسم الصنف' : 'Enter item name')
-          : (isRtl ? 'أدخل اسم الصنف' : 'Enter item name'));
+        toast.error(
+          t('Please enter a valid quantity greater than 0').includes('quantity')
+            ? isRtl
+              ? 'أدخل اسم الصنف'
+              : 'Enter item name'
+            : isRtl
+              ? 'أدخل اسم الصنف'
+              : 'Enter item name'
+        );
         return;
       }
 
@@ -298,7 +331,7 @@ export default function Inventory() {
     setAdjustForm({
       quantity: '',
       type: 'IN',
-      notes: ''
+      notes: '',
     });
     setIsAdjustModalOpen(true);
   };
@@ -331,11 +364,13 @@ export default function Inventory() {
         type: adjustForm.type,
         quantity: qty,
         unit: selectedItem.unit,
-        notes: adjustForm.notes || (
-          adjustForm.type === 'IN' ? 'إضافة مخزون يدوي' :
-          adjustForm.type === 'OUT' ? 'صرف مخزون يدوي' :
-          `تعديل رصيد إلى ${qty}`
-        ),
+        notes:
+          adjustForm.notes ||
+          (adjustForm.type === 'IN'
+            ? 'إضافة مخزون يدوي'
+            : adjustForm.type === 'OUT'
+              ? 'صرف مخزون يدوي'
+              : `تعديل رصيد إلى ${qty}`),
         referenceId: 'MANUAL',
         branchId: selectedItem.branchId,
       });
@@ -366,22 +401,25 @@ export default function Inventory() {
 
   return (
     <div className="space-y-4 md:space-y-6 text-gray-900">
-      
       {/* ── Header ─────────────────────────────────────────────────────────── */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h1 className="text-lg md:text-2xl font-bold text-gray-900">{t('Inventory Management')}</h1>
-          <p className="text-xs md:text-sm text-gray-500">{t('Manage raw materials, stock levels, and recipes.')}</p>
+          <h1 className="text-lg md:text-2xl font-bold text-gray-900">
+            {t('Inventory Management')}
+          </h1>
+          <p className="text-xs md:text-sm text-gray-500">
+            {t('Manage raw materials, stock levels, and recipes.')}
+          </p>
         </div>
         <div className="flex gap-2">
-          <button 
+          <button
             onClick={fetchData}
             className="p-2.5 rounded-xl border border-gray-200 hover:bg-gray-50 text-gray-700 bg-white active:scale-95 transition-all shadow-sm"
             title={t('Refresh')}
           >
             <RefreshCw size={18} className={loading ? 'animate-spin' : ''} />
           </button>
-          <button 
+          <button
             onClick={() => handleOpenItemModal()}
             className="bg-mocha-700 hover:bg-mocha-800 text-white px-4 py-2.5 rounded-xl font-semibold flex items-center justify-center gap-2 shadow-lg shadow-mocha-500/20 transition-all active:scale-95 text-sm"
           >
@@ -404,12 +442,16 @@ export default function Inventory() {
         </div>
 
         <div className="bg-white/95 border border-gray-100 rounded-2xl p-5 shadow-sm flex items-center gap-4">
-          <div className={`p-3 rounded-xl ${lowStockCount > 0 ? 'bg-red-50 text-red-600' : 'bg-green-50 text-green-600'}`}>
+          <div
+            className={`p-3 rounded-xl ${lowStockCount > 0 ? 'bg-red-50 text-red-600' : 'bg-green-50 text-green-600'}`}
+          >
             <AlertTriangle size={24} />
           </div>
           <div>
             <p className="text-xs text-gray-400 font-semibold">{t('LOW STOCK WARNINGS')}</p>
-            <p className={`text-xl md:text-2xl font-bold ${lowStockCount > 0 ? 'text-red-600' : 'text-green-600'}`}>
+            <p
+              className={`text-xl md:text-2xl font-bold ${lowStockCount > 0 ? 'text-red-600' : 'text-green-600'}`}
+            >
               {lowStockCount}
             </p>
           </div>
@@ -422,7 +464,11 @@ export default function Inventory() {
           <div>
             <p className="text-xs text-gray-400 font-semibold">{t('TOTAL VALUE (EST)')}</p>
             <p className="text-xl md:text-2xl font-bold text-gray-800">
-              EGP {totalValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              EGP{' '}
+              {totalValue.toLocaleString(undefined, {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })}
             </p>
           </div>
         </div>
@@ -434,7 +480,11 @@ export default function Inventory() {
           <div>
             <p className="text-xs text-gray-400 font-semibold">{t('TOTAL EXPECTED PROFIT')}</p>
             <p className="text-xl md:text-2xl font-bold text-emerald-600">
-              EGP {totalPotentialProfit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              EGP{' '}
+              {totalPotentialProfit.toLocaleString(undefined, {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })}
             </p>
           </div>
         </div>
@@ -469,10 +519,14 @@ export default function Inventory() {
 
         <div className="flex flex-wrap items-center gap-2 flex-1 max-w-xl">
           <div className="relative flex-1 min-w-[180px]">
-            <Search className={`absolute top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4 ${isRtl ? 'right-3' : 'left-3'}`} />
+            <Search
+              className={`absolute top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4 ${isRtl ? 'right-3' : 'left-3'}`}
+            />
             <input
               type="text"
-              placeholder={activeTab === 'stock' ? t('Search stock items...') : t('Search history logs...')}
+              placeholder={
+                activeTab === 'stock' ? t('Search stock items...') : t('Search history logs...')
+              }
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className={`w-full py-2 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-caramel focus:border-transparent text-sm ${isRtl ? 'pr-9 pl-4' : 'pl-9 pr-4'}`}
@@ -489,7 +543,8 @@ export default function Inventory() {
                 title={isRtl ? 'تصفية حسب التاريخ' : 'Filter by date'}
               />
 
-              {(filterDate !== new Date().toLocaleDateString('en-CA') || searchQuery.trim() !== '') && (
+              {(filterDate !== new Date().toLocaleDateString('en-CA') ||
+                searchQuery.trim() !== '') && (
                 <button
                   type="button"
                   onClick={() => {
@@ -544,20 +599,36 @@ export default function Inventory() {
                     const isLow = item.stock <= item.minStock;
                     const avgYield = itemYields[item.id] || 0;
                     const potSales = multiplyMoney(avgYield, item.stock);
-                    const potProfit = potSales > 0
-                      ? maxMoney(subtractMoney(potSales, multiplyMoney(item.costPerUnit, item.stock)), 0)
-                      : 0;
-                    
+                    const potProfit =
+                      potSales > 0
+                        ? maxMoney(
+                            subtractMoney(potSales, multiplyMoney(item.costPerUnit, item.stock)),
+                            0
+                          )
+                        : 0;
+
                     return (
                       <tr key={item.id} className="hover:bg-gray-50/50 transition-colors">
                         <td className="p-4 font-semibold text-gray-900">{t(item.name)}</td>
-                        <td className="p-4 text-center text-gray-500 font-medium">{t(item.unit)}</td>
-                        <td className={`p-4 text-center font-bold ${isLow ? 'text-red-600 bg-red-50/30 rounded-lg' : 'text-gray-800'}`}>
-                          {item.stock.toFixed(2)}
-                          {isLow && <span className="block text-[10px] text-red-500 font-semibold">{t('Low Stock')}</span>}
+                        <td className="p-4 text-center text-gray-500 font-medium">
+                          {t(item.unit)}
                         </td>
-                        <td className="p-4 text-center text-gray-500">{item.minStock.toFixed(2)}</td>
-                        <td className="p-4 text-center font-medium text-gray-700">EGP {formatMoney(item.costPerUnit)}</td>
+                        <td
+                          className={`p-4 text-center font-bold ${isLow ? 'text-red-600 bg-red-50/30 rounded-lg' : 'text-gray-800'}`}
+                        >
+                          {item.stock.toFixed(2)}
+                          {isLow && (
+                            <span className="block text-[10px] text-red-500 font-semibold">
+                              {t('Low Stock')}
+                            </span>
+                          )}
+                        </td>
+                        <td className="p-4 text-center text-gray-500">
+                          {item.minStock.toFixed(2)}
+                        </td>
+                        <td className="p-4 text-center font-medium text-gray-700">
+                          EGP {formatMoney(item.costPerUnit)}
+                        </td>
                         <td className="p-4 text-center font-bold text-gray-800">
                           EGP {formatMoney(multiplyMoney(item.costPerUnit, item.stock))}
                         </td>
@@ -648,7 +719,14 @@ export default function Inventory() {
                           )}
                         </td>
                         <td className="p-4 text-center font-bold text-gray-800">
-                          {isOutgoing ? '-' : '+'}{tx.quantity.toFixed(2)} {t(tx.itemUnit || tx.unit || inventory.find(i => i.id === tx.itemId)?.unit || '')}
+                          {isOutgoing ? '-' : '+'}
+                          {tx.quantity.toFixed(2)}{' '}
+                          {t(
+                            tx.itemUnit ||
+                              tx.unit ||
+                              inventory.find((i) => i.id === tx.itemId)?.unit ||
+                              ''
+                          )}
                         </td>
                         <td className="p-4 text-center font-mono text-xs text-gray-500">
                           {tx.referenceId}
@@ -674,275 +752,300 @@ export default function Inventory() {
       )}
 
       {/* ── MODAL: Create/Edit Stock Item ─────────────────────────────────── */}
-      {isItemModalOpen && createPortal(
-        <AnimatePresence>
-          <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setIsItemModalOpen(false)}
-              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-            />
-            
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="bg-white rounded-2xl w-full max-w-md tablet:max-w-xl shadow-xl relative z-10 overflow-hidden"
-            >
-              <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
-                <h2 className="text-lg font-bold text-gray-900">
-                  {selectedItem ? t('Edit Stock Item') : t('Add Stock Item')}
-                </h2>
-                <button 
-                  onClick={() => setIsItemModalOpen(false)}
-                  className="p-2 hover:bg-gray-100 rounded-full transition-colors text-gray-500"
-                >
-                  <X size={18} />
-                </button>
-              </div>
+      {isItemModalOpen &&
+        createPortal(
+          <AnimatePresence>
+            <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setIsItemModalOpen(false)}
+                className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+              />
 
-              <form onSubmit={handleSaveItem} className="p-6 space-y-4">
-                <div>
-                  <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">{t('Item Name')}</label>
-                  <input
-                    type="text"
-                    required
-                    value={itemForm.name}
-                    onChange={(e) => setItemForm({ ...itemForm, name: e.target.value })}
-                    className="w-full px-4 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-caramel focus:border-transparent transition-all"
-                    placeholder="e.g. Espresso Beans"
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">{t('Unit')}</label>
-                    <select
-                      value={itemForm.unit}
-                      onChange={(e) => setItemForm({ ...itemForm, unit: e.target.value })}
-                      className="w-full px-4 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-caramel focus:border-transparent transition-all bg-white"
-                    >
-                      <option value="kg">{t('kg')}</option>
-                      <option value="g">{t('g')}</option>
-                      <option value="liter">{t('liter')}</option>
-                      <option value="ml">{t('ml')}</option>
-                      <option value="piece">{t('piece')}</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">{t('Cost Per Unit')}</label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      required
-                      value={itemForm.costPerUnit}
-                      onChange={(e) => setItemForm({ ...itemForm, costPerUnit: e.target.value })}
-                      className="w-full px-4 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-caramel focus:border-transparent transition-all"
-                      placeholder="0.00"
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">{t('Current Stock')}</label>
-                    <input
-                      type="number"
-                      step="0.001"
-                      required
-                      disabled={!!selectedItem} // Stock should be modified via adjustments for logged history
-                      value={itemForm.stock}
-                      onChange={(e) => setItemForm({ ...itemForm, stock: e.target.value })}
-                      className="w-full px-4 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-caramel focus:border-transparent transition-all disabled:bg-gray-50 disabled:text-gray-400"
-                      placeholder="0.0"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">{t('Min Stock Warning')}</label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      required
-                      value={itemForm.minStock}
-                      onChange={(e) => setItemForm({ ...itemForm, minStock: e.target.value })}
-                      className="w-full px-4 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-caramel focus:border-transparent transition-all"
-                      placeholder="1.00"
-                    />
-                  </div>
-                </div>
-
-                <div className="flex gap-3 pt-4 border-t border-gray-100">
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95, y: 20 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95, y: 20 }}
+                className="bg-white rounded-2xl w-full max-w-md tablet:max-w-xl shadow-xl relative z-10 overflow-hidden"
+              >
+                <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
+                  <h2 className="text-lg font-bold text-gray-900">
+                    {selectedItem ? t('Edit Stock Item') : t('Add Stock Item')}
+                  </h2>
                   <button
-                    type="button"
                     onClick={() => setIsItemModalOpen(false)}
-                    className="flex-1 px-4 py-2 rounded-xl border border-gray-200 text-gray-700 font-medium hover:bg-gray-50 transition-colors"
+                    className="p-2 hover:bg-gray-100 rounded-full transition-colors text-gray-500"
                   >
-                    {t('Cancel')}
-                  </button>
-                  <button
-                    type="submit"
-                    className="flex-1 px-4 py-2 rounded-xl bg-mocha-700 text-white font-medium hover:bg-mocha-800 shadow-lg shadow-mocha-500/20 transition-colors"
-                  >
-                    {t('Save Changes')}
+                    <X size={18} />
                   </button>
                 </div>
-              </form>
-            </motion.div>
-          </div>
-        </AnimatePresence>,
-        document.body
-      )}
+
+                <form onSubmit={handleSaveItem} className="p-6 space-y-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">
+                      {t('Item Name')}
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={itemForm.name}
+                      onChange={(e) => setItemForm({ ...itemForm, name: e.target.value })}
+                      className="w-full px-4 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-caramel focus:border-transparent transition-all"
+                      placeholder="e.g. Espresso Beans"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">
+                        {t('Unit')}
+                      </label>
+                      <select
+                        value={itemForm.unit}
+                        onChange={(e) => setItemForm({ ...itemForm, unit: e.target.value })}
+                        className="w-full px-4 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-caramel focus:border-transparent transition-all bg-white"
+                      >
+                        <option value="kg">{t('kg')}</option>
+                        <option value="g">{t('g')}</option>
+                        <option value="liter">{t('liter')}</option>
+                        <option value="ml">{t('ml')}</option>
+                        <option value="piece">{t('piece')}</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">
+                        {t('Cost Per Unit')}
+                      </label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        required
+                        value={itemForm.costPerUnit}
+                        onChange={(e) => setItemForm({ ...itemForm, costPerUnit: e.target.value })}
+                        className="w-full px-4 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-caramel focus:border-transparent transition-all"
+                        placeholder="0.00"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">
+                        {t('Current Stock')}
+                      </label>
+                      <input
+                        type="number"
+                        step="0.001"
+                        required
+                        disabled={!!selectedItem} // Stock should be modified via adjustments for logged history
+                        value={itemForm.stock}
+                        onChange={(e) => setItemForm({ ...itemForm, stock: e.target.value })}
+                        className="w-full px-4 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-caramel focus:border-transparent transition-all disabled:bg-gray-50 disabled:text-gray-400"
+                        placeholder="0.0"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">
+                        {t('Min Stock Warning')}
+                      </label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        required
+                        value={itemForm.minStock}
+                        onChange={(e) => setItemForm({ ...itemForm, minStock: e.target.value })}
+                        className="w-full px-4 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-caramel focus:border-transparent transition-all"
+                        placeholder="1.00"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex gap-3 pt-4 border-t border-gray-100">
+                    <button
+                      type="button"
+                      onClick={() => setIsItemModalOpen(false)}
+                      className="flex-1 px-4 py-2 rounded-xl border border-gray-200 text-gray-700 font-medium hover:bg-gray-50 transition-colors"
+                    >
+                      {t('Cancel')}
+                    </button>
+                    <button
+                      type="submit"
+                      className="flex-1 px-4 py-2 rounded-xl bg-mocha-700 text-white font-medium hover:bg-mocha-800 shadow-lg shadow-mocha-500/20 transition-colors"
+                    >
+                      {t('Save Changes')}
+                    </button>
+                  </div>
+                </form>
+              </motion.div>
+            </div>
+          </AnimatePresence>,
+          document.body
+        )}
 
       {/* ── MODAL: Adjust Stock Level ────────────────────────────────────── */}
-      {isAdjustModalOpen && selectedItem && createPortal(
-        <AnimatePresence>
-          <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setIsAdjustModalOpen(false)}
-              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-            />
-            
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 0 }}
-              className="bg-white rounded-2xl w-full max-w-md tablet:max-w-xl shadow-xl relative z-10 overflow-hidden"
-            >
-              <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
-                <div className="flex flex-col">
-                  <h2 className="text-lg font-bold text-gray-900">{t('Adjust Stock Level')}</h2>
-                  <p className="text-xs text-gray-400 font-medium">{t(selectedItem.name)} ({selectedItem.stock.toFixed(2)} {selectedItem.unit})</p>
-                </div>
-                <button 
-                  onClick={() => setIsAdjustModalOpen(false)}
-                  className="p-2 hover:bg-gray-100 rounded-full transition-colors text-gray-500"
-                >
-                  <X size={18} />
-                </button>
-              </div>
+      {isAdjustModalOpen &&
+        selectedItem &&
+        createPortal(
+          <AnimatePresence>
+            <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setIsAdjustModalOpen(false)}
+                className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+              />
 
-              <form onSubmit={handleSaveAdjustment} className="p-6 space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">{t('Transaction Type')}</label>
-                    <select
-                      value={adjustForm.type}
-                      onChange={(e) => setAdjustForm({ ...adjustForm, type: e.target.value as 'IN' | 'OUT' | 'ADJUST' })}
-                      className="w-full px-4 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-caramel focus:border-transparent transition-all bg-white"
-                    >
-                      <option value="IN">{t('Incoming (Stock In)')}</option>
-                      <option value="OUT">{t('Outgoing (Order/Sold)')}</option>
-                      <option value="ADJUST">{t('Adjusted (Stock Count)')}</option>
-                    </select>
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95, y: 20 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95, y: 0 }}
+                className="bg-white rounded-2xl w-full max-w-md tablet:max-w-xl shadow-xl relative z-10 overflow-hidden"
+              >
+                <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
+                  <div className="flex flex-col">
+                    <h2 className="text-lg font-bold text-gray-900">{t('Adjust Stock Level')}</h2>
+                    <p className="text-xs text-gray-400 font-medium">
+                      {t(selectedItem.name)} ({selectedItem.stock.toFixed(2)} {selectedItem.unit})
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setIsAdjustModalOpen(false)}
+                    className="p-2 hover:bg-gray-100 rounded-full transition-colors text-gray-500"
+                  >
+                    <X size={18} />
+                  </button>
+                </div>
+
+                <form onSubmit={handleSaveAdjustment} className="p-6 space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">
+                        {t('Transaction Type')}
+                      </label>
+                      <select
+                        value={adjustForm.type}
+                        onChange={(e) =>
+                          setAdjustForm({
+                            ...adjustForm,
+                            type: e.target.value as 'IN' | 'OUT' | 'ADJUST',
+                          })
+                        }
+                        className="w-full px-4 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-caramel focus:border-transparent transition-all bg-white"
+                      >
+                        <option value="IN">{t('Incoming (Stock In)')}</option>
+                        <option value="OUT">{t('Outgoing (Order/Sold)')}</option>
+                        <option value="ADJUST">{t('Adjusted (Stock Count)')}</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">
+                        {t('Quantity')} ({selectedItem.unit})
+                      </label>
+                      <input
+                        type="number"
+                        step="0.001"
+                        required
+                        value={adjustForm.quantity}
+                        onChange={(e) => setAdjustForm({ ...adjustForm, quantity: e.target.value })}
+                        className="w-full px-4 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-caramel focus:border-transparent transition-all"
+                        placeholder="0.00"
+                      />
+                    </div>
                   </div>
 
                   <div>
                     <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">
-                      {t('Quantity')} ({selectedItem.unit})
+                      {t('Notes')}
                     </label>
-                    <input
-                      type="number"
-                      step="0.001"
-                      required
-                      value={adjustForm.quantity}
-                      onChange={(e) => setAdjustForm({ ...adjustForm, quantity: e.target.value })}
-                      className="w-full px-4 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-caramel focus:border-transparent transition-all"
-                      placeholder="0.00"
+                    <textarea
+                      rows={3}
+                      value={adjustForm.notes}
+                      onChange={(e) => setAdjustForm({ ...adjustForm, notes: e.target.value })}
+                      className="w-full px-4 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-caramel focus:border-transparent transition-all resize-none"
+                      placeholder={t('e.g. Weekly inventory audit / purchase invoice #124')}
                     />
                   </div>
-                </div>
 
-                <div>
-                  <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">{t('Notes')}</label>
-                  <textarea
-                    rows={3}
-                    value={adjustForm.notes}
-                    onChange={(e) => setAdjustForm({ ...adjustForm, notes: e.target.value })}
-                    className="w-full px-4 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-caramel focus:border-transparent transition-all resize-none"
-                    placeholder={t('e.g. Weekly inventory audit / purchase invoice #124')}
-                  />
-                </div>
+                  {/* Real-time Potential Selling & Profit calculation card */}
+                  {(() => {
+                    const qtyVal = parseFloat(adjustForm.quantity) || 0;
+                    const itemCost = selectedItem.costPerUnit;
+                    const itemYield = itemYields[selectedItem.id] || 0;
 
-                {/* Real-time Potential Selling & Profit calculation card */}
-                {(() => {
-                  const qtyVal = parseFloat(adjustForm.quantity) || 0;
-                  const itemCost = selectedItem.costPerUnit;
-                  const itemYield = itemYields[selectedItem.id] || 0;
+                    const totalTxCost = multiplyMoney(itemCost, qtyVal);
+                    const totalTxSales = multiplyMoney(itemYield, qtyVal);
+                    const totalTxProfit =
+                      totalTxSales > 0 ? maxMoney(subtractMoney(totalTxSales, totalTxCost), 0) : 0;
 
-                  const totalTxCost = multiplyMoney(itemCost, qtyVal);
-                  const totalTxSales = multiplyMoney(itemYield, qtyVal);
-                  const totalTxProfit = totalTxSales > 0
-                    ? maxMoney(subtractMoney(totalTxSales, totalTxCost), 0)
-                    : 0;
+                    if (qtyVal <= 0) return null;
 
-                  if (qtyVal <= 0) return null;
+                    if (adjustForm.type === 'OUT') {
+                      return (
+                        <div className="bg-orange-50/50 border border-orange-100 p-4 rounded-xl space-y-2 text-xs">
+                          <div className="flex justify-between font-bold text-gray-700">
+                            <span>{t('Total Cost Value')}:</span>
+                            <span>EGP {formatMoney(totalTxCost)}</span>
+                          </div>
+                          <div className="flex justify-between font-bold text-orange-700">
+                            <span>{t('Potential Value Loss')}:</span>
+                            <span>EGP {formatMoney(totalTxSales)}</span>
+                          </div>
+                        </div>
+                      );
+                    }
 
-                  if (adjustForm.type === 'OUT') {
                     return (
-                      <div className="bg-orange-50/50 border border-orange-100 p-4 rounded-xl space-y-2 text-xs">
+                      <div className="bg-emerald-50/50 border border-emerald-100 p-4 rounded-xl space-y-2 text-xs">
                         <div className="flex justify-between font-bold text-gray-700">
                           <span>{t('Total Cost Value')}:</span>
                           <span>EGP {formatMoney(totalTxCost)}</span>
                         </div>
-                        <div className="flex justify-between font-bold text-orange-700">
-                          <span>{t('Potential Value Loss')}:</span>
+                        <div className="flex justify-between font-bold text-emerald-700">
+                          <span>{t('Potential Selling Value')}:</span>
                           <span>EGP {formatMoney(totalTxSales)}</span>
+                        </div>
+                        <div className="flex justify-between font-bold text-sky-700">
+                          <span>{t('Expected Potential Profit')}:</span>
+                          <span>EGP {formatMoney(totalTxProfit)}</span>
                         </div>
                       </div>
                     );
-                  }
+                  })()}
 
-                  return (
-                    <div className="bg-emerald-50/50 border border-emerald-100 p-4 rounded-xl space-y-2 text-xs">
-                      <div className="flex justify-between font-bold text-gray-700">
-                        <span>{t('Total Cost Value')}:</span>
-                        <span>EGP {formatMoney(totalTxCost)}</span>
-                      </div>
-                      <div className="flex justify-between font-bold text-emerald-700">
-                        <span>{t('Potential Selling Value')}:</span>
-                        <span>EGP {formatMoney(totalTxSales)}</span>
-                      </div>
-                      <div className="flex justify-between font-bold text-sky-700">
-                        <span>{t('Expected Potential Profit')}:</span>
-                        <span>EGP {formatMoney(totalTxProfit)}</span>
-                      </div>
-                    </div>
-                  );
-                })()}
-
-                <div className="flex gap-3 pt-4 border-t border-gray-100">
-                  <button
-                    type="button"
-                    onClick={() => setIsAdjustModalOpen(false)}
-                    className="flex-1 px-4 py-2 rounded-xl border border-gray-200 text-gray-700 font-medium hover:bg-gray-50 transition-colors"
-                  >
-                    {t('Cancel')}
-                  </button>
-                  <button
-                    type="submit"
-                    className="flex-1 px-4 py-2 rounded-xl bg-mocha-700 text-white font-medium hover:bg-mocha-800 shadow-lg shadow-mocha-500/20 transition-colors"
-                  >
-                    {t('Save Changes')}
-                  </button>
-                </div>
-              </form>
-            </motion.div>
-          </div>
-        </AnimatePresence>,
-        document.body
-      )}
+                  <div className="flex gap-3 pt-4 border-t border-gray-100">
+                    <button
+                      type="button"
+                      onClick={() => setIsAdjustModalOpen(false)}
+                      className="flex-1 px-4 py-2 rounded-xl border border-gray-200 text-gray-700 font-medium hover:bg-gray-50 transition-colors"
+                    >
+                      {t('Cancel')}
+                    </button>
+                    <button
+                      type="submit"
+                      className="flex-1 px-4 py-2 rounded-xl bg-mocha-700 text-white font-medium hover:bg-mocha-800 shadow-lg shadow-mocha-500/20 transition-colors"
+                    >
+                      {t('Save Changes')}
+                    </button>
+                  </div>
+                </form>
+              </motion.div>
+            </div>
+          </AnimatePresence>,
+          document.body
+        )}
 
       <ConfirmDialog
         isOpen={!!deleteTargetId}
         title={t('Delete Stock Item')}
-        message={t('Are you sure you want to delete this item? This will also remove its history and recipes mapping.')}
+        message={t(
+          'Are you sure you want to delete this item? This will also remove its history and recipes mapping.'
+        )}
         confirmText={t('Delete')}
         cancelText={t('Cancel')}
         onConfirm={confirmDeleteInventory}

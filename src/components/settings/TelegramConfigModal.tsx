@@ -1,6 +1,16 @@
 import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Send, Key, Hash, Clock, ShieldCheck, AlertCircle, ToggleLeft, ToggleRight } from 'lucide-react';
+import {
+  X,
+  Send,
+  Key,
+  Hash,
+  Clock,
+  ShieldCheck,
+  AlertCircle,
+  ToggleLeft,
+  ToggleRight,
+} from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { getTelegramConfig, setTelegramConfig } from '../../utils/settingsConfig';
 import { telegramService } from '../../services/telegramService';
@@ -16,7 +26,7 @@ export function TelegramConfigModal({ isOpen, onClose }: TelegramConfigModalProp
   const [chatId, setChatId] = useState('');
   const [reportTime, setReportTime] = useState('23:00');
   const [enabled, setEnabled] = useState(false);
-  
+
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState('');
   const [testing, setTesting] = useState(false);
@@ -93,7 +103,7 @@ export function TelegramConfigModal({ isOpen, onClose }: TelegramConfigModalProp
   return createPortal(
     <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-gray-900/40 backdrop-blur-sm" onClick={onClose} />
-      
+
       <div className="relative bg-white w-full max-w-md rounded-2xl shadow-xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
         {/* Header */}
         <div className="bg-sky-600 px-6 py-4 flex items-center justify-between">
@@ -102,18 +112,25 @@ export function TelegramConfigModal({ isOpen, onClose }: TelegramConfigModalProp
               <Send size={24} />
             </div>
             <div>
-              <h2 className="text-lg font-bold text-white">{t('Telegram Configuration') || 'إعدادات التليجرام'}</h2>
-              <p className="text-sky-100 text-xs">{t('Configure Telegram report notifications') || 'إعداد تقارير المبيعات على التليجرام'}</p>
+              <h2 className="text-lg font-bold text-white">
+                {t('Telegram Configuration') || 'إعدادات التليجرام'}
+              </h2>
+              <p className="text-sky-100 text-xs">
+                {t('Configure Telegram report notifications') ||
+                  'إعداد تقارير المبيعات على التليجرام'}
+              </p>
             </div>
           </div>
-          <button onClick={onClose} className="text-white/80 hover:text-white p-2 rounded-lg hover:bg-white/10 transition-colors">
+          <button
+            onClick={onClose}
+            className="text-white/80 hover:text-white p-2 rounded-lg hover:bg-white/10 transition-colors"
+          >
             <X size={20} />
           </button>
         </div>
 
         {/* Content */}
         <div className="p-6 space-y-4 text-gray-800">
-          
           {/* Toggle Enabled */}
           <div className="flex items-center justify-between bg-gray-50 p-3.5 rounded-xl border border-gray-100">
             <div>
@@ -124,12 +141,16 @@ export function TelegramConfigModal({ isOpen, onClose }: TelegramConfigModalProp
                 {t('Send automatic daily sales reports') || 'إرسال تقرير المبيعات تلقائياً كل يوم'}
               </span>
             </div>
-            <button 
+            <button
               type="button"
               onClick={() => setEnabled(!enabled)}
               className="text-sky-600 hover:text-sky-700 transition-colors outline-none"
             >
-              {enabled ? <ToggleRight size={44} strokeWidth={1.5} /> : <ToggleLeft size={44} strokeWidth={1.5} className="text-gray-400" />}
+              {enabled ? (
+                <ToggleRight size={44} strokeWidth={1.5} />
+              ) : (
+                <ToggleLeft size={44} strokeWidth={1.5} className="text-gray-400" />
+              )}
             </button>
           </div>
 
@@ -224,7 +245,7 @@ export function TelegramConfigModal({ isOpen, onClose }: TelegramConfigModalProp
               <Send size={16} />
               {testing ? 'جاري الإرسال...' : 'رسالة تجريبية'}
             </button>
-            
+
             <button
               onClick={handleSave}
               className="bg-sky-600 hover:bg-sky-700 text-white font-bold py-3.5 rounded-xl transition-all shadow-sm"

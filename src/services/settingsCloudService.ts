@@ -46,7 +46,6 @@ export const DURABLE_SETTING_KEYS = [
   'custom_menu_categories',
 ] as const;
 
-
 export type DurableSettingKey = (typeof DURABLE_SETTING_KEYS)[number];
 
 /**
@@ -330,8 +329,7 @@ export async function removeSetting(key: string, branchId?: string): Promise<voi
  * Returns number of keys restored.
  */
 export async function hydrateSettingsFromCloud(): Promise<number> {
-  const reachable =
-    isCloudConfigured() && (typeof navigator === 'undefined' || navigator.onLine);
+  const reachable = isCloudConfigured() && (typeof navigator === 'undefined' || navigator.onLine);
   let read = false;
   try {
     const n = await runSettingsHydrate();
@@ -386,9 +384,7 @@ async function runSettingsHydrate(): Promise<number> {
     for (const doc of durableDocs) {
       const key = String(doc.key);
       const value = doc.value == null ? '' : String(doc.value);
-      const cloudAt = new Date(
-        doc.updatedAt || doc.updated_at || doc.createdAt || 0
-      ).getTime();
+      const cloudAt = new Date(doc.updatedAt || doc.updated_at || doc.createdAt || 0).getTime();
       const localAt = localSettingWriteAt(key);
 
       if (pending.has(key)) {
@@ -427,7 +423,6 @@ async function runSettingsHydrate(): Promise<number> {
     return 0;
   }
 }
-
 
 /**
  * Push all durable localStorage settings to D1 (bootstrap after wipe recovery reverse).
@@ -475,16 +470,15 @@ export async function cleanupUnsyncableSettingQueue(): Promise<number> {
         if (rec.synced === 1) continue;
         if (String(rec.type) !== 'settings') continue;
         const key =
-          (rec.data && (rec.data.key as string)) ||
-          settingKeyFromDocId(rec.data?.id) ||
-          '';
+          (rec.data && (rec.data.key as string)) || settingKeyFromDocId(rec.data?.id) || '';
         if (key && MANAGER_ONLY_SETTING_KEYS.includes(key)) {
           await tx.store.delete(rec.id);
           n++;
         }
       }
       await tx.done;
-      if (n > 0) console.info('[settingsCloud] cleared', n, 'un-syncable manager-only setting rows');
+      if (n > 0)
+        console.info('[settingsCloud] cleared', n, 'un-syncable manager-only setting rows');
       return n;
     });
   } catch {

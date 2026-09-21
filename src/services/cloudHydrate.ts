@@ -56,12 +56,7 @@ function mapOrder(doc: any): Order {
     ...(grandTotal !== undefined ? { grandTotal } : {}),
 
     createdAt:
-      doc.createdAt ||
-      doc.created_at ||
-      doc.$createdAt ||
-      doc.paidAt ||
-      doc.paid_at ||
-      undefined,
+      doc.createdAt || doc.created_at || doc.$createdAt || doc.paidAt || doc.paid_at || undefined,
     updatedAt: doc.updatedAt || doc.updated_at || undefined,
     paidAt: doc.paidAt || undefined,
     customerPhone: doc.customerPhone || doc.customer_phone || undefined,
@@ -324,7 +319,11 @@ export async function hydrateFromCloud(force = false): Promise<HydrateResult> {
             const syncQueue = await db.getAll('sync_queue');
             const pendingDeletions = new Set(
               syncQueue
-                .filter((r) => ((r.type as string) === 'order' || (r.type as string) === 'orders') && r.action === 'delete')
+                .filter(
+                  (r) =>
+                    ((r.type as string) === 'order' || (r.type as string) === 'orders') &&
+                    r.action === 'delete'
+                )
 
                 .map((r) => r.data?.id || r.data?.documentId)
                 .filter(Boolean)
@@ -366,14 +365,13 @@ export async function hydrateFromCloud(force = false): Promise<HydrateResult> {
               const local = localById.get(remote.id);
               const localDeletedAt = local?.deletedAt;
               const remoteDeletedAt = remote.deletedAt;
-              const effectiveDeletedAt =
-                !localDeletedAt
-                  ? remoteDeletedAt
-                  : !remoteDeletedAt
+              const effectiveDeletedAt = !localDeletedAt
+                ? remoteDeletedAt
+                : !remoteDeletedAt
+                  ? localDeletedAt
+                  : new Date(localDeletedAt).getTime() >= new Date(remoteDeletedAt).getTime()
                     ? localDeletedAt
-                    : new Date(localDeletedAt).getTime() >= new Date(remoteDeletedAt).getTime()
-                      ? localDeletedAt
-                      : remoteDeletedAt;
+                    : remoteDeletedAt;
               const merged: MenuItem = {
                 ...(local || ({} as MenuItem)),
                 ...remote,
@@ -401,16 +399,12 @@ export async function hydrateFromCloud(force = false): Promise<HydrateResult> {
                 .filter((c) => c.phone)
                 .map((c) => [String(c.phone).replace(/[\s\-()]/g, ''), c])
             );
-            const mapped = customers
-              .map(mapCustomer)
-              .filter((c): c is Customer => !!c && !!c.id);
+            const mapped = customers.map(mapCustomer).filter((c): c is Customer => !!c && !!c.id);
             const tx = db.transaction('customers', 'readwrite');
             let n = 0;
             for (const remote of mapped) {
               const phoneKey = String(remote.phone || '').replace(/[\s\-()]/g, '');
-              const local =
-                byId.get(remote.id) ||
-                (phoneKey ? byPhone.get(phoneKey) : undefined);
+              const local = byId.get(remote.id) || (phoneKey ? byPhone.get(phoneKey) : undefined);
               const isPlaceholder = (s?: string) => {
                 const t = (s || '').trim().toLowerCase();
                 return !t || t === 'عميل' || t === 'customer';
@@ -420,12 +414,11 @@ export async function hydrateFromCloud(force = false): Promise<HydrateResult> {
                     ...local,
                     ...remote,
                     id: local.id || remote.id,
-                    name:
-                      !isPlaceholder(remote.name)
-                        ? remote.name
-                        : !isPlaceholder(local.name)
-                          ? local.name
-                          : remote.name || local.name || 'عميل',
+                    name: !isPlaceholder(remote.name)
+                      ? remote.name
+                      : !isPlaceholder(local.name)
+                        ? local.name
+                        : remote.name || local.name || 'عميل',
                     phone: remote.phone || local.phone,
                     companyId: remote.companyId || local.companyId,
                     points:
@@ -439,14 +432,14 @@ export async function hydrateFromCloud(force = false): Promise<HydrateResult> {
                     notes: remote.notes || local.notes,
                     // Resolve the soft-delete tombstone: newer deletedAt wins so
                     // a delete on any device is not resurrected by a stale copy.
-                    deletedAt:
-                      !local.deletedAt
-                        ? remote.deletedAt
-                        : !remote.deletedAt
+                    deletedAt: !local.deletedAt
+                      ? remote.deletedAt
+                      : !remote.deletedAt
+                        ? local.deletedAt
+                        : new Date(local.deletedAt).getTime() >=
+                            new Date(remote.deletedAt).getTime()
                           ? local.deletedAt
-                          : new Date(local.deletedAt).getTime() >= new Date(remote.deletedAt).getTime()
-                            ? local.deletedAt
-                            : remote.deletedAt,
+                          : remote.deletedAt,
                   }
                 : remote;
               try {
@@ -481,14 +474,14 @@ export async function hydrateFromCloud(force = false): Promise<HydrateResult> {
                         ? remote.tags
                         : local.tags,
                     // Resolve the soft-delete tombstone: newer deletedAt wins.
-                    deletedAt:
-                      !local.deletedAt
-                        ? remote.deletedAt
-                        : !remote.deletedAt
+                    deletedAt: !local.deletedAt
+                      ? remote.deletedAt
+                      : !remote.deletedAt
+                        ? local.deletedAt
+                        : new Date(local.deletedAt).getTime() >=
+                            new Date(remote.deletedAt).getTime()
                           ? local.deletedAt
-                          : new Date(local.deletedAt).getTime() >= new Date(remote.deletedAt).getTime()
-                            ? local.deletedAt
-                            : remote.deletedAt,
+                          : remote.deletedAt,
                   }
                 : remote;
               try {
@@ -522,14 +515,13 @@ export async function hydrateFromCloud(force = false): Promise<HydrateResult> {
 
               // Resolve the effective tombstone: whichever side has a NEWER
               // deletedAt wins.
-              const effectiveDeletedAt =
-                !localDeletedAt
-                  ? remoteDeletedAt
-                  : !remoteDeletedAt
+              const effectiveDeletedAt = !localDeletedAt
+                ? remoteDeletedAt
+                : !remoteDeletedAt
+                  ? localDeletedAt
+                  : new Date(localDeletedAt).getTime() >= new Date(remoteDeletedAt).getTime()
                     ? localDeletedAt
-                    : new Date(localDeletedAt).getTime() >= new Date(remoteDeletedAt).getTime()
-                      ? localDeletedAt
-                      : remoteDeletedAt;
+                    : remoteDeletedAt;
 
               const remoteUpdated = doc.updatedAt || doc.updated_at || '';
               // If the local copy was modified more recently than the cloud row
@@ -559,10 +551,11 @@ export async function hydrateFromCloud(force = false): Promise<HydrateResult> {
                   ? (local?.costPerUnit ?? 0)
                   : (optionalNumber(doc.costPerUnit) ?? local?.costPerUnit ?? 0),
                 branchId: doc.branch_id || doc.branchId || local?.branchId,
-                createdAt: doc.createdAt || doc.created_at || local?.createdAt || new Date().toISOString(),
+                createdAt:
+                  doc.createdAt || doc.created_at || local?.createdAt || new Date().toISOString(),
                 updatedAt: localWinsStock
                   ? local.updatedAt
-                  : (remoteUpdated || local?.updatedAt || new Date().toISOString()),
+                  : remoteUpdated || local?.updatedAt || new Date().toISOString(),
                 deletedAt: effectiveDeletedAt || undefined,
               };
               try {

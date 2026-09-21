@@ -16,7 +16,9 @@ const localStorageMock = {
   setItem: (k: string, v: string) => void store.set(k, String(v)),
   removeItem: (k: string) => void store.delete(k),
   clear: () => store.clear(),
-  get length() { return store.size; },
+  get length() {
+    return store.size;
+  },
   key: (i: number) => Array.from(store.keys())[i] ?? null,
 };
 (globalThis as any).localStorage = localStorageMock;
@@ -60,9 +62,15 @@ describe('tryAcquireReportLock', () => {
   it('fails open when localStorage throws (private mode) so the report still sends', () => {
     const real = (globalThis as any).localStorage;
     (globalThis as any).localStorage = {
-      getItem: () => { throw new Error('denied'); },
-      setItem: () => { throw new Error('denied'); },
-      removeItem: () => { throw new Error('denied'); },
+      getItem: () => {
+        throw new Error('denied');
+      },
+      setItem: () => {
+        throw new Error('denied');
+      },
+      removeItem: () => {
+        throw new Error('denied');
+      },
     };
     expect(tryAcquireReportLock(T0)).toBe(true);
     (globalThis as any).localStorage = real;

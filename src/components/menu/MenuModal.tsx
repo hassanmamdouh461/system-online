@@ -10,10 +10,15 @@ import { useEditingGuard } from '../../hooks/useEditingGuard';
 import { getIngredientBaseQtySafe } from '../../utils/units';
 import { persistSetting } from '../../services/settingsCloudService';
 import { useToast } from '../ui/Toast';
-import { addMoney, formatMoney, moneyPercent, multiplyMoney, subtractMoney } from '../../utils/money';
+import {
+  addMoney,
+  formatMoney,
+  moneyPercent,
+  multiplyMoney,
+  subtractMoney,
+} from '../../utils/money';
 
 interface MenuModalProps {
-
   isOpen: boolean;
   onClose: () => void;
   onSave: (item: Omit<MenuItem, 'id'> | MenuItem, recipeIngredients: any[]) => void;
@@ -27,14 +32,18 @@ export function MenuModal({ isOpen, onClose, onSave, initialData, existingItems 
   const setEditing = useEditingGuard();
   const [activeTab, setActiveTab] = useState<'general' | 'recipe'>('general');
   const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([]);
-  const [mappedIngredients, setMappedIngredients] = useState<Array<{ inventoryItemId: string; quantity: number; unit?: string }>>([]);
+  const [mappedIngredients, setMappedIngredients] = useState<
+    Array<{ inventoryItemId: string; quantity: number; unit?: string }>
+  >([]);
 
   const [showNewCategoryInput, setShowNewCategoryInput] = useState(false);
   const [isCategoryDropdownOpen, setIsCategoryDropdownOpen] = useState(false);
   const [removedCategories, setRemovedCategories] = useState<string[]>(() => {
     try {
       return JSON.parse(localStorage.getItem('removed_menu_categories') || '[]');
-    } catch { return []; }
+    } catch {
+      return [];
+    }
   });
   const categoryDropdownRef = React.useRef<HTMLDivElement>(null);
 
@@ -72,11 +81,13 @@ export function MenuModal({ isOpen, onClose, onSave, initialData, existingItems 
 
         if (initialData) {
           const recipe = await inventoryService.getMenuItemRecipe(initialData.id);
-          setMappedIngredients(recipe.map(r => ({
-            inventoryItemId: r.inventoryItemId,
-            quantity: r.quantity,
-            unit: r.unit || r.itemUnit || ''
-          })));
+          setMappedIngredients(
+            recipe.map((r) => ({
+              inventoryItemId: r.inventoryItemId,
+              quantity: r.quantity,
+              unit: r.unit || r.itemUnit || '',
+            }))
+          );
         } else {
           setMappedIngredients([]);
         }
@@ -84,7 +95,7 @@ export function MenuModal({ isOpen, onClose, onSave, initialData, existingItems 
         console.error('Failed to load recipe/inventory items:', err);
       }
     };
-    
+
     if (isOpen) {
       loadRecipeAndInventory();
       setActiveTab('general');
@@ -97,16 +108,23 @@ export function MenuModal({ isOpen, onClose, onSave, initialData, existingItems 
     const set = new Set<string>();
     const list: Array<{ value: string; label: string }> = [];
 
-    (existingItems || []).forEach(item => {
+    (existingItems || []).forEach((item) => {
       const cat = item.category ? item.category.split('|')[0] : '';
-      if (cat && !set.has(cat) && cat !== 'Bar' && cat !== 'Kitchen' && cat !== 'All' && cat !== 'General') {
+      if (
+        cat &&
+        !set.has(cat) &&
+        cat !== 'Bar' &&
+        cat !== 'Kitchen' &&
+        cat !== 'All' &&
+        cat !== 'General'
+      ) {
         set.add(cat);
         list.push({ value: cat, label: cat });
       }
     });
 
     // Filter out removed categories
-    return list.filter(cat => !removedCategories.includes(cat.value));
+    return list.filter((cat) => !removedCategories.includes(cat.value));
   }, [existingItems, removedCategories]);
 
   const handleRemoveCategory = (catValue: string, e: React.MouseEvent) => {
@@ -117,11 +135,13 @@ export function MenuModal({ isOpen, onClose, onSave, initialData, existingItems 
     void persistSetting('removed_menu_categories', JSON.stringify(updated));
     // If the removed category was the selected one, reset to first available
     if (formData.category === catValue) {
-      const remaining = availableCategories.filter(c => c.value !== catValue);
-      setFormData(prev => ({ ...prev, category: remaining.length > 0 ? remaining[0].value : '' }));
+      const remaining = availableCategories.filter((c) => c.value !== catValue);
+      setFormData((prev) => ({
+        ...prev,
+        category: remaining.length > 0 ? remaining[0].value : '',
+      }));
     }
   };
-
 
   // Initialize form ONLY when the edited item changes (by id), NOT on every
   // isOpen toggle. This preserves the user's in-progress draft when the modal
@@ -136,7 +156,7 @@ export function MenuModal({ isOpen, onClose, onSave, initialData, existingItems 
       const parts = initialData.category.split('|');
       const menuCat = parts[0] || '';
 
-      const isKnown = availableCategories.some(c => c.value === menuCat);
+      const isKnown = availableCategories.some((c) => c.value === menuCat);
       if (!isKnown && menuCat !== 'General' && menuCat !== '') {
         setShowNewCategoryInput(true);
         setFormData({
@@ -171,9 +191,13 @@ export function MenuModal({ isOpen, onClose, onSave, initialData, existingItems 
 
   const calculatedCost = useMemo(() => {
     return mappedIngredients.reduce((sum, ing) => {
-      const invItem = inventoryItems.find(i => i.id === ing.inventoryItemId);
+      const invItem = inventoryItems.find((i) => i.id === ing.inventoryItemId);
       if (!invItem) return sum;
-      const baseQty = getIngredientBaseQtySafe(ing.quantity, ing.unit || invItem.unit || 'كجم', invItem.unit || 'كجم');
+      const baseQty = getIngredientBaseQtySafe(
+        ing.quantity,
+        ing.unit || invItem.unit || 'كجم',
+        invItem.unit || 'كجم'
+      );
       return addMoney(sum, multiplyMoney(invItem.costPerUnit, baseQty));
     }, 0);
   }, [mappedIngredients, inventoryItems]);
@@ -188,34 +212,39 @@ export function MenuModal({ isOpen, onClose, onSave, initialData, existingItems 
   const addIngredientRow = () => {
     if (inventoryItems.length === 0) return;
     const first = inventoryItems[0];
-    setMappedIngredients(prev => [...prev, { inventoryItemId: first.id, quantity: 0, unit: first.unit || 'كجم' }]);
+    setMappedIngredients((prev) => [
+      ...prev,
+      { inventoryItemId: first.id, quantity: 0, unit: first.unit || 'كجم' },
+    ]);
   };
 
   const updateIngredientRow = (index: number, itemId: string, qty: number, unit?: string) => {
-    setMappedIngredients(prev => prev.map((item, i) => {
-      if (i !== index) return item;
-      const invItem = inventoryItems.find(it => it.id === itemId);
-      return {
-        inventoryItemId: itemId,
-        quantity: qty,
-        unit: unit !== undefined ? unit : (item.unit || invItem?.unit || 'كجم')
-      };
-    }));
+    setMappedIngredients((prev) =>
+      prev.map((item, i) => {
+        if (i !== index) return item;
+        const invItem = inventoryItems.find((it) => it.id === itemId);
+        return {
+          inventoryItemId: itemId,
+          quantity: qty,
+          unit: unit !== undefined ? unit : item.unit || invItem?.unit || 'كجم',
+        };
+      })
+    );
   };
 
   const removeIngredientRow = (index: number) => {
-    setMappedIngredients(prev => prev.filter((_, i) => i !== index));
+    setMappedIngredients((prev) => prev.filter((_, i) => i !== index));
   };
 
   const handleSelectCategory = (catValue: string) => {
     setShowNewCategoryInput(false);
-    setFormData(prev => ({ ...prev, category: catValue }));
+    setFormData((prev) => ({ ...prev, category: catValue }));
     setIsCategoryDropdownOpen(false);
   };
 
   const handleCreateNewCategory = () => {
     setShowNewCategoryInput(true);
-    setFormData(prev => ({ ...prev, category: '' }));
+    setFormData((prev) => ({ ...prev, category: '' }));
     setIsCategoryDropdownOpen(false);
   };
 
@@ -225,21 +254,26 @@ export function MenuModal({ isOpen, onClose, onSave, initialData, existingItems 
       const menuCategory = formData.category.trim() || availableCategories[0]?.value || 'General';
       const finalCategory = `${menuCategory}|Bar`;
 
-      const defaultImage = ['Hot Coffee', 'Iced Coffee', 'Frappe', 'Milkshakes', 'Bar'].includes(menuCategory)
+      const defaultImage = ['Hot Coffee', 'Iced Coffee', 'Frappe', 'Milkshakes', 'Bar'].includes(
+        menuCategory
+      )
         ? 'https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?w=400'
         : 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=400';
       const finalImage = defaultImage;
 
-      const validIngredients = mappedIngredients.filter(ing => ing.quantity > 0);
+      const validIngredients = mappedIngredients.filter((ing) => ing.quantity > 0);
 
-      await onSave({
-        ...formData,
-        category: finalCategory,
-        image: finalImage,
-        price: parseFloat(formData.price),
-        ...(initialData ? { id: initialData.id } : {}),
-      } as MenuItem, validIngredients);
-      
+      await onSave(
+        {
+          ...formData,
+          category: finalCategory,
+          image: finalImage,
+          price: parseFloat(formData.price),
+          ...(initialData ? { id: initialData.id } : {}),
+        } as MenuItem,
+        validIngredients
+      );
+
       onClose();
     } catch (err) {
       console.error('Failed to save menu item:', err);
@@ -251,7 +285,8 @@ export function MenuModal({ isOpen, onClose, onSave, initialData, existingItems 
 
   if (!isOpen) return null;
 
-  const selectedCategoryLabel = availableCategories.find(c => c.value === formData.category)?.label || formData.category;
+  const selectedCategoryLabel =
+    availableCategories.find((c) => c.value === formData.category)?.label || formData.category;
 
   return createPortal(
     <AnimatePresence>
@@ -263,7 +298,7 @@ export function MenuModal({ isOpen, onClose, onSave, initialData, existingItems 
           onClick={onClose}
           className="absolute inset-0 bg-black/60 backdrop-blur-sm"
         />
-        
+
         <motion.div
           initial={{ opacity: 0, scale: 0.95, y: 20 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -274,7 +309,7 @@ export function MenuModal({ isOpen, onClose, onSave, initialData, existingItems 
             <h2 className="text-xl font-bold text-gray-900">
               {initialData ? t('Edit Item') : t('Add New Item')}
             </h2>
-            <button 
+            <button
               onClick={onClose}
               className="p-2 hover:bg-gray-100 rounded-full transition-colors text-gray-500"
             >
@@ -312,7 +347,9 @@ export function MenuModal({ isOpen, onClose, onSave, initialData, existingItems 
               {activeTab === 'general' ? (
                 <>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">{t('Item Name')}</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      {t('Item Name')}
+                    </label>
                     <input
                       type="text"
                       required
@@ -324,7 +361,9 @@ export function MenuModal({ isOpen, onClose, onSave, initialData, existingItems 
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">{t('Description')}</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      {t('Description')}
+                    </label>
                     <textarea
                       rows={3}
                       value={formData.description}
@@ -336,7 +375,9 @@ export function MenuModal({ isOpen, onClose, onSave, initialData, existingItems 
 
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">{t('Price') || 'السعر'}</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        {t('Price') || 'السعر'}
+                      </label>
                       <input
                         type="number"
                         step="0.01"
@@ -349,24 +390,41 @@ export function MenuModal({ isOpen, onClose, onSave, initialData, existingItems 
                     </div>
 
                     <div ref={categoryDropdownRef} className="relative">
-                      <label className="block text-sm font-medium text-gray-700 mb-1">{t('Category') || 'التصنيف'}</label>
-                      
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        {t('Category') || 'التصنيف'}
+                      </label>
+
                       {/* Custom dropdown trigger */}
                       <button
                         type="button"
                         onClick={() => setIsCategoryDropdownOpen(!isCategoryDropdownOpen)}
                         className="w-full px-3 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-caramel focus:border-transparent transition-all bg-white text-sm font-bold text-gray-900 text-right flex items-center justify-between gap-1"
                       >
-                        <svg className={`w-3.5 h-3.5 text-gray-400 transition-transform shrink-0 ${isCategoryDropdownOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 9l-7 7-7-7" /></svg>
-                        <span className="truncate">{showNewCategoryInput ? 'تصنيف جديد...' : selectedCategoryLabel}</span>
+                        <svg
+                          className={`w-3.5 h-3.5 text-gray-400 transition-transform shrink-0 ${isCategoryDropdownOpen ? 'rotate-180' : ''}`}
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2.5}
+                            d="M19 9l-7 7-7-7"
+                          />
+                        </svg>
+                        <span className="truncate">
+                          {showNewCategoryInput ? 'تصنيف جديد...' : selectedCategoryLabel}
+                        </span>
                       </button>
 
                       {/* Custom dropdown menu - opens upwards */}
                       {isCategoryDropdownOpen && (
-                        <div className="absolute left-0 right-0 bottom-full mb-1 bg-white border border-gray-200 rounded-xl shadow-xl z-50 max-h-56 overflow-y-auto"
+                        <div
+                          className="absolute left-0 right-0 bottom-full mb-1 bg-white border border-gray-200 rounded-xl shadow-xl z-50 max-h-56 overflow-y-auto"
                           style={{ minWidth: '220px' }}
                         >
-                          {availableCategories.map(cat => (
+                          {availableCategories.map((cat) => (
                             <div
                               key={cat.value}
                               className={`flex items-center justify-between gap-1 px-3 py-2 cursor-pointer text-sm font-medium transition-colors group ${
@@ -410,12 +468,13 @@ export function MenuModal({ isOpen, onClose, onSave, initialData, existingItems 
                       )}
                     </div>
                   </div>
-
                 </>
               ) : (
                 <div className="space-y-4">
                   <div className="flex justify-between items-center">
-                    <span className="text-xs text-gray-400 font-semibold uppercase">{t('Recipe Ingredients')}</span>
+                    <span className="text-xs text-gray-400 font-semibold uppercase">
+                      {t('Recipe Ingredients')}
+                    </span>
                     <button
                       type="button"
                       onClick={addIngredientRow}
@@ -436,16 +495,25 @@ export function MenuModal({ isOpen, onClose, onSave, initialData, existingItems 
                   ) : (
                     <div className="space-y-2 max-h-[220px] overflow-y-auto pr-1">
                       {mappedIngredients.map((ing, idx) => {
-                        const currentInvItem = inventoryItems.find(i => i.id === ing.inventoryItemId);
+                        const currentInvItem = inventoryItems.find(
+                          (i) => i.id === ing.inventoryItemId
+                        );
                         return (
-                          <div key={idx} className="flex gap-2 items-center bg-gray-50 p-2 rounded-xl border border-gray-100">
+                          <div
+                            key={idx}
+                            className="flex gap-2 items-center bg-gray-50 p-2 rounded-xl border border-gray-100"
+                          >
                             <select
-                               value={ing.inventoryItemId}
-                               onChange={(e) => updateIngredientRow(idx, e.target.value, ing.quantity, ing.unit)}
-                               className="flex-1 px-3 py-1.5 rounded-lg border border-gray-200 text-xs focus:outline-none bg-white font-medium min-w-0"
+                              value={ing.inventoryItemId}
+                              onChange={(e) =>
+                                updateIngredientRow(idx, e.target.value, ing.quantity, ing.unit)
+                              }
+                              className="flex-1 px-3 py-1.5 rounded-lg border border-gray-200 text-xs focus:outline-none bg-white font-medium min-w-0"
                             >
-                              {inventoryItems.map(item => (
-                                <option key={item.id} value={item.id}>{t(item.name) || item.name}</option>
+                              {inventoryItems.map((item) => (
+                                <option key={item.id} value={item.id}>
+                                  {t(item.name) || item.name}
+                                </option>
                               ))}
                             </select>
 
@@ -455,14 +523,28 @@ export function MenuModal({ isOpen, onClose, onSave, initialData, existingItems 
                                 step="0.001"
                                 required
                                 value={ing.quantity || ''}
-                                onChange={(e) => updateIngredientRow(idx, ing.inventoryItemId, parseFloat(e.target.value) || 0, ing.unit)}
+                                onChange={(e) =>
+                                  updateIngredientRow(
+                                    idx,
+                                    ing.inventoryItemId,
+                                    parseFloat(e.target.value) || 0,
+                                    ing.unit
+                                  )
+                                }
                                 className="w-20 px-2 py-1.5 rounded-lg border border-gray-200 text-xs focus:outline-none text-center font-bold bg-white"
                                 placeholder="0"
                               />
 
                               <select
                                 value={ing.unit || currentInvItem?.unit || 'كجم'}
-                                onChange={(e) => updateIngredientRow(idx, ing.inventoryItemId, ing.quantity, e.target.value)}
+                                onChange={(e) =>
+                                  updateIngredientRow(
+                                    idx,
+                                    ing.inventoryItemId,
+                                    ing.quantity,
+                                    e.target.value
+                                  )
+                                }
                                 className="px-2 py-1.5 rounded-lg border border-gray-200 text-xs focus:outline-none bg-white font-bold text-gray-800 shrink-0"
                               >
                                 <option value="كجم">كجم</option>
@@ -481,7 +563,6 @@ export function MenuModal({ isOpen, onClose, onSave, initialData, existingItems 
                               <Trash2 size={14} />
                             </button>
                           </div>
-
                         );
                       })}
                     </div>
@@ -490,11 +571,15 @@ export function MenuModal({ isOpen, onClose, onSave, initialData, existingItems 
                   <div className="bg-mocha-50/50 rounded-xl p-3 border border-mocha-100 flex flex-col gap-1.5 text-xs text-mocha-900 mt-2">
                     <div className="flex justify-between items-center font-medium">
                       <span>{t('Recipe Cost')}:</span>
-                      <span className="font-bold text-gray-800">EGP {formatMoney(calculatedCost)}</span>
+                      <span className="font-bold text-gray-800">
+                        EGP {formatMoney(calculatedCost)}
+                      </span>
                     </div>
                     <div className="flex justify-between items-center font-medium">
                       <span>{t('Potential Margin')}:</span>
-                      <span className={`font-bold ${marginStats.profit >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+                      <span
+                        className={`font-bold ${marginStats.profit >= 0 ? 'text-green-600' : 'text-red-500'}`}
+                      >
                         EGP {formatMoney(marginStats.profit)} ({marginStats.percentage.toFixed(0)}%)
                       </span>
                     </div>

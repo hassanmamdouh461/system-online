@@ -80,7 +80,11 @@ export function RevenueAreaChart({
   const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
 
   if (!data || data.length === 0) {
-    return <div className="h-48 flex items-center justify-center text-gray-400 text-sm">لا توجد بيانات للعرض</div>;
+    return (
+      <div className="h-48 flex items-center justify-center text-gray-400 text-sm">
+        لا توجد بيانات للعرض
+      </div>
+    );
   }
 
   // Dimensions
@@ -96,11 +100,12 @@ export function RevenueAreaChart({
   const bottomY = paddingTop + innerHeight;
 
   // Max value calculation
-  const maxValue = Math.max(...data.map(d => d.value), 1);
+  const maxValue = Math.max(...data.map((d) => d.value), 1);
 
   // Map data to SVG points
   const points = data.map((d, i) => {
-    const x = paddingLeft + (data.length > 1 ? (i / (data.length - 1)) * innerWidth : innerWidth / 2);
+    const x =
+      paddingLeft + (data.length > 1 ? (i / (data.length - 1)) * innerWidth : innerWidth / 2);
     const normalizedVal = d.value / maxValue;
     const y = paddingTop + innerHeight - normalizedVal * (innerHeight * 0.85);
     return { x, y, raw: d };
@@ -110,7 +115,7 @@ export function RevenueAreaChart({
   const areaPathD = generateAreaPath(points, bottomY);
 
   // Gridlines (5 horizontal lines)
-  const gridLines = [0, 0.25, 0.5, 0.75, 1].map(ratio => {
+  const gridLines = [0, 0.25, 0.5, 0.75, 1].map((ratio) => {
     return paddingTop + innerHeight * (1 - ratio * 0.85);
   });
 
@@ -206,11 +211,7 @@ export function RevenueAreaChart({
           const pointColor = ratio < 0.5 ? '#d97706' : ratio < 0.8 ? '#0284c7' : '#2563eb';
 
           return (
-            <g
-              key={idx}
-              className="cursor-pointer group"
-              onMouseEnter={() => setHoveredIdx(idx)}
-            >
+            <g key={idx} className="cursor-pointer group" onMouseEnter={() => setHoveredIdx(idx)}>
               {/* Invisible larger hit target for easy hovering */}
               <circle cx={pt.x} cy={pt.y} r="14" fill="transparent" />
 
@@ -260,7 +261,9 @@ export function RevenueAreaChart({
               top: `${(activePoint.y / viewHeight) * 100}%`,
             }}
           >
-            <div className="text-[10px] text-gray-400 font-semibold mb-0.5">{activePoint.raw.label}</div>
+            <div className="text-[10px] text-gray-400 font-semibold mb-0.5">
+              {activePoint.raw.label}
+            </div>
             <div className="text-xs font-bold text-amber-300 whitespace-nowrap">
               {activePoint.raw.value.toFixed(2)} {currencyStr}
             </div>

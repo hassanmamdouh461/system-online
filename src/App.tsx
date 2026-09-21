@@ -1,5 +1,12 @@
 import { useState, useEffect, useRef, Suspense } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate, Outlet, useLocation } from 'react-router-dom';
+import {
+  BrowserRouter as Router,
+  Routes,
+  Route,
+  Navigate,
+  Outlet,
+  useLocation,
+} from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { DataProvider } from './context/DataContext';
 import { InlinePageSpinner } from './components/ui/InlinePageSpinner';
@@ -43,8 +50,8 @@ function NotFound() {
         <div className="text-8xl font-black text-gray-200 mb-4">404</div>
         <h1 className="text-2xl font-bold text-gray-800 mb-2">الصفحة غير موجودة</h1>
         <p className="text-gray-500 mb-6 text-sm">
-          <code className="bg-gray-100 px-2 py-0.5 rounded text-gray-600">{location.pathname}</code>
-          {' '}ليس له مسار صالح.
+          <code className="bg-gray-100 px-2 py-0.5 rounded text-gray-600">{location.pathname}</code>{' '}
+          ليس له مسار صالح.
         </p>
         <a
           href="/"
@@ -104,7 +111,8 @@ function BackupHealthBanner() {
       if (!health.ok) {
         setProblem({
           kind: 'down',
-          detail: health.db === 'unreachable' ? 'الوركر مش بيرد' : 'قاعدة البيانات السحابية مش بتستجيب',
+          detail:
+            health.db === 'unreachable' ? 'الوركر مش بيرد' : 'قاعدة البيانات السحابية مش بتستجيب',
         });
         return;
       }
@@ -181,8 +189,10 @@ function DefaultPasswordBanner() {
   return (
     <div className="bg-red-600 text-white text-sm font-bold px-4 py-2 text-center">
       ⚠️ أنت تستخدم كلمة المرور الافتراضية. غيّرها الآن من{' '}
-      <a href="/settings" className="underline hover:text-red-100">الإعدادات</a>
-      {' '}لتأمين النظام.
+      <a href="/settings" className="underline hover:text-red-100">
+        الإعدادات
+      </a>{' '}
+      لتأمين النظام.
     </div>
   );
 }
@@ -250,7 +260,8 @@ function RoleMismatchWatcher() {
     const onMismatch = (event: Event) => {
       if (!authedRef.current) return;
       const detail = (event as CustomEvent)?.detail || {};
-      const actual = detail.actual === 'cashier' ? 'كاشير' : detail.actual === 'manager' ? 'مدير' : 'غير معروفة';
+      const actual =
+        detail.actual === 'cashier' ? 'كاشير' : detail.actual === 'manager' ? 'مدير' : 'غير معروفة';
       toast.error(
         `صلاحية الجلسة على السيرفر (${actual}) مختلفة عن اللي إنت داخل بيها — أي تعديل مش هيتسجل على السحابة. ` +
           'سجّل الدخول من جديد بكلمة سر المدير.',
@@ -282,7 +293,8 @@ function ProtectedRoute() {
 function ManagerRoute() {
   const { user } = useAuth();
   const location = useLocation();
-  if (user?.role !== 'manager') return <Navigate to="/manager-login" state={{ from: location }} replace />;
+  if (user?.role !== 'manager')
+    return <Navigate to="/manager-login" state={{ from: location }} replace />;
   return <Outlet />;
 }
 
@@ -297,46 +309,45 @@ function AppRoutes() {
   return (
     <ErrorBoundary>
       <Suspense fallback={<InlinePageSpinner />}>
-      <Routes>
-        <Route path="/login" element={<Login />} />
-        {/* Same login UI; path contains "manager" so AuthContext assigns manager role */}
-        <Route path="/manager-login" element={<Login />} />
-        <Route path="/public-menu" element={<PublicMenu />} />
-        <Route element={<ProtectedRoute />}>
-          <Route element={<DashboardLayout />}>
-            <Route path="/dashboard" element={<Dashboard />} />
-            <Route path="/pos" element={<Orders />} />
-            <Route path="/orders" element={<Orders />} />
-            {/*
+        <Routes>
+          <Route path="/login" element={<Login />} />
+          {/* Same login UI; path contains "manager" so AuthContext assigns manager role */}
+          <Route path="/manager-login" element={<Login />} />
+          <Route path="/public-menu" element={<PublicMenu />} />
+          <Route element={<ProtectedRoute />}>
+            <Route element={<DashboardLayout />}>
+              <Route path="/dashboard" element={<Dashboard />} />
+              <Route path="/pos" element={<Orders />} />
+              <Route path="/orders" element={<Orders />} />
+              {/*
               The kitchen kanban board was removed on the operator's request, so
               the old /kitchen (and legacy /drinks) links land back on the cashier
               screen instead of 404-ing any bookmarked display.
             */}
-            <Route path="/kitchen" element={<Navigate to="/orders" replace />} />
-            <Route path="/drinks" element={<Navigate to="/orders" replace />} />
-            <Route path="/payment" element={<Payment />} />
+              <Route path="/kitchen" element={<Navigate to="/orders" replace />} />
+              <Route path="/drinks" element={<Navigate to="/orders" replace />} />
+              <Route path="/payment" element={<Payment />} />
 
-            <Route path="/customers" element={<Customers />} />
-            <Route path="/settings" element={<Settings />} />
+              <Route path="/customers" element={<Customers />} />
+              <Route path="/settings" element={<Settings />} />
 
-            {/* Manager Only Routes */}
-            <Route element={<ManagerRoute />}>
-              <Route path="/menu" element={<Menu />} />
-              <Route path="/inventory" element={<Inventory />} />
-              <Route path="/reports" element={<Reports />} />
-              <Route path="/manager" element={<ManagerDashboard />} />
-              <Route path="/manager-dashboard" element={<ManagerDashboard />} />
+              {/* Manager Only Routes */}
+              <Route element={<ManagerRoute />}>
+                <Route path="/menu" element={<Menu />} />
+                <Route path="/inventory" element={<Inventory />} />
+                <Route path="/reports" element={<Reports />} />
+                <Route path="/manager" element={<ManagerDashboard />} />
+                <Route path="/manager-dashboard" element={<ManagerDashboard />} />
+              </Route>
             </Route>
           </Route>
-        </Route>
-        <Route path="/" element={<CashierDefaultRoute />} />
-        <Route path="*" element={<NotFound />} />
-      </Routes>
-    </Suspense>
+          <Route path="/" element={<CashierDefaultRoute />} />
+          <Route path="*" element={<NotFound />} />
+        </Routes>
+      </Suspense>
     </ErrorBoundary>
   );
 }
-
 
 function App() {
   const [bootReady, setBootReady] = useState(false);
@@ -391,9 +402,8 @@ function App() {
                 }
                 // If wipe left everything empty, try last full snapshot
                 try {
-                  const { restoreFromSnapshotIfNeeded, startSnapshotScheduler } = await import(
-                    './services/snapshotService'
-                  );
+                  const { restoreFromSnapshotIfNeeded, startSnapshotScheduler } =
+                    await import('./services/snapshotService');
                   await restoreFromSnapshotIfNeeded(result);
                   startSnapshotScheduler();
                 } catch (snapErr) {
@@ -433,13 +443,12 @@ function App() {
     return <InlinePageSpinner message="جاري إعداد النظام..." />;
   }
 
-
   return (
     <AuthProvider>
       <LanguageProvider>
         <ToastProvider>
           <SessionExpiryWatcher />
-          <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+          <Router>
             <AppRoutes />
           </Router>
         </ToastProvider>

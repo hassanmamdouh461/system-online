@@ -80,7 +80,11 @@ export function localBusinessDayKey(now: Date, startHour: number = getDayStartHo
  * already sent for the current business day. Fires once per business day —
  * not in every minute between reportTime and midnight.
  */
-export function isReportDue(now: Date, reportTime: { h: number; m: number }, lastSentKey: string | null): boolean {
+export function isReportDue(
+  now: Date,
+  reportTime: { h: number; m: number },
+  lastSentKey: string | null
+): boolean {
   const startHour = getDayStartHour();
   const todayKey = localBusinessDayKey(now, startHour);
   if (!todayKey) return false;

@@ -17,10 +17,7 @@ import { getTelegramConfig, setTelegramConfig } from '../utils/settingsConfig';
 const read = (f: string) => readFileSync(join(__dirname, f), 'utf-8');
 const cloudServiceSrc = read('settingsCloudService.ts');
 const snapshotSrc = read('snapshotService.ts');
-const settingsConfigSrc = readFileSync(
-  join(__dirname, '../utils/settingsConfig.ts'),
-  'utf-8',
-);
+const settingsConfigSrc = readFileSync(join(__dirname, '../utils/settingsConfig.ts'), 'utf-8');
 const cloudHydrateSrc = read('cloudHydrate.ts');
 
 // ─── Minimal in-memory localStorage for the Node test environment ────────────
@@ -30,7 +27,9 @@ const localStorageMock = {
   setItem: (k: string, v: string) => void store.set(k, String(v)),
   removeItem: (k: string) => void store.delete(k),
   clear: () => store.clear(),
-  get length() { return store.size; },
+  get length() {
+    return store.size;
+  },
   key: (i: number) => Array.from(store.keys())[i] ?? null,
 };
 (globalThis as any).localStorage = localStorageMock;
@@ -65,7 +64,7 @@ describe('telegram config — encrypted channel is wired', () => {
     expect(settingsConfigSrc).toContain("import('../services/telegramCloudService')");
     expect(settingsConfigSrc).toContain('persistTelegramConfigToCloud');
     // …and must NOT push the raw config through the generic cloudPersist path.
-    expect(settingsConfigSrc).not.toContain("cloudPersist(LS_TELEGRAM_CONFIG_KEY");
+    expect(settingsConfigSrc).not.toContain('cloudPersist(LS_TELEGRAM_CONFIG_KEY');
   });
 
   it('cloudHydrate restores via the encrypted hydrate service', () => {

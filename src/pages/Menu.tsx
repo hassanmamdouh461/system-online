@@ -20,7 +20,7 @@ export default function Menu() {
   const { items, error, addItem, updateItem, deleteItem, toggleAvailability } = useMenu();
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [searchQuery, setSearchQuery] = useState('');
-  
+
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<MenuItem | null>(null);
@@ -29,7 +29,7 @@ export default function Menu() {
   const dynamicCategories = React.useMemo(() => {
     const set = new Set<string>();
     set.add('All');
-    items.forEach(item => {
+    items.forEach((item) => {
       const cat = item.category ? item.category.split('|')[0] : '';
       if (cat && cat !== 'Bar' && cat !== 'Kitchen' && cat !== 'General') {
         set.add(cat);
@@ -38,22 +38,24 @@ export default function Menu() {
     return Array.from(set);
   }, [items]);
 
-  const filteredItems = items.filter(item => {
+  const filteredItems = items.filter((item) => {
     const parts = item.category ? item.category.split('|') : [];
     const menuCat = parts[0] || '';
-    const matchesCategory = selectedCategory === 'All' || menuCat === selectedCategory || parts[1] === selectedCategory;
-    
+    const matchesCategory =
+      selectedCategory === 'All' || menuCat === selectedCategory || parts[1] === selectedCategory;
+
     const nameTranslated = t(item.name).toLowerCase();
     const descTranslated = t(item.description || '').toLowerCase();
     const nameOriginal = item.name.toLowerCase();
     const descOriginal = (item.description || '').toLowerCase();
     const query = searchQuery.toLowerCase().trim();
-    
-    const matchesSearch = nameOriginal.includes(query) || 
-                          descOriginal.includes(query) ||
-                          nameTranslated.includes(query) ||
-                          descTranslated.includes(query);
-                          
+
+    const matchesSearch =
+      nameOriginal.includes(query) ||
+      descOriginal.includes(query) ||
+      nameTranslated.includes(query) ||
+      descTranslated.includes(query);
+
     return matchesCategory && matchesSearch;
   });
 
@@ -94,7 +96,10 @@ export default function Menu() {
     setIsModalOpen(true);
   };
 
-  const handleSave = async (itemData: MenuItem | Omit<MenuItem, 'id'>, recipeIngredients: any[]) => {
+  const handleSave = async (
+    itemData: MenuItem | Omit<MenuItem, 'id'>,
+    recipeIngredients: any[]
+  ) => {
     try {
       let savedItemId = '';
       if ('id' in itemData) {
@@ -111,12 +116,12 @@ export default function Menu() {
           toast.success(t('Item added successfully'));
         }
       }
-      
+
       if (savedItemId && recipeIngredients) {
         const { inventoryService } = await import('../services/inventoryService');
         await inventoryService.saveMenuRecipe(savedItemId, recipeIngredients);
       }
-      
+
       setIsModalOpen(false);
     } catch (error) {
       console.error('Failed to save item:', error);
@@ -142,10 +147,12 @@ export default function Menu() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
         <div>
           <h1 className="text-lg md:text-2xl font-bold text-gray-900">{t('Menu Management')}</h1>
-          <p className="text-xs md:text-sm text-gray-500">{t('Manage your coffee beverages and availability.')}</p>
+          <p className="text-xs md:text-sm text-gray-500">
+            {t('Manage your coffee beverages and availability.')}
+          </p>
         </div>
         {isManager && (
-          <button 
+          <button
             onClick={handleAddNew}
             className="bg-mocha-700 hover:bg-mocha-800 text-white px-6 md:px-8 py-3.5 md:py-4 rounded-xl font-bold flex items-center justify-center gap-2.5 shadow-lg shadow-mocha-500/30 transition-all active:scale-95 w-full sm:w-auto text-base md:text-lg"
           >
@@ -159,7 +166,7 @@ export default function Menu() {
       <div className="bg-white p-2 md:p-3 rounded-2xl shadow-sm border border-gray-100 flex flex-col gap-2 sticky top-0 z-10 backdrop-blur-xl bg-white/95">
         {/* Categories - Horizontal scroll on mobile */}
         <div className="flex items-center gap-1.5 overflow-x-auto hide-scrollbar pb-0.5">
-          {dynamicCategories.map(category => (
+          {dynamicCategories.map((category) => (
             <button
               key={category}
               onClick={() => setSelectedCategory(category)}
@@ -169,14 +176,20 @@ export default function Menu() {
                   : 'bg-mocha-100 text-mocha-800 hover:bg-mocha-200'
               }`}
             >
-              {category === 'All' ? (isRtl ? 'الكل' : 'All') : (CATEGORY_TRANSLATIONS[category] || t(category) || category)}
+              {category === 'All'
+                ? isRtl
+                  ? 'الكل'
+                  : 'All'
+                : CATEGORY_TRANSLATIONS[category] || t(category) || category}
             </button>
           ))}
         </div>
 
         {/* Search */}
         <div className="relative w-full">
-          <Search className={`absolute top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4 ${isRtl ? 'right-3' : 'left-3'}`} />
+          <Search
+            className={`absolute top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4 ${isRtl ? 'right-3' : 'left-3'}`}
+          />
           <input
             type="text"
             placeholder={t('Search items...')}
@@ -188,12 +201,12 @@ export default function Menu() {
       </div>
 
       {/* Menu Grid — 2 cols on mobile, 3 on small tablet, 4 on large tablet/desktop */}
-      <motion.div 
+      <motion.div
         layout
         className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 tablet:grid-cols-4 xl:grid-cols-4 gap-4 tablet:gap-5 xl:gap-6"
       >
         <AnimatePresence>
-          {filteredItems.map(item => (
+          {filteredItems.map((item) => (
             <MenuItemCard
               key={item.id}
               item={item}

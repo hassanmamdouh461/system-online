@@ -25,14 +25,14 @@ describe('cashier menu writes are gated off the cloud', () => {
 
   it('pushMenuImmediate returns early for a cashier instead of enqueueing', () => {
     const gate = src.match(
-      /async function pushMenuImmediate[\s\S]{0,200}?if \(!canPushMenuWrite\(\)\) return;/,
+      /async function pushMenuImmediate[\s\S]{0,200}?if \(!canPushMenuWrite\(\)\) return;/
     );
     expect(gate).not.toBeNull();
   });
 
   it('bootstrapPushAll is gated too (a cashier must not bulk-push the menu)', () => {
     const gate = src.match(
-      /async bootstrapPushAll[\s\S]{0,250}?if \(!canPushMenuWrite\(\)\) return 0;/,
+      /async bootstrapPushAll[\s\S]{0,250}?if \(!canPushMenuWrite\(\)\) return 0;/
     );
     expect(gate).not.toBeNull();
   });

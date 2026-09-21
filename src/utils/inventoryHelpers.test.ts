@@ -3,7 +3,7 @@ import { resolveInvItem } from './inventoryHelpers';
 import type { InventoryItem } from '../types/inventory';
 
 const item = (id: string, name: string): InventoryItem =>
-  ({ id, name, unit: 'كجم', stock: 10, minStock: 1, costPerUnit: 5 } as unknown as InventoryItem);
+  ({ id, name, unit: 'كجم', stock: 10, minStock: 1, costPerUnit: 5 }) as unknown as InventoryItem;
 
 describe('resolveInvItem', () => {
   it('resolves by real id', () => {

@@ -22,7 +22,9 @@ export function AnalyticsTab({ processedData, dateRange, t }: AnalyticsTabProps)
               <BarChart3 className="w-5 h-5 text-amber-600" />
               {t('Revenue Trend')} ({t(dateRange)})
             </h3>
-            <p className="text-xs text-gray-500 mt-0.5">{t('Track your cafe performance and growth.')}</p>
+            <p className="text-xs text-gray-500 mt-0.5">
+              {t('Track your cafe performance and growth.')}
+            </p>
           </div>
         </div>
 
@@ -31,7 +33,10 @@ export function AnalyticsTab({ processedData, dateRange, t }: AnalyticsTabProps)
           {chartPoints.map((point: any, index: number) => {
             const heightPercent = Math.max((point.value / maxVal) * 100, 4);
             return (
-              <div key={index} className="flex-1 flex flex-col items-center gap-2 group h-full justify-end">
+              <div
+                key={index}
+                className="flex-1 flex flex-col items-center gap-2 group h-full justify-end"
+              >
                 <div className="opacity-0 group-hover:opacity-100 transition-opacity bg-gray-900 text-white text-[10px] py-1 px-2 rounded shadow-lg whitespace-nowrap z-10 pointer-events-none">
                   {formatMoney(point.value)} ج.م ({point.orders} {t('orders')})
                 </div>

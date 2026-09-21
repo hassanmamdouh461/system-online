@@ -167,7 +167,10 @@ export function sumMoney(amounts: Iterable<unknown>): number {
 }
 
 /** Exact sum over a collection via a selector. Replaces `reduce((s, x) => s + …)`. */
-export function sumMoneyBy<T>(items: readonly T[] | null | undefined, select: (item: T) => unknown): number {
+export function sumMoneyBy<T>(
+  items: readonly T[] | null | undefined,
+  select: (item: T) => unknown
+): number {
   if (!items || items.length === 0) return 0;
   let minor = 0;
   for (const item of items) minor += toMinor(select(item));
@@ -230,7 +233,7 @@ export function lineTotal(price: unknown, quantity: unknown): number {
  * always sum to the printed subtotal — the invariant issue B.1 asked for.
  */
 export function sumLineTotals(lines: readonly PricedLine[] | null | undefined): number {
-  return sumMoneyBy(lines, l => lineTotal(l?.price, l?.quantity));
+  return sumMoneyBy(lines, (l) => lineTotal(l?.price, l?.quantity));
 }
 
 /** Tax on a subtotal at a fractional rate (0.14 = 14%). Never negative. */
@@ -266,7 +269,7 @@ export function allocateMoney(total: unknown, weights: readonly number[]): numbe
   if (!weights || weights.length === 0) return [];
 
   const totalMinor = toMinor(total);
-  const safeWeights = weights.map(w => (Number.isFinite(w) && w > 0 ? w : 0));
+  const safeWeights = weights.map((w) => (Number.isFinite(w) && w > 0 ? w : 0));
   const weightSum = safeWeights.reduce((s, w) => s + w, 0);
 
   // No usable weights — put everything in the first slot rather than lose it.
@@ -276,7 +279,7 @@ export function allocateMoney(total: unknown, weights: readonly number[]): numbe
     return parts;
   }
 
-  const exact = safeWeights.map(w => (totalMinor * w) / weightSum);
+  const exact = safeWeights.map((w) => (totalMinor * w) / weightSum);
   const floors = exact.map(Math.floor);
   let remainder = totalMinor - floors.reduce((s, f) => s + f, 0);
 
@@ -323,6 +326,10 @@ export function formatMoney(amount: unknown, decimals = MONEY_DECIMALS): string 
 }
 
 /** Format with a currency suffix, e.g. `formatMoneyWithCurrency(5, 'ج.م')`. */
-export function formatMoneyWithCurrency(amount: unknown, currency: string, decimals = MONEY_DECIMALS): string {
+export function formatMoneyWithCurrency(
+  amount: unknown,
+  currency: string,
+  decimals = MONEY_DECIMALS
+): string {
   return `${formatMoney(amount, decimals)} ${currency}`;
 }

@@ -104,7 +104,6 @@ function resolveManagerIntent(explicitRole?: LoginRole): boolean {
   );
 }
 
-
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<StoredSession | null>(() => {
     try {
@@ -118,7 +117,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   });
 
   const login = async (password: string, role?: LoginRole) => {
-    await new Promise(resolve => setTimeout(resolve, 400));
+    await new Promise((resolve) => setTimeout(resolve, 400));
 
     const isManager = resolveManagerIntent(role);
 
@@ -142,7 +141,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setSessionCredential(password);
       const minted = await ensureCloudSession(true);
       const serverRole = getSessionRole();
-      if (minted && ((isManager && serverRole === 'manager') || (!isManager && serverRole === 'cashier'))) {
+      if (
+        minted &&
+        ((isManager && serverRole === 'manager') || (!isManager && serverRole === 'cashier'))
+      ) {
         isValid = true;
       } else {
         // Wrong password, or the OTHER role's password typed on this screen: drop
@@ -225,7 +227,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       try {
         const revived = await syncService.resetDeadRecords();
         if (revived > 0) {
-          console.info('[auth] re-armed', revived, 'sync record(s) refused under the previous role');
+          console.info(
+            '[auth] re-armed',
+            revived,
+            'sync record(s) refused under the previous role'
+          );
           void syncService.syncPendingData();
         }
       } catch (err) {

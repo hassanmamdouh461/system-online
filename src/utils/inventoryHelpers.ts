@@ -27,14 +27,14 @@ export function resolveInvItem(
 ): InventoryItem | undefined {
   if (!inventoryItemId || !inventory || inventory.length === 0) return undefined;
 
-  const found = inventory.find(i => i.id === inventoryItemId);
+  const found = inventory.find((i) => i.id === inventoryItemId);
   if (found) return found;
 
   if (inventoryItemId.startsWith('inv_b_') && !warnedLegacyIds.has(inventoryItemId)) {
     warnedLegacyIds.add(inventoryItemId);
     console.warn(
       `[inventoryHelpers] legacy recipe reference "${inventoryItemId}" matches no inventory item and ` +
-      `is deliberately NOT resolved by position (IV-019). Re-link this ingredient in the menu editor.`
+        `is deliberately NOT resolved by position (IV-019). Re-link this ingredient in the menu editor.`
     );
   }
 

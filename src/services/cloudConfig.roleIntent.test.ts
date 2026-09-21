@@ -89,9 +89,9 @@ describe('cloud role intent', () => {
 
   it('keeps the CSRF token per role so two tabs cannot clobber each other', async () => {
     cloud.setRoleIntent('cashier');
-    const fetchMock = vi.fn().mockResolvedValue(
-      jsonResponse({ ok: true, role: 'cashier', csrfToken: 'cashier-token' })
-    );
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(jsonResponse({ ok: true, role: 'cashier', csrfToken: 'cashier-token' }));
     vi.stubGlobal('fetch', fetchMock);
     cloud.setSessionCredential('cashier-pass');
     await cloud.ensureCloudSession(true);

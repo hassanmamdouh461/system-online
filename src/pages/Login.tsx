@@ -23,7 +23,6 @@ export default function Login() {
     }
   }, [location.pathname, location.search, location.state]);
 
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
@@ -38,16 +37,18 @@ export default function Login() {
       let destination = '/orders';
       if (loggedUser.role === 'manager') {
         const managerOnlyRoutes = ['/manager', '/reports', '/inventory', '/menu'];
-        const isManagerOnly = fromPath && managerOnlyRoutes.some(r => fromPath.startsWith(r));
+        const isManagerOnly = fromPath && managerOnlyRoutes.some((r) => fromPath.startsWith(r));
         destination = isManagerOnly ? fromPath : '/manager-dashboard';
       } else {
         const managerOnlyRoutes = ['/manager', '/reports', '/inventory', '/menu'];
-        const isManagerOnly = fromPath && managerOnlyRoutes.some(r => fromPath.startsWith(r));
-        destination = (fromPath && fromPath !== '/login' && fromPath !== '/manager-login' && !isManagerOnly) ? fromPath : '/orders';
+        const isManagerOnly = fromPath && managerOnlyRoutes.some((r) => fromPath.startsWith(r));
+        destination =
+          fromPath && fromPath !== '/login' && fromPath !== '/manager-login' && !isManagerOnly
+            ? fromPath
+            : '/orders';
       }
 
       navigate(destination, { replace: true });
-
     } catch (err) {
       setError(err instanceof Error ? err.message : 'كلمة المرور غير صحيحة');
     } finally {
@@ -85,13 +86,9 @@ export default function Login() {
                 <Coffee className="w-8 h-8 text-white" />
               </div>
             </div>
-            <h1 className="text-2xl font-bold text-white mb-2 tracking-tight">
-              BrewMaster POS
-            </h1>
+            <h1 className="text-2xl font-bold text-white mb-2 tracking-tight">BrewMaster POS</h1>
             <p className="text-gray-400 text-sm">
-              {asManager
-                ? 'دخول لوحة المدير'
-                : 'ادخل كلمة المرور لتسجيل الدخول'}
+              {asManager ? 'دخول لوحة المدير' : 'ادخل كلمة المرور لتسجيل الدخول'}
             </p>
           </div>
 
@@ -162,8 +159,7 @@ export default function Login() {
                 <span className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
               ) : (
                 <>
-                  {asManager ? 'دخول المدير' : 'دخول الكاشير'}{' '}
-                  <ArrowRight className="w-5 h-5" />
+                  {asManager ? 'دخول المدير' : 'دخول الكاشير'} <ArrowRight className="w-5 h-5" />
                 </>
               )}
             </motion.button>

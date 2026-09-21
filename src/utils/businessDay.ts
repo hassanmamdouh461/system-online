@@ -51,10 +51,7 @@ export function getDayStartHour(): number {
  * business day the original timestamp belongs to. Date arithmetic normalises
  * month/year rollovers automatically (e.g. Jan 1 00:10 → Dec 31 with start=6).
  */
-export function businessDate(
-  input: string | Date,
-  startHour: number = getDayStartHour(),
-): Date {
+export function businessDate(input: string | Date, startHour: number = getDayStartHour()): Date {
   const d = input instanceof Date ? new Date(input.getTime()) : new Date(input);
   d.setHours(d.getHours() - startHour);
   return d;
@@ -66,7 +63,7 @@ export function businessDate(
  */
 export function businessDayKey(
   dateStr: string | undefined | null,
-  startHour: number = getDayStartHour(),
+  startHour: number = getDayStartHour()
 ): string | null {
   if (!dateStr) return null;
   const raw = new Date(dateStr);
@@ -86,14 +83,14 @@ export function inBusinessPeriod(
   dateStr: string | undefined | null,
   period: AnalyticsPeriod,
   startHour: number = getDayStartHour(),
-  now: Date = new Date(),
+  now: Date = new Date()
 ): boolean {
   if (!dateStr) return false;
   const raw = new Date(dateStr);
   if (isNaN(raw.getTime())) return false;
 
-  const b = businessDate(raw, startHour);   // business date of the record
-  const nb = businessDate(now, startHour);  // business date of "now"
+  const b = businessDate(raw, startHour); // business date of the record
+  const nb = businessDate(now, startHour); // business date of "now"
 
   switch (period) {
     case 'Today':

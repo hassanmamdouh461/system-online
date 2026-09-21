@@ -1,4 +1,10 @@
-import { calcGrandTotal, calcTax, isMoney, roundMoney, roundMoneyNonNegative } from '../utils/money';
+import {
+  calcGrandTotal,
+  calcTax,
+  isMoney,
+  roundMoney,
+  roundMoneyNonNegative,
+} from '../utils/money';
 
 export type OrderStatus = 'New' | 'Preparing' | 'Ready' | 'Completed' | 'Cancelled';
 /**
@@ -84,9 +90,7 @@ export interface Order {
  * subtotal is corruption, not a discount — it is rejected and recomputed, with
  * a warning so the bad rows can be found instead of swallowed.
  */
-function isTrustworthyGrandTotal(
-  order: Pick<Order, 'totalAmount' | 'grandTotal'>
-): boolean {
+function isTrustworthyGrandTotal(order: Pick<Order, 'totalAmount' | 'grandTotal'>): boolean {
   if (!isMoney(order.grandTotal) || order.grandTotal <= 0) return false;
   const subtotal = isMoney(order.totalAmount) ? roundMoney(order.totalAmount) : 0;
   // Piaster tolerance: legitimate float drift must not trip the guard.
@@ -142,4 +146,3 @@ export function getOrderMoney(
     : calcGrandTotal(subtotal, taxAmount);
   return { subtotal, taxRate, taxAmount, grandTotal };
 }
-

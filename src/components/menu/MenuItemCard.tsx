@@ -12,7 +12,13 @@ interface MenuItemCardProps {
   isManager?: boolean;
 }
 
-export function MenuItemCard({ item, onEdit, onDelete, onToggleStatus, isManager = false }: MenuItemCardProps) {
+export function MenuItemCard({
+  item,
+  onEdit,
+  onDelete,
+  onToggleStatus,
+  isManager = false,
+}: MenuItemCardProps) {
   const { t, isRtl } = useLanguage();
   return (
     <motion.div
@@ -29,7 +35,9 @@ export function MenuItemCard({ item, onEdit, onDelete, onToggleStatus, isManager
             <h3 className="font-bold text-base text-gray-900 truncate">{t(item.name)}</h3>
           </div>
           <div className="flex flex-col items-end shrink-0 gap-1">
-            <span className="font-bold text-base text-mocha-700">{formatMoney(item.price)} {isRtl ? 'ج.م' : 'EGP'}</span>
+            <span className="font-bold text-base text-mocha-700">
+              {formatMoney(item.price)} {isRtl ? 'ج.م' : 'EGP'}
+            </span>
             {!item.available && (
               <span className="bg-red-100 text-red-700 px-2 py-0.5 rounded-full text-[10px] font-bold">
                 {t('Sold Out')}
@@ -38,15 +46,17 @@ export function MenuItemCard({ item, onEdit, onDelete, onToggleStatus, isManager
           </div>
         </div>
 
-        <p className="text-gray-500 text-xs font-sans mb-3.5 h-8 overflow-hidden">{t(item.description)}</p>
+        <p className="text-gray-500 text-xs font-sans mb-3.5 h-8 overflow-hidden">
+          {t(item.description)}
+        </p>
       </div>
 
       <div className="flex gap-2">
         <button
           onClick={() => onToggleStatus(item.id)}
           className={`flex-1 py-2 rounded-xl text-xs font-medium flex items-center justify-center gap-1.5 transition-colors ${
-            item.available 
-              ? 'bg-green-50 text-green-600 hover:bg-green-100' 
+            item.available
+              ? 'bg-green-50 text-green-600 hover:bg-green-100'
               : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
           }`}
         >
@@ -56,14 +66,20 @@ export function MenuItemCard({ item, onEdit, onDelete, onToggleStatus, isManager
         {isManager && (
           <>
             <button
-              onClick={(e) => { e.stopPropagation(); onEdit(item); }}
+              onClick={(e) => {
+                e.stopPropagation();
+                onEdit(item);
+              }}
               className="p-2 bg-gray-50 hover:bg-blue-50 text-gray-500 hover:text-blue-600 rounded-xl transition-colors border border-gray-100"
               title={t('Edit')}
             >
               <Edit size={14} />
             </button>
             <button
-              onClick={(e) => { e.stopPropagation(); onDelete(item.id.toString()); }}
+              onClick={(e) => {
+                e.stopPropagation();
+                onDelete(item.id.toString());
+              }}
               className="p-2 bg-gray-50 hover:bg-red-50 text-gray-500 hover:text-red-600 rounded-xl transition-colors border border-gray-100"
               title={t('Delete')}
             >
@@ -75,4 +91,3 @@ export function MenuItemCard({ item, onEdit, onDelete, onToggleStatus, isManager
     </motion.div>
   );
 }
-

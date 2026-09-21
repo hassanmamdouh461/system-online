@@ -43,16 +43,13 @@ export function ConfirmDialog({
       aria-labelledby="confirm-dialog-title"
     >
       {/* Backdrop — click outside cancels */}
-      <div
-        className="absolute inset-0 bg-slate-950/80 backdrop-blur-sm"
-        onClick={onCancel}
-      />
+      <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-sm" onClick={onCancel} />
 
       {/* Dialog card — always above backdrop */}
       <div
         className="relative bg-slate-900 border border-slate-800 rounded-2xl p-6 max-w-md w-full shadow-2xl text-right dir-rtl space-y-5"
         style={{ zIndex: 1 }}
-        onClick={e => e.stopPropagation()}
+        onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-3 space-x-reverse">

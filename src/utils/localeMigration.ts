@@ -17,12 +17,12 @@ const LEGACY_KEYS: Record<string, string | null> = {
   // LanguageContext + DURABLE_SETTING_KEYS). There is no i18next in this project,
   // so i18nextLng is dead. Migrating/removing brewmaster_language here wiped the
   // user's language on the first boot after deploy — never list it below.
-  'brewmaster_locale': null,
+  brewmaster_locale: null,
   // Old PIN variants before the hashed format landed.
-  'brewmaster_pin': 'brewmaster_admin_pin',
-  'brewmaster_admin_pin_legacy': null,
+  brewmaster_pin: 'brewmaster_admin_pin',
+  brewmaster_admin_pin_legacy: null,
   // Old telegram keys — superseded by the structured telegram_config blob.
-  'brewmaster_telegram_token': 'brewmaster_telegram_bot_token',
+  brewmaster_telegram_token: 'brewmaster_telegram_bot_token',
 };
 
 // Duplicate-value consolidation: if both the legacy key and its canonical

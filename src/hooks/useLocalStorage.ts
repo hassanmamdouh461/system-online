@@ -14,7 +14,7 @@ export function useLocalStorage<T>(key: string, initialValue: T) {
 
     try {
       const item = window.localStorage.getItem(key);
-      
+
       if (item !== null) {
         // localStorage has data - ALWAYS use it (never overwrite)
         return JSON.parse(item);
@@ -31,22 +31,25 @@ export function useLocalStorage<T>(key: string, initialValue: T) {
 
   // Wrapped setter to sync with localStorage — uses functional updater
   // to avoid stale closure issues when called multiple times in one cycle
-  const setValue = useCallback((value: T | ((prev: T) => T)) => {
-    try {
-      setStoredValue(prev => {
-        const valueToStore = value instanceof Function ? value(prev) : value;
+  const setValue = useCallback(
+    (value: T | ((prev: T) => T)) => {
+      try {
+        setStoredValue((prev) => {
+          const valueToStore = value instanceof Function ? value(prev) : value;
 
-        // Save to localStorage
-        if (typeof window !== 'undefined') {
-          window.localStorage.setItem(key, JSON.stringify(valueToStore));
-        }
+          // Save to localStorage
+          if (typeof window !== 'undefined') {
+            window.localStorage.setItem(key, JSON.stringify(valueToStore));
+          }
 
-        return valueToStore;
-      });
-    } catch (error) {
-      console.error(`[useLocalStorage] Error saving [${key}]:`, error);
-    }
-  }, [key]);
+          return valueToStore;
+        });
+      } catch (error) {
+        console.error(`[useLocalStorage] Error saving [${key}]:`, error);
+      }
+    },
+    [key]
+  );
 
   return [storedValue, setValue] as const;
 }

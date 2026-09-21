@@ -16,10 +16,7 @@ import {
 import { clsx } from 'clsx';
 import { useLanguage } from '../../context/LanguageContext';
 import { useToast } from '../ui/Toast';
-import {
-  getTaxRate,
-  getStoreConfig,
-} from '../../utils/settingsConfig';
+import { getTaxRate, getStoreConfig } from '../../utils/settingsConfig';
 import { ensureCloudSession } from '../../services/cloudConfig';
 import { formatPercent } from '../../utils/percent';
 import { printCustomerReceipt } from '../../utils/printReceipts';
@@ -80,7 +77,7 @@ export function PaymentModal({
     if (isOpen && order) {
       if (order.paymentStatus === 'Paid' || order.paymentStatus === 'Refunded') {
         setPaymentMethod(
-          order.paymentMethod === 'OnAccount' ? 'Cash' : (order.paymentMethod || 'Cash')
+          order.paymentMethod === 'OnAccount' ? 'Cash' : order.paymentMethod || 'Cash'
         );
         setIsProcessing(false);
         setStep('receipt');
@@ -88,9 +85,12 @@ export function PaymentModal({
         setLinkedCustomer(null);
         setLinkedCompany(null);
         if (order.customerPhone) {
-          customersService.getByPhone(order.customerPhone).then(c => {
-            if (c) setLinkedCustomer(c);
-          }).catch(() => {});
+          customersService
+            .getByPhone(order.customerPhone)
+            .then((c) => {
+              if (c) setLinkedCustomer(c);
+            })
+            .catch(() => {});
         }
       } else if (order.paymentStatus === 'OnAccount') {
         // Settling an account invoice — collect cash/card now
@@ -100,15 +100,13 @@ export function PaymentModal({
         setCustomerPhone(order.customerPhone);
         setLinkedCustomer(null);
         setLinkedCompany(null);
-        setBillTo(
-          order.billedToType === 'company' || !!order.companyId ? 'company' : 'customer'
-        );
+        setBillTo(order.billedToType === 'company' || !!order.companyId ? 'company' : 'customer');
 
         // Restore company first (company-only invoices may have no phone)
         if (order.companyId) {
           companiesService
             .getById(order.companyId)
-            .then(co => {
+            .then((co) => {
               if (co) setLinkedCompany(co);
               else if (order.companyName) {
                 setLinkedCompany({
@@ -133,24 +131,29 @@ export function PaymentModal({
         }
 
         if (order.customerPhone) {
-          customersService.getByPhone(order.customerPhone).then(async c => {
-            if (c) {
-              setLinkedCustomer(c);
-              if (!order.companyId && c.companyId) {
-                try {
-                  setLinkedCompany(await companiesService.getById(c.companyId));
-                } catch { /* ignore */ }
+          customersService
+            .getByPhone(order.customerPhone)
+            .then(async (c) => {
+              if (c) {
+                setLinkedCustomer(c);
+                if (!order.companyId && c.companyId) {
+                  try {
+                    setLinkedCompany(await companiesService.getById(c.companyId));
+                  } catch {
+                    /* ignore */
+                  }
+                }
+              } else if (order.customerName) {
+                setLinkedCustomer({
+                  id: order.customerId || `tmp_${order.customerPhone}`,
+                  name: order.customerName,
+                  phone: order.customerPhone!,
+                  points: 0,
+                  createdAt: new Date().toISOString(),
+                });
               }
-            } else if (order.customerName) {
-              setLinkedCustomer({
-                id: order.customerId || `tmp_${order.customerPhone}`,
-                name: order.customerName,
-                phone: order.customerPhone!,
-                points: 0,
-                createdAt: new Date().toISOString(),
-              });
-            }
-          }).catch(() => {});
+            })
+            .catch(() => {});
         } else if (order.customerName && order.customerId) {
           setLinkedCustomer({
             id: order.customerId,
@@ -169,16 +172,21 @@ export function PaymentModal({
         setLinkedCompany(null);
         setBillTo('customer');
         if (order.customerPhone) {
-          customersService.getByPhone(order.customerPhone).then(async c => {
-            if (c) {
-              setLinkedCustomer(c);
-              if (c.companyId) {
-                try {
-                  setLinkedCompany(await companiesService.getById(c.companyId));
-                } catch { /* ignore */ }
+          customersService
+            .getByPhone(order.customerPhone)
+            .then(async (c) => {
+              if (c) {
+                setLinkedCustomer(c);
+                if (c.companyId) {
+                  try {
+                    setLinkedCompany(await companiesService.getById(c.companyId));
+                  } catch {
+                    /* ignore */
+                  }
+                }
               }
-            }
-          }).catch(() => {});
+            })
+            .catch(() => {});
         }
       }
       paymentFiredRef.current = false;
@@ -249,8 +257,8 @@ export function PaymentModal({
         if (!company) {
           const all = await companiesService.getAll();
           company =
-            all.find(c => c.id === result.customer!.companyId) ||
-            all.find(c => c.name.trim() === String(result.customer!.companyId).trim()) ||
+            all.find((c) => c.id === result.customer!.companyId) ||
+            all.find((c) => c.name.trim() === String(result.customer!.companyId).trim()) ||
             null;
         }
       } catch {
@@ -299,8 +307,7 @@ export function PaymentModal({
           customerName: linkedCustomer?.name,
           companyId: useCompany ? linkedCompany?.id : undefined,
           companyName: useCompany ? linkedCompany?.name : undefined,
-          billedToType:
-            method === 'OnAccount' ? (useCompany ? 'company' : 'customer') : undefined,
+          billedToType: method === 'OnAccount' ? (useCompany ? 'company' : 'customer') : undefined,
         });
       }
       // Auto-print receipt immediately upon payment completion
@@ -416,7 +423,6 @@ export function PaymentModal({
             </button>
           </div>
 
-
           <div className="p-6 overflow-y-auto flex-1">
             {step === 'refund' ? (
               <form onSubmit={handleRefundSubmit} className="space-y-4">
@@ -431,14 +437,20 @@ export function PaymentModal({
                   </label>
                   <textarea
                     value={refundReason}
-                    onChange={e => setRefundReason(e.target.value)}
+                    onChange={(e) => setRefundReason(e.target.value)}
                     rows={3}
                     className="w-full border border-gray-200 rounded-xl p-3 text-sm focus:ring-2 focus:ring-red-400 outline-none"
-                    placeholder={language === 'ar' ? 'مثال: خطأ كاشير / طلب خاطئ' : 'e.g. cashier error / wrong order'}
+                    placeholder={
+                      language === 'ar'
+                        ? 'مثال: خطأ كاشير / طلب خاطئ'
+                        : 'e.g. cashier error / wrong order'
+                    }
                   />
                 </div>
                 {refundError && (
-                  <p className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{refundError}</p>
+                  <p className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">
+                    {refundError}
+                  </p>
                 )}
                 <div className="flex gap-3">
                   <button
@@ -451,8 +463,7 @@ export function PaymentModal({
                   <button
                     type="submit"
                     disabled={
-                      isRefunding ||
-                      (!refundReason.trim() && order.paymentStatus === 'Paid')
+                      isRefunding || (!refundReason.trim() && order.paymentStatus === 'Paid')
                     }
                     className="flex-1 py-3 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700 disabled:opacity-60"
                   >
@@ -490,14 +501,11 @@ export function PaymentModal({
                         <p className="text-sm font-bold text-gray-900 truncate">
                           {linkedCustomer?.name || (language === 'ar' ? 'عميل' : 'Customer')}
                         </p>
-                        <p className="text-[11px] text-gray-500">
-                          {customerPhone}
-                        </p>
+                        <p className="text-[11px] text-gray-500">{customerPhone}</p>
                       </div>
                     </div>
                   </div>
                 ) : (
-
                   <div className="flex justify-end">
                     <button
                       type="button"
@@ -528,7 +536,10 @@ export function PaymentModal({
                     </p>
                     <div className="space-y-2">
                       {order.items.map((item, idx) => (
-                        <div key={item.id || idx} className="flex justify-between text-xs text-gray-700">
+                        <div
+                          key={item.id || idx}
+                          className="flex justify-between text-xs text-gray-700"
+                        >
                           <div className="flex items-center gap-1.5">
                             <span className="text-gray-400 font-mono">x{item.quantity}</span>
                             <span className="font-medium">{t(item.name)}</span>
@@ -574,10 +585,12 @@ export function PaymentModal({
                   <label className="block text-sm font-medium text-gray-700 mb-3">
                     {t('Select Payment Method')}
                   </label>
-                  <div className={clsx(
-                    'grid gap-3',
-                    order.paymentStatus === 'OnAccount' ? 'grid-cols-2' : 'grid-cols-3'
-                  )}>
+                  <div
+                    className={clsx(
+                      'grid gap-3',
+                      order.paymentStatus === 'OnAccount' ? 'grid-cols-2' : 'grid-cols-3'
+                    )}
+                  >
                     <button
                       onClick={() => setPaymentMethod('Cash')}
                       className={clsx(
@@ -662,9 +675,9 @@ export function PaymentModal({
                   {isProcessing
                     ? t('Processing...')
                     : paymentMethod === 'OnAccount'
-                      ? (language === 'ar'
-                          ? `تسجيل على الحساب ${formatMoney(total)} ج.م`
-                          : `Charge account ${formatMoney(total)} EGP`)
+                      ? language === 'ar'
+                        ? `تسجيل على الحساب ${formatMoney(total)} ج.م`
+                        : `Charge account ${formatMoney(total)} EGP`
                       : `${t('Pay')} ${formatMoney(total)} ${language === 'ar' ? 'ج.م' : 'EGP'}`}
                 </button>
               </div>
@@ -702,23 +715,28 @@ export function PaymentModal({
                 <div className="bg-gray-50 p-6 rounded-xl border border-gray-100 text-left font-mono text-sm shadow-inner text-gray-900">
                   <div className="text-center border-b border-gray-200 pb-4 mb-4">
                     <p className="font-bold text-lg">{store.storeName || t('BREWMASTER')}</p>
-                    {store.address && (
-                      <p className="text-xs text-gray-400">{store.address}</p>
-                    )}
-                    {store.phone && (
-                      <p className="text-xs text-gray-400">{store.phone}</p>
-                    )}
+                    {store.address && <p className="text-xs text-gray-400">{store.address}</p>}
+                    {store.phone && <p className="text-xs text-gray-400">{store.phone}</p>}
                   </div>
 
                   {/* Items list */}
                   <div className="mb-4 border-b border-gray-200 pb-4">
                     {order.items.map((item, idx) => (
-                      <div key={idx} className="flex justify-between text-xs mb-1.5 items-start gap-4">
+                      <div
+                        key={idx}
+                        className="flex justify-between text-xs mb-1.5 items-start gap-4"
+                      >
                         <div className="flex gap-2 text-gray-800">
                           <span className="font-bold min-w-[20px]">{item.quantity}x</span>
-                          <span className="break-words">{language === 'ar' ? ((item as any).nameAr || item.name) : ((item as any).nameEn || item.name)}</span>
+                          <span className="break-words">
+                            {language === 'ar'
+                              ? (item as any).nameAr || item.name
+                              : (item as any).nameEn || item.name}
+                          </span>
                         </div>
-                        <span className="font-medium whitespace-nowrap">{formatMoney(lineTotal(item.price, item.quantity))}</span>
+                        <span className="font-medium whitespace-nowrap">
+                          {formatMoney(lineTotal(item.price, item.quantity))}
+                        </span>
                       </div>
                     ))}
                   </div>
@@ -731,16 +749,19 @@ export function PaymentModal({
                     </div>
                     {tax > 0 && (
                       <div className="flex justify-between">
-                        <span>{t('Tax')} ({formatPercent(taxRate)}%)</span>
+                        <span>
+                          {t('Tax')} ({formatPercent(taxRate)}%)
+                        </span>
                         <span>{formatMoney(tax)}</span>
                       </div>
                     )}
-                    {Boolean((order as any).discountAmount) && (order as any).discountAmount > 0 && (
-                      <div className="flex justify-between text-red-600">
-                        <span>{t('Discount')}</span>
-                        <span>-{formatMoney((order as any).discountAmount)}</span>
-                      </div>
-                    )}
+                    {Boolean((order as any).discountAmount) &&
+                      (order as any).discountAmount > 0 && (
+                        <div className="flex justify-between text-red-600">
+                          <span>{t('Discount')}</span>
+                          <span>-{formatMoney((order as any).discountAmount)}</span>
+                        </div>
+                      )}
                   </div>
 
                   <div className="flex justify-between font-bold text-base">
@@ -787,5 +808,3 @@ export function PaymentModal({
     document.body
   );
 }
-
-

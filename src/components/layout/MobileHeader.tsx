@@ -32,7 +32,7 @@ export function MobileHeader() {
         <div className="bg-white/95 backdrop-blur-xl">
           <div className="flex items-center justify-between px-4 py-3.5">
             {/* Page Title */}
-            <motion.h1 
+            <motion.h1
               key={getPageTitle()}
               initial={{ opacity: 0, y: -10 }}
               animate={{ opacity: 1, y: 0 }}
@@ -62,6 +62,3 @@ export function MobileHeader() {
     </header>
   );
 }
-
-
-

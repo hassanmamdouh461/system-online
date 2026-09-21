@@ -17,11 +17,13 @@ import type { Order } from '../types/order';
  */
 
 /** Is this order attributed to a customer or a company account? */
-export function isAccountLinkedOrder(order: Pick<Order, 'customerId' | 'customerPhone' | 'companyId'>): boolean {
+export function isAccountLinkedOrder(
+  order: Pick<Order, 'customerId' | 'customerPhone' | 'companyId'>
+): boolean {
   return Boolean(order.customerId || order.customerPhone || order.companyId);
 }
 
 /** Distinct non-cancelled orders attributed to a customer or a company. */
 export function countLinkedOrders(orders: Order[]): number {
-  return orders.filter(o => o.status !== 'Cancelled' && isAccountLinkedOrder(o)).length;
+  return orders.filter((o) => o.status !== 'Cancelled' && isAccountLinkedOrder(o)).length;
 }

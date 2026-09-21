@@ -24,9 +24,7 @@ describe('syncService 403 handling', () => {
 
   it('keeps settled_order_immutable records retryable instead of retiring them dead', () => {
     // The settled_order_immutable branch must schedule a retry, not retire.
-    const branch = src.match(
-      /settled_order_immutable'[\s\S]{0,200}?scheduleRetry\(record, msg\);/,
-    );
+    const branch = src.match(/settled_order_immutable'[\s\S]{0,200}?scheduleRetry\(record, msg\);/);
     expect(branch).not.toBeNull();
     // ...and within that branch it must never mark the record dead.
     expect(branch![0]).not.toContain('retirePermanently');
@@ -36,7 +34,7 @@ describe('syncService 403 handling', () => {
     // The generic 403 path after the settled_order_immutable and role-mismatch
     // carve-outs still retires the record permanently.
     const generic = src.match(
-      /settled_order_immutable[\s\S]{0,2000}?retirePermanently\(record, msg\);/,
+      /settled_order_immutable[\s\S]{0,2000}?retirePermanently\(record, msg\);/
     );
     expect(generic).not.toBeNull();
   });
@@ -50,9 +48,7 @@ describe('syncService 403 handling', () => {
    * D1 and no other device ever learned about it.
    */
   it('reconciles the session role before retiring a 403, and retries when it was a mismatch', () => {
-    const branch = src.match(
-      /reconcileSessionRole\(\)[\s\S]{0,600}?scheduleRetry\(record, msg\);/,
-    );
+    const branch = src.match(/reconcileSessionRole\(\)[\s\S]{0,600}?scheduleRetry\(record, msg\);/);
     expect(branch).not.toBeNull();
     // The retry must be conditional on the role having ACTUALLY changed into the
     // declared one — otherwise a correct cashier denial would loop forever.
@@ -60,7 +56,7 @@ describe('syncService 403 handling', () => {
     expect(branch![0]).toContain('getSessionRole() === intent');
   });
 
-  it('sends the role intent header so the worker picks this role\'s session', () => {
+  it("sends the role intent header so the worker picks this role's session", () => {
     expect(src).toContain('roleIntentHeaders()');
   });
 });

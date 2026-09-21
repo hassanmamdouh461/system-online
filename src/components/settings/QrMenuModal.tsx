@@ -15,7 +15,11 @@ export function QrMenuModal({ isOpen, onClose }: QrMenuModalProps) {
   const [copied, setCopied] = useState(false);
   const [qrFailed, setQrFailed] = useState(false);
 
-  const publicMenuUrl = import.meta.env.VITE_PUBLIC_MENU_URL || (typeof window !== 'undefined' ? `${window.location.origin}/public-menu` : 'https://brewmaster-pos.app/public-menu');
+  const publicMenuUrl =
+    import.meta.env.VITE_PUBLIC_MENU_URL ||
+    (typeof window !== 'undefined'
+      ? `${window.location.origin}/public-menu`
+      : 'https://brewmaster-pos.app/public-menu');
   const qrCodeImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=350x350&data=${encodeURIComponent(publicMenuUrl)}`;
 
   const handleCopyLink = async () => {
@@ -183,14 +187,20 @@ export function QrMenuModal({ isOpen, onClose }: QrMenuModalProps) {
               <h2 className="text-xl font-bold text-gray-900">{t('QR Code Menu')}</h2>
             </div>
             <p className="text-xs text-gray-500 text-center mb-6 px-4">
-              {t('Show or print this code so customers can scan it to browse the menu, pricing, and availability directly on their phones.')}
+              {t(
+                'Show or print this code so customers can scan it to browse the menu, pricing, and availability directly on their phones.'
+              )}
             </p>
 
             {/* QR Card Poster Preview */}
             <div className="bg-mocha-50 border border-mocha-100 p-5 rounded-2xl flex flex-col items-center shadow-inner w-full max-w-[280px] mb-6 text-gray-900">
-              <span className="font-extrabold text-mocha-800 text-lg tracking-wide mb-1">BrewMaster</span>
-              <span className="text-[9px] text-mocha-400 font-semibold tracking-widest uppercase mb-4">✦ Menu Stand ✦</span>
-              
+              <span className="font-extrabold text-mocha-800 text-lg tracking-wide mb-1">
+                BrewMaster
+              </span>
+              <span className="text-[9px] text-mocha-400 font-semibold tracking-widest uppercase mb-4">
+                ✦ Menu Stand ✦
+              </span>
+
               {/* QR Image Frame */}
               <div className="bg-white p-3 rounded-xl shadow-md border border-mocha-100/50">
                 {qrFailed ? (
@@ -212,16 +222,20 @@ export function QrMenuModal({ isOpen, onClose }: QrMenuModalProps) {
                   />
                 )}
               </div>
-              
+
               <div className="mt-4 text-center">
-                <p className="text-xs font-bold text-mocha-700 mb-0.5">{t('Scan QR Code to view menu')}</p>
+                <p className="text-xs font-bold text-mocha-700 mb-0.5">
+                  {t('Scan QR Code to view menu')}
+                </p>
                 <p className="text-[10px] text-mocha-400 font-medium">{t('Scan to view menu')}</p>
               </div>
             </div>
 
             {/* URL Display */}
             <div className="w-full flex items-center bg-gray-50 border border-gray-200 rounded-xl p-2.5 mb-6 text-xs text-gray-600">
-              <span className="flex-1 truncate mr-2 font-mono select-all text-left">{publicMenuUrl}</span>
+              <span className="flex-1 truncate mr-2 font-mono select-all text-left">
+                {publicMenuUrl}
+              </span>
               <button
                 onClick={handleCopyLink}
                 className="shrink-0 p-2 rounded-lg bg-white border border-gray-200 text-gray-500 hover:text-mocha-700 hover:bg-mocha-50 transition-colors shadow-sm flex items-center justify-center"
@@ -241,7 +255,7 @@ export function QrMenuModal({ isOpen, onClose }: QrMenuModalProps) {
                 <Printer size={16} />
                 <span>{t('Print Code')}</span>
               </button>
-              
+
               <button
                 onClick={handleDownload}
                 disabled={qrFailed}

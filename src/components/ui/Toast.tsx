@@ -24,29 +24,41 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
   const removeToast = useCallback((id: string) => {
-    setToasts(prev => prev.filter(t => t.id !== id));
+    setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
-  const showToast = useCallback((message: string, type: ToastType = 'info', title?: string) => {
-    const id = `toast_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
-    const newToast: ToastMessage = { id, type, message, title };
-    setToasts(prev => [...prev.slice(-4), newToast]); // Limit to max 5 visible toasts
+  const showToast = useCallback(
+    (message: string, type: ToastType = 'info', title?: string) => {
+      const id = `toast_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+      const newToast: ToastMessage = { id, type, message, title };
+      setToasts((prev) => [...prev.slice(-4), newToast]); // Limit to max 5 visible toasts
 
-    setTimeout(() => {
-      removeToast(id);
-    }, 4000);
-  }, [removeToast]);
+      setTimeout(() => {
+        removeToast(id);
+      }, 4000);
+    },
+    [removeToast]
+  );
 
-  const success = useCallback((msg: string, title?: string) => showToast(msg, 'success', title), [showToast]);
-  const error = useCallback((msg: string, title?: string) => showToast(msg, 'error', title), [showToast]);
-  const info = useCallback((msg: string, title?: string) => showToast(msg, 'info', title), [showToast]);
+  const success = useCallback(
+    (msg: string, title?: string) => showToast(msg, 'success', title),
+    [showToast]
+  );
+  const error = useCallback(
+    (msg: string, title?: string) => showToast(msg, 'error', title),
+    [showToast]
+  );
+  const info = useCallback(
+    (msg: string, title?: string) => showToast(msg, 'info', title),
+    [showToast]
+  );
 
   return (
     <ToastContext.Provider value={{ showToast, success, error, info }}>
       {children}
       <div className="fixed bottom-5 right-5 z-50 flex flex-col space-y-3 max-w-sm w-full pointer-events-none p-4">
         <AnimatePresence>
-          {toasts.map(toast => (
+          {toasts.map((toast) => (
             <motion.div
               key={toast.id}
               initial={{ opacity: 0, y: 20, scale: 0.95 }}
@@ -56,8 +68,8 @@ export function ToastProvider({ children }: { children: ReactNode }) {
                 toast.type === 'success'
                   ? 'bg-slate-900/90 text-emerald-300 border-emerald-500/40'
                   : toast.type === 'error'
-                  ? 'bg-slate-900/90 text-rose-300 border-rose-500/40'
-                  : 'bg-slate-900/90 text-cyan-300 border-cyan-500/40'
+                    ? 'bg-slate-900/90 text-rose-300 border-rose-500/40'
+                    : 'bg-slate-900/90 text-cyan-300 border-cyan-500/40'
               }`}
             >
               <div className="shrink-0 mt-0.5">
@@ -66,7 +78,9 @@ export function ToastProvider({ children }: { children: ReactNode }) {
                 {toast.type === 'info' && <Info className="w-5 h-5 text-cyan-400" />}
               </div>
               <div className="flex-1 min-w-0 text-start">
-                {toast.title && <h4 className="text-sm font-semibold text-white mb-0.5">{toast.title}</h4>}
+                {toast.title && (
+                  <h4 className="text-sm font-semibold text-white mb-0.5">{toast.title}</h4>
+                )}
                 <p className="text-xs text-slate-200 leading-relaxed">{toast.message}</p>
               </div>
               <button

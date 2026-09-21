@@ -60,14 +60,13 @@ export class IndexedDbCompanyRepository implements ICompanyRepository {
                 // delete on any device is not resurrected by a stale copy.
                 const localDeletedAt = local?.deletedAt;
                 const remoteDeletedAt = remote.deletedAt;
-                const effectiveDeletedAt =
-                  !localDeletedAt
-                    ? remoteDeletedAt
-                    : !remoteDeletedAt
+                const effectiveDeletedAt = !localDeletedAt
+                  ? remoteDeletedAt
+                  : !remoteDeletedAt
+                    ? localDeletedAt
+                    : new Date(localDeletedAt).getTime() >= new Date(remoteDeletedAt).getTime()
                       ? localDeletedAt
-                      : new Date(localDeletedAt).getTime() >= new Date(remoteDeletedAt).getTime()
-                        ? localDeletedAt
-                        : remoteDeletedAt;
+                      : remoteDeletedAt;
                 const merged: Company = local
                   ? {
                       ...local,
@@ -111,7 +110,10 @@ export class IndexedDbCompanyRepository implements ICompanyRepository {
     });
   }
 
-  async save(companyData: Partial<Company> & { name: string }, branchId?: string): Promise<Company> {
+  async save(
+    companyData: Partial<Company> & { name: string },
+    branchId?: string
+  ): Promise<Company> {
     return enqueueWrite(async () => {
       return withDB(async (db) => {
         const now = new Date().toISOString();
@@ -134,9 +136,7 @@ export class IndexedDbCompanyRepository implements ICompanyRepository {
           // resurrect a soft-deleted company. Only an explicit deletedAt in the
           // payload clears it.
           deletedAt:
-            companyData.deletedAt !== undefined
-              ? companyData.deletedAt
-              : existing?.deletedAt,
+            companyData.deletedAt !== undefined ? companyData.deletedAt : existing?.deletedAt,
           isSynced: false,
         };
 
@@ -153,11 +153,13 @@ export class IndexedDbCompanyRepository implements ICompanyRepository {
         } catch (e) {
           console.warn('[company] sync_queue failed:', e);
         }
-        void import('../../services/cloudConfig').then(({ cloudUpsert }) =>
-          cloudUpsert('companies', company.id, company).then((ok) => {
-            if (!ok) void syncService.syncPendingData();
-          })
-        ).catch(() => void syncService.syncPendingData());
+        void import('../../services/cloudConfig')
+          .then(({ cloudUpsert }) =>
+            cloudUpsert('companies', company.id, company).then((ok) => {
+              if (!ok) void syncService.syncPendingData();
+            })
+          )
+          .catch(() => void syncService.syncPendingData());
         return company;
       });
     });
@@ -173,12 +175,13 @@ export class IndexedDbCompanyRepository implements ICompanyRepository {
         // OnAccount receivables attached to it). Carrying the NOT NULL name
         // keeps the worker upsert from 500'ing.
         const ts: Company = {
-          ...(existing || ({
-            id,
-            name: 'deleted',
-            tags: [],
-            createdAt: now,
-          } as Company)),
+          ...(existing ||
+            ({
+              id,
+              name: 'deleted',
+              tags: [],
+              createdAt: now,
+            } as Company)),
           id,
           deletedAt: now,
           updatedAt: now,

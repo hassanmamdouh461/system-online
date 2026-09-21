@@ -30,7 +30,7 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
   });
 
   const toggleLanguage = () => {
-    setLanguage(prev => {
+    setLanguage((prev) => {
       const next = prev === 'ar' ? 'en' : 'ar';
       try {
         localStorage.setItem('brewmaster_language', next);
@@ -44,13 +44,16 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
     });
   };
 
-  const t = useCallback((key: string): string => {
-    const dict = translations[language];
-    if (dict && dict[key]) {
-      return dict[key];
-    }
-    return key;
-  }, [language]);
+  const t = useCallback(
+    (key: string): string => {
+      const dict = translations[language];
+      if (dict && dict[key]) {
+        return dict[key];
+      }
+      return key;
+    },
+    [language]
+  );
 
   const isRtl = language === 'ar';
 

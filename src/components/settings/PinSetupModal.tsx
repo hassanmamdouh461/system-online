@@ -70,7 +70,7 @@ export function PinSetupModal({ isOpen, onClose }: PinSetupModalProps) {
   return createPortal(
     <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-gray-900/40 backdrop-blur-sm" onClick={onClose} />
-      
+
       <div className="relative bg-white w-full max-w-md rounded-2xl shadow-xl overflow-hidden">
         {/* Header */}
         <div className="bg-indigo-600 px-6 py-4 flex items-center justify-between">
@@ -83,7 +83,10 @@ export function PinSetupModal({ isOpen, onClose }: PinSetupModalProps) {
               <p className="text-indigo-100 text-xs">{t('Configure access pin code')}</p>
             </div>
           </div>
-          <button onClick={onClose} className="text-white/80 hover:text-white p-2 rounded-lg hover:bg-white/10 transition-colors">
+          <button
+            onClick={onClose}
+            className="text-white/80 hover:text-white p-2 rounded-lg hover:bg-white/10 transition-colors"
+          >
             <X size={20} />
           </button>
         </div>
@@ -99,7 +102,9 @@ export function PinSetupModal({ isOpen, onClose }: PinSetupModalProps) {
 
           <div className="space-y-4">
             <div className="space-y-1">
-              <label className="text-sm font-bold text-gray-700 block">{t('Enter 4-Digit PIN')}</label>
+              <label className="text-sm font-bold text-gray-700 block">
+                {t('Enter 4-Digit PIN')}
+              </label>
               <div className="relative">
                 <input
                   type="password"
@@ -110,7 +115,9 @@ export function PinSetupModal({ isOpen, onClose }: PinSetupModalProps) {
                   placeholder="••••"
                 />
               </div>
-              <p className="text-xs text-gray-500 mt-1">{t('Leave blank to remove PIN protection')}</p>
+              <p className="text-xs text-gray-500 mt-1">
+                {t('Leave blank to remove PIN protection')}
+              </p>
             </div>
 
             {pin.length > 0 && (

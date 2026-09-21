@@ -41,32 +41,29 @@ function mergeCustomer(local: Customer | undefined, remote: Customer): Customer 
   // so a delete on any device is not resurrected by a stale copy on another.
   const localDeletedAt = local.deletedAt;
   const remoteDeletedAt = remote.deletedAt;
-  const effectiveDeletedAt =
-    !localDeletedAt
-      ? remoteDeletedAt
-      : !remoteDeletedAt
+  const effectiveDeletedAt = !localDeletedAt
+    ? remoteDeletedAt
+    : !remoteDeletedAt
+      ? localDeletedAt
+      : new Date(localDeletedAt).getTime() >= new Date(remoteDeletedAt).getTime()
         ? localDeletedAt
-        : new Date(localDeletedAt).getTime() >= new Date(remoteDeletedAt).getTime()
-          ? localDeletedAt
-          : remoteDeletedAt;
+        : remoteDeletedAt;
   return {
     ...local,
     ...remote,
     id: local.id || remote.id,
-    name:
-      !isPlaceholderName(remote.name)
-        ? remote.name
-        : !isPlaceholderName(local.name)
-          ? local.name
-          : remote.name || local.name || 'عميل',
+    name: !isPlaceholderName(remote.name)
+      ? remote.name
+      : !isPlaceholderName(local.name)
+        ? local.name
+        : remote.name || local.name || 'عميل',
     phone: remote.phone || local.phone,
     companyId: remote.companyId || local.companyId,
     points:
       typeof remote.points === 'number'
         ? Math.max(remote.points, local.points || 0)
         : local.points || 0,
-    tags:
-      Array.isArray(remote.tags) && remote.tags.length > 0 ? remote.tags : local.tags || [],
+    tags: Array.isArray(remote.tags) && remote.tags.length > 0 ? remote.tags : local.tags || [],
     notes: remote.notes || local.notes,
     createdAt: local.createdAt || remote.createdAt,
     deletedAt: effectiveDeletedAt || undefined,
@@ -111,9 +108,7 @@ export class IndexedDbCustomerRepository implements ICustomerRepository {
                 if (!remote) continue;
                 if (pendingDeletes.has(remote.id)) continue;
                 const phoneKey = String(remote.phone || '').replace(/[\s\-()]/g, '');
-                const local =
-                  byId.get(remote.id) ||
-                  (phoneKey ? byPhone.get(phoneKey) : undefined);
+                const local = byId.get(remote.id) || (phoneKey ? byPhone.get(phoneKey) : undefined);
                 await tx.store.put(mergeCustomer(local, remote));
               }
               await tx.done;
@@ -196,17 +191,11 @@ export class IndexedDbCustomerRepository implements ICustomerRepository {
           id,
           name,
           phone: customerData.phone,
-          points:
-            customerData.points !== undefined
-              ? customerData.points
-              : existing?.points || 0,
+          points: customerData.points !== undefined ? customerData.points : existing?.points || 0,
           companyId:
-            customerData.companyId !== undefined
-              ? customerData.companyId
-              : existing?.companyId,
+            customerData.companyId !== undefined ? customerData.companyId : existing?.companyId,
           tags: customerData.tags !== undefined ? customerData.tags : existing?.tags || [],
-          notes:
-            customerData.notes !== undefined ? customerData.notes : existing?.notes,
+          notes: customerData.notes !== undefined ? customerData.notes : existing?.notes,
           branchId: branchId || customerData.branchId || existing?.branchId,
           createdAt: existing?.createdAt || now,
           updatedAt: now,
@@ -262,14 +251,15 @@ export class IndexedDbCustomerRepository implements ICustomerRepository {
         // orders / menu_items / inventory). Carrying the NOT NULL phone keeps
         // the worker upsert from 500'ing.
         const ts: Customer = {
-          ...(existing || ({
-            id,
-            name: 'deleted',
-            phone: `__deleted_${id}`,
-            points: 0,
-            tags: [],
-            createdAt: now,
-          } as Customer)),
+          ...(existing ||
+            ({
+              id,
+              name: 'deleted',
+              phone: `__deleted_${id}`,
+              points: 0,
+              tags: [],
+              createdAt: now,
+            } as Customer)),
           id,
           deletedAt: now,
           updatedAt: now,

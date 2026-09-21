@@ -13,7 +13,7 @@ export const customersService = {
   async getAll(branchId?: string): Promise<Customer[]> {
     try {
       return await customerRepository.getAll(branchId);
-    } catch (error) {
+    } catch {
       return await customerRepository.getAll(branchId);
     }
   },
@@ -23,7 +23,7 @@ export const customersService = {
     if (!normalized) return null;
     try {
       return await customerRepository.getByPhone(normalized, branchId);
-    } catch (error) {
+    } catch {
       return await customerRepository.getByPhone(normalized, branchId);
     }
   },
@@ -32,7 +32,10 @@ export const customersService = {
    * Lookup: local first, then Cloudflare Worker D1 (if online + configured).
    * If found only on server, cache it locally so future lookups are instant.
    */
-  async lookupByPhone(phone: string, branchId?: string): Promise<{
+  async lookupByPhone(
+    phone: string,
+    branchId?: string
+  ): Promise<{
     customer: Customer | null;
     source: 'local' | 'server' | 'none';
   }> {
@@ -58,12 +61,10 @@ export const customersService = {
         if (docs) {
           // Skip soft-deleted customers: a tombstoned row must not be returned
           // as a live account (it would accumulate points / receivables again).
-          const match = docs.find(
-            (d: any) => {
-              if (d.deleted_at || d.deletedAt) return false;
-              return normalizePhone(String(d.phone || '')) === normalized;
-            }
-          );
+          const match = docs.find((d: any) => {
+            if (d.deleted_at || d.deletedAt) return false;
+            return normalizePhone(String(d.phone || '')) === normalized;
+          });
           if (match) {
             const remote: Customer = {
               id: match.id || match.$id,
@@ -74,7 +75,13 @@ export const customersService = {
               tags: Array.isArray(match.tags)
                 ? match.tags
                 : typeof match.tags === 'string'
-                  ? (() => { try { return JSON.parse(match.tags); } catch { return []; } })()
+                  ? (() => {
+                      try {
+                        return JSON.parse(match.tags);
+                      } catch {
+                        return [];
+                      }
+                    })()
                   : [],
               notes: match.notes || undefined,
               createdAt: match.createdAt || match.$createdAt || new Date().toISOString(),
@@ -97,14 +104,17 @@ export const customersService = {
     return { customer: null, source: 'none' };
   },
 
-  async save(customer: Partial<Customer> & { phone: string }, branchId?: string): Promise<Customer> {
+  async save(
+    customer: Partial<Customer> & { phone: string },
+    branchId?: string
+  ): Promise<Customer> {
     const payload = {
       ...customer,
       phone: normalizePhone(customer.phone),
     };
     try {
       return await customerRepository.save(payload, branchId);
-    } catch (error) {
+    } catch {
       return await customerRepository.save(payload, branchId);
     }
   },
@@ -112,7 +122,7 @@ export const customersService = {
   async delete(id: string): Promise<void> {
     try {
       await customerRepository.delete(id);
-    } catch (error) {
+    } catch {
       await customerRepository.delete(id);
     }
   },

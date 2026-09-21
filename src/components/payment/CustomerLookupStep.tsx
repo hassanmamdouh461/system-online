@@ -1,8 +1,14 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import {
-  Phone, Search, UserPlus, UserCheck, SkipForward, Loader2,
-  Building2, CheckCircle2
+  Phone,
+  Search,
+  UserPlus,
+  UserCheck,
+  SkipForward,
+  Loader2,
+  Building2,
+  CheckCircle2,
 } from 'lucide-react';
 import { customersService } from '../../services/customersService';
 import { companiesService } from '../../services/companiesService';
@@ -61,18 +67,19 @@ export function CustomerLookupStep({
 
   useEffect(() => {
     inputRef.current?.focus();
-    Promise.all([
-      customersService.getAll(branchId),
-      companiesService.getAll(branchId),
-    ]).then(([c, cos]) => {
-      setAllCustomers(c);
-      setAllCompanies(cos);
-    }).catch(() => {});
+    Promise.all([customersService.getAll(branchId), companiesService.getAll(branchId)])
+      .then(([c, cos]) => {
+        setAllCustomers(c);
+        setAllCompanies(cos);
+      })
+      .catch(() => {});
   }, [branchId]);
 
   const companyMap = useMemo(() => {
     const m: Record<string, Company> = {};
-    allCompanies.forEach(co => { m[co.id] = co; });
+    allCompanies.forEach((co) => {
+      m[co.id] = co;
+    });
     return m;
   }, [allCompanies]);
 
@@ -80,27 +87,28 @@ export function CustomerLookupStep({
     if (!customer.companyId) return null;
     if (companyMap[customer.companyId]) return companyMap[customer.companyId];
     // companyId might be stale; try match by name
-    const byName = allCompanies.find(
-      co => co.name.trim() === String(customer.companyId).trim()
-    );
+    const byName = allCompanies.find((co) => co.name.trim() === String(customer.companyId).trim());
     return byName || null;
   };
 
   // Live filter: customers by phone/name + companies by name/phone
   const matchingCustomers = useMemo(() => {
-    const clean = query.replace(/[\s\-()]/g, '').trim().toLowerCase();
+    const clean = query
+      .replace(/[\s\-()]/g, '')
+      .trim()
+      .toLowerCase();
     if (!clean || phase === 'found' || phase === 'found-company' || phase === 'new') return [];
     return allCustomers
-      .filter(c => {
-        const p = (c.phone || '').replace(/[\s\-()]/g, '').trim().toLowerCase();
+      .filter((c) => {
+        const p = (c.phone || '')
+          .replace(/[\s\-()]/g, '')
+          .trim()
+          .toLowerCase();
         const n = (c.name || '').toLowerCase();
         const co = c.companyId ? companyMap[c.companyId] : null;
         const coName = (co?.name || '').toLowerCase();
         return (
-          p.startsWith(clean) ||
-          p.includes(clean) ||
-          n.includes(clean) ||
-          coName.includes(clean)
+          p.startsWith(clean) || p.includes(clean) || n.includes(clean) || coName.includes(clean)
         );
       })
       .slice(0, 8);
@@ -111,9 +119,12 @@ export function CustomerLookupStep({
     if (!clean || phase === 'found' || phase === 'found-company' || phase === 'new') return [];
     if (accountMode === 'customer') return [];
     return allCompanies
-      .filter(co => {
+      .filter((co) => {
         const n = (co.name || '').toLowerCase();
-        const p = (co.phone || '').replace(/[\s\-()]/g, '').trim().toLowerCase();
+        const p = (co.phone || '')
+          .replace(/[\s\-()]/g, '')
+          .trim()
+          .toLowerCase();
         const q = clean.replace(/[\s\-()]/g, '');
         return n.includes(clean) || (q && p.includes(q));
       })
@@ -143,9 +154,9 @@ export function CustomerLookupStep({
       // 1) Prefer company name match when in company mode
       if (accountMode === 'company' || accountMode === 'any') {
         const exactCo = allCompanies.find(
-          co => co.name.trim().toLowerCase() === raw.toLowerCase()
+          (co) => co.name.trim().toLowerCase() === raw.toLowerCase()
         );
-        const partialCos = allCompanies.filter(co =>
+        const partialCos = allCompanies.filter((co) =>
           co.name.toLowerCase().includes(raw.toLowerCase())
         );
         if (exactCo || partialCos.length === 1) {
@@ -173,7 +184,7 @@ export function CustomerLookupStep({
       }
 
       // 3) Name match on customers
-      const nameMatches = allCustomers.filter(c =>
+      const nameMatches = allCustomers.filter((c) =>
         (c.name || '').toLowerCase().includes(raw.toLowerCase())
       );
       if (nameMatches.length === 1) {
@@ -322,22 +333,18 @@ export function CustomerLookupStep({
               ref={inputRef}
               type="text"
               value={query}
-              onChange={e => {
+              onChange={(e) => {
                 setQuery(e.target.value);
                 setPhone(e.target.value);
                 if (phase === 'new') setPhase('input');
               }}
-              onKeyDown={e => {
+              onKeyDown={(e) => {
                 if (e.key === 'Enter') {
                   e.preventDefault();
                   void handleSearch();
                 }
               }}
-              placeholder={
-                language === 'ar'
-                  ? 'اسم / هاتف / شركة...'
-                  : 'Name / phone / company...'
-              }
+              placeholder={language === 'ar' ? 'اسم / هاتف / شركة...' : 'Name / phone / company...'}
               className="flex-1 px-3 py-2.5 rounded-xl border border-gray-200 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-caramel/40 bg-white"
             />
             <button
@@ -361,7 +368,7 @@ export function CustomerLookupStep({
               <span className="text-[11px] font-bold text-purple-700">
                 {language === 'ar' ? 'شركات' : 'Companies'}
               </span>
-              {matchingCompanies.map(co => (
+              {matchingCompanies.map((co) => (
                 <button
                   key={co.id}
                   type="button"
@@ -396,7 +403,7 @@ export function CustomerLookupStep({
                 {language === 'ar' ? 'عملاء' : 'Customers'}
               </span>
               <div className="space-y-1.5 max-h-48 overflow-y-auto">
-                {matchingCustomers.map(c => {
+                {matchingCustomers.map((c) => {
                   const co = c.companyId ? companyMap[c.companyId] : null;
                   return (
                     <button
@@ -595,7 +602,7 @@ export function CustomerLookupStep({
               <input
                 type="text"
                 value={name}
-                onChange={e => setName(e.target.value)}
+                onChange={(e) => setName(e.target.value)}
                 className="w-full px-3 py-2.5 rounded-xl border border-gray-300 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-mocha-500 bg-white"
                 autoFocus
               />
@@ -607,7 +614,7 @@ export function CustomerLookupStep({
               <input
                 type="tel"
                 value={phone}
-                onChange={e => setPhone(e.target.value)}
+                onChange={(e) => setPhone(e.target.value)}
                 className="w-full px-3 py-2.5 rounded-xl border border-gray-300 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-mocha-500 bg-white"
               />
             </div>

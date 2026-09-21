@@ -22,9 +22,7 @@ const LS_TELEGRAM_CONFIG_KEY = 'brewmaster_telegram_config';
 /** Fire-and-forget durable cloud persist (never blocks UI) */
 function cloudPersist(key: string, value: string) {
   try {
-    void import('../services/settingsCloudService').then((m) =>
-      m.persistSetting(key, value)
-    );
+    void import('../services/settingsCloudService').then((m) => m.persistSetting(key, value));
   } catch {
     // ignore
   }
@@ -48,7 +46,6 @@ async function cloudPersistAwait(key: string, value: string): Promise<PersistOut
     return 'queued';
   }
 }
-
 
 export interface BranchConfig {
   branchId: string;
@@ -108,7 +105,9 @@ const DEFAULT_TELEGRAM_CONFIG: TelegramConfig = {
 // ─── Web Crypto API PBKDF2 Password Hashing Helpers ───────────────────────────
 
 function bufToHex(buf: Uint8Array): string {
-  return Array.from(buf).map(b => b.toString(16).padStart(2, '0')).join('');
+  return Array.from(buf)
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
 }
 
 function hexToBuf(hex: string): Uint8Array {
@@ -119,7 +118,10 @@ function hexToBuf(hex: string): Uint8Array {
   return bytes;
 }
 
-export async function hashPassword(password: string, saltHex?: string): Promise<{ hash: string; salt: string }> {
+export async function hashPassword(
+  password: string,
+  saltHex?: string
+): Promise<{ hash: string; salt: string }> {
   const enc = new TextEncoder();
   const salt = saltHex ? hexToBuf(saltHex) : window.crypto.getRandomValues(new Uint8Array(16));
   const keyMaterial = await window.crypto.subtle.importKey(
@@ -134,7 +136,7 @@ export async function hashPassword(password: string, saltHex?: string): Promise<
       name: 'PBKDF2',
       salt: salt as BufferSource,
       iterations: 100000,
-      hash: 'SHA-256'
+      hash: 'SHA-256',
     },
     keyMaterial,
     { name: 'AES-GCM', length: 256 },
@@ -144,7 +146,7 @@ export async function hashPassword(password: string, saltHex?: string): Promise<
   const exported = await window.crypto.subtle.exportKey('raw', derivedKey);
   return {
     hash: bufToHex(new Uint8Array(exported)),
-    salt: bufToHex(salt)
+    salt: bufToHex(salt),
   };
 }
 
@@ -155,11 +157,16 @@ export async function hashPin(pin: string): Promise<string> {
   const enc = new TextEncoder();
   const salt = window.crypto.getRandomValues(new Uint8Array(8));
   const keyMaterial = await window.crypto.subtle.importKey(
-    'raw', enc.encode(pin), 'PBKDF2', false, ['deriveBits']
+    'raw',
+    enc.encode(pin),
+    'PBKDF2',
+    false,
+    ['deriveBits']
   );
   const derivedBits = await window.crypto.subtle.deriveBits(
     { name: 'PBKDF2', salt: salt as BufferSource, iterations: 100_000, hash: 'SHA-256' },
-    keyMaterial, 128
+    keyMaterial,
+    128
   );
   const hashHex = bufToHex(new Uint8Array(derivedBits));
   const saltHex = bufToHex(salt);
@@ -181,11 +188,16 @@ export async function verifyAdminPin(pin: string): Promise<boolean> {
     const salt = hexToBuf(saltHex);
     const enc = new TextEncoder();
     const keyMaterial = await window.crypto.subtle.importKey(
-      'raw', enc.encode(pin), 'PBKDF2', false, ['deriveBits']
+      'raw',
+      enc.encode(pin),
+      'PBKDF2',
+      false,
+      ['deriveBits']
     );
     const derivedBits = await window.crypto.subtle.deriveBits(
       { name: 'PBKDF2', salt: salt as BufferSource, iterations: 100_000, hash: 'SHA-256' },
-      keyMaterial, 128
+      keyMaterial,
+      128
     );
     return bufToHex(new Uint8Array(derivedBits)) === expectedHash;
   }
@@ -227,7 +239,9 @@ export function setTaxRate(rate: number): Promise<PersistOutcome> {
  * default-password door. The sentinel keeps hasStoredCredentials true, so the
  * bootstrap stays closed and the login simply fails.
  */
-function readStoredCredentials(key: string): { username?: string; hash?: string; salt?: string; password?: string } | null {
+function readStoredCredentials(
+  key: string
+): { username?: string; hash?: string; salt?: string; password?: string } | null {
   const saved = localStorage.getItem(key);
   if (!saved) return null;
   try {
@@ -266,7 +280,7 @@ export async function setAdminCredentials(username: string, password: string): P
   if (isCloudConfigured() && !(await ensureCanPushSettingKey(LS_ADMIN_CREDS_KEY))) {
     const err = new Error(
       'credential_sync_denied: تغيير كلمة المرور يحتاج صلاحية مدير. ' +
-      '/ Changing login passwords requires manager access.'
+        '/ Changing login passwords requires manager access.'
     );
     err.name = 'CredentialSyncDenied';
     throw err;
@@ -284,7 +298,10 @@ export async function setAdminCredentials(username: string, password: string): P
   }
 }
 
-export async function verifyAdminCredentials(_username: string, password: string): Promise<boolean> {
+export async function verifyAdminCredentials(
+  _username: string,
+  password: string
+): Promise<boolean> {
   const branchCfg = getBranchConfig();
   let saved = getAdminCredentials();
 
@@ -341,7 +358,7 @@ export async function setManagerCredentials(username: string, password: string):
   if (isCloudConfigured() && !(await ensureCanPushSettingKey(LS_MANAGER_CREDS_KEY))) {
     const err = new Error(
       'credential_sync_denied: تغيير كلمة المرور يحتاج صلاحية مدير. ' +
-      '/ Changing login passwords requires manager access.'
+        '/ Changing login passwords requires manager access.'
     );
     err.name = 'CredentialSyncDenied';
     throw err;
@@ -359,7 +376,10 @@ export async function setManagerCredentials(username: string, password: string):
   }
 }
 
-export async function verifyManagerCredentials(_username: string, password: string): Promise<boolean> {
+export async function verifyManagerCredentials(
+  _username: string,
+  password: string
+): Promise<boolean> {
   const branchCfg = getBranchConfig();
   let saved = getManagerCredentials();
 
@@ -395,8 +415,6 @@ export async function verifyManagerCredentials(_username: string, password: stri
   void branchCfg;
   return false;
 }
-
-
 
 export function getBranchConfig(): BranchConfig {
   const saved = localStorage.getItem(LS_BRANCH_CONFIG_KEY);

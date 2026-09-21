@@ -33,7 +33,10 @@ const layout = layoutSrc
 const topNav = readFileSync(resolve(__dirname, './TopNav.tsx'), 'utf8');
 const mobileNav = readFileSync(resolve(__dirname, './MobileNav.tsx'), 'utf8');
 const mobileHeader = readFileSync(resolve(__dirname, './MobileHeader.tsx'), 'utf8');
-const managerDashboard = readFileSync(resolve(__dirname, '../../pages/ManagerDashboard.tsx'), 'utf8');
+const managerDashboard = readFileSync(
+  resolve(__dirname, '../../pages/ManagerDashboard.tsx'),
+  'utf8'
+);
 
 describe('manager navigation after removing the desktop top strip', () => {
   it('the desktop TopNav is hidden for the manager role only', () => {

@@ -42,7 +42,7 @@ function escapeHtml(value: unknown): string {
  */
 export function printHtml(htmlContent: string) {
   let printIframe = document.getElementById('pos-print-iframe') as HTMLIFrameElement | null;
-  
+
   if (!printIframe) {
     printIframe = document.createElement('iframe');
     printIframe.id = 'pos-print-iframe';
@@ -140,7 +140,9 @@ export function printCustomerReceipt(order: Order, lang: 'en' | 'ar' = 'ar') {
   const totalLabel = isRtl ? 'الإجمالي المدفوع' : 'TOTAL PAID';
   const totalUnpaidLabel = isRtl ? 'المطلوب سداده' : 'TOTAL DUE';
   const paymentMethodLabel = isRtl ? 'طريقة الدفع' : 'Payment Method';
-  const thankYou = isRtl ? 'شكراً لزيارتكم! بالهناء والشفاء ☕' : 'Thank you for your visit! Enjoy ☕';
+  const thankYou = isRtl
+    ? 'شكراً لزيارتكم! بالهناء والشفاء ☕'
+    : 'Thank you for your visit! Enjoy ☕';
   const cashierStamp =
     order.paymentStatus === 'Paid'
       ? isRtl
@@ -160,7 +162,9 @@ export function printCustomerReceipt(order: Order, lang: 'en' | 'ar' = 'ar') {
 
   const store = getStoreConfig();
   const storeName = escapeHtml(store.storeName || 'BrewMaster');
-  const storeTagline = escapeHtml(store.tagline || (isRtl ? 'تجربة قهوة مميزة' : 'Premium Coffee Experience'));
+  const storeTagline = escapeHtml(
+    store.tagline || (isRtl ? 'تجربة قهوة مميزة' : 'Premium Coffee Experience')
+  );
   const storePhone = escapeHtml(store.phone || '');
   const storeAddress = escapeHtml(store.address || '');
 
@@ -270,39 +274,55 @@ export function printCustomerReceipt(order: Order, lang: 'en' | 'ar' = 'ar') {
           <strong>${tableLabel}:</strong>
           <span>${escapeHtml(order.tableId === 'Takeaway' || order.tableId === 'Dine-in' ? (isRtl && order.tableId === 'Takeaway' ? 'take away' : isRtl && order.tableId === 'Dine-in' ? 'مطعم' : order.tableId) : order.tableId)}</span>
         </div>
-        ${order.customerName || order.customerPhone ? `
+        ${
+          order.customerName || order.customerPhone
+            ? `
         <div class="info-row">
           <strong>${isRtl ? 'العميل' : 'Customer'}:</strong>
           <span>${escapeHtml(order.customerName || '')}${order.customerName && order.customerPhone ? ' · ' : ''}${escapeHtml(order.customerPhone || '')}</span>
-        </div>` : ''}
-        ${order.companyName || (order.billedToType === 'company' && order.companyId) ? `
+        </div>`
+            : ''
+        }
+        ${
+          order.companyName || (order.billedToType === 'company' && order.companyId)
+            ? `
         <div class="info-row">
           <strong>${isRtl ? 'الشركة / الحساب' : 'Company / Account'}:</strong>
           <span>${escapeHtml(order.companyName || order.companyId)}</span>
-        </div>` : ''}
+        </div>`
+            : ''
+        }
         <div class="info-row">
           <strong>${isRtl ? 'حالة الدفع' : 'Payment Status'}:</strong>
-          <span style="font-weight:bold; ${order.paymentStatus === 'Paid' ? 'border: 1px solid #000; padding: 2px 6px; border-radius: 4px;' : ''}">${order.paymentStatus === 'Paid' ? (isRtl ? 'مدفوعة' : 'Paid') : (order.paymentStatus === 'OnAccount' ? (isRtl ? 'على الحساب' : 'On account') : (order.paymentStatus === 'Refunded' ? (isRtl ? 'مسترجعة' : 'Refunded') : order.paymentStatus))}</span>
+          <span style="font-weight:bold; ${order.paymentStatus === 'Paid' ? 'border: 1px solid #000; padding: 2px 6px; border-radius: 4px;' : ''}">${order.paymentStatus === 'Paid' ? (isRtl ? 'مدفوعة' : 'Paid') : order.paymentStatus === 'OnAccount' ? (isRtl ? 'على الحساب' : 'On account') : order.paymentStatus === 'Refunded' ? (isRtl ? 'مسترجعة' : 'Refunded') : order.paymentStatus}</span>
         </div>
         <div class="info-row">
           <strong>${dateLabel}:</strong>
           <span>${new Date(order.createdAt).toLocaleString(isRtl ? 'ar-EG' : 'en-US')}</span>
         </div>
-        ${order.cashierName ? `
+        ${
+          order.cashierName
+            ? `
         <div class="info-row">
           <strong>${isRtl ? 'الموظف / الكاشير' : 'Staff / Cashier'}:</strong>
           <span>${escapeHtml(order.cashierName)}</span>
-        </div>` : ''}
+        </div>`
+            : ''
+        }
       </div>
 
       <div class="items">
         <h3 style="font-size: 13px; margin-bottom: 6px;">${itemLabel}:</h3>
-        ${order.items.map(item => `
+        ${order.items
+          .map(
+            (item) => `
           <div class="item">
             <span class="item-name">${item.quantity}x ${escapeHtml(item.name)}</span>
             <span>${formatMoney(lineTotal(item.price, item.quantity))} ${isRtl ? 'ج.م' : 'EGP'}</span>
           </div>
-        `).join('')}
+        `
+          )
+          .join('')}
       </div>
 
       <div class="totals">
@@ -320,11 +340,15 @@ export function printCustomerReceipt(order: Order, lang: 'en' | 'ar' = 'ar') {
         </div>
       </div>
 
-      ${order.paymentStatus === 'Paid' && order.paymentMethod ? `
+      ${
+        order.paymentStatus === 'Paid' && order.paymentMethod
+          ? `
         <div class="payment-info">
           <strong>${paymentMethodLabel}:</strong> ${escapeHtml(isRtl && order.paymentMethod === 'Cash' ? 'نقداً' : isRtl && order.paymentMethod === 'Card' ? 'بطاقة' : order.paymentMethod)}
         </div>
-      ` : ''}
+      `
+          : ''
+      }
 
       <div class="footer">
         <p>${thankYou}</p>
@@ -449,12 +473,16 @@ export function printKitchenReceipt(order: Order, lang: 'en' | 'ar' = 'ar') {
       </div>
 
       <div class="items-list">
-        ${items.map(item => `
+        ${items
+          .map(
+            (item) => `
           <div class="item-row">
             <span class="item-qty">${item.quantity}</span>
             <span class="item-name">${escapeHtml(item.name)}</span>
           </div>
-        `).join('')}
+        `
+          )
+          .join('')}
       </div>
 
       <div class="footer">
@@ -579,12 +607,16 @@ export function printDrinksReceipt(order: Order, lang: 'en' | 'ar' = 'ar') {
       </div>
 
       <div class="items-list">
-        ${items.map(item => `
+        ${items
+          .map(
+            (item) => `
           <div class="item-row">
             <span class="item-qty">${item.quantity}</span>
             <span class="item-name">${escapeHtml(item.name)}</span>
           </div>
-        `).join('')}
+        `
+          )
+          .join('')}
       </div>
 
       <div class="footer">
@@ -656,10 +688,10 @@ export function printCompanyStatement(opts: {
   const fallbackTax = typeof taxRateOpt === 'number' ? taxRateOpt : getTaxRate();
 
   const open = orders
-    .filter(o => o.paymentStatus === 'OnAccount' && o.status !== 'Cancelled')
+    .filter((o) => o.paymentStatus === 'OnAccount' && o.status !== 'Cancelled')
     .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 
-  const total = sumMoneyBy(open, o => getOrderGrandTotal(o, fallbackTax));
+  const total = sumMoneyBy(open, (o) => getOrderGrandTotal(o, fallbackTax));
 
   const title = isRtl ? 'كشف حساب شركة' : 'Company Account Statement';
   const dateLabel = isRtl ? 'التاريخ' : 'Date';
@@ -669,12 +701,8 @@ export function printCompanyStatement(opts: {
   const storeName = escapeHtml(store.storeName || 'BrewMaster');
 
   const rows = open
-    .map(o => {
-      const who = escapeHtml(
-        resolveCustomerLabel?.(o) ||
-        o.customerName ||
-        o.customerPhone ||
-        '—');
+    .map((o) => {
+      const who = escapeHtml(resolveCustomerLabel?.(o) || o.customerName || o.customerPhone || '—');
       const amt = getOrderGrandTotal(o, fallbackTax);
       const no = escapeHtml(formatOrderNumber(o));
       return `
@@ -762,10 +790,10 @@ export function printCustomerStatement(opts: {
   const fallbackTax = typeof taxRateOpt === 'number' ? taxRateOpt : getTaxRate();
 
   const open = orders
-    .filter(o => o.paymentStatus === 'OnAccount' && o.status !== 'Cancelled')
+    .filter((o) => o.paymentStatus === 'OnAccount' && o.status !== 'Cancelled')
     .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 
-  const total = sumMoneyBy(open, o => getOrderGrandTotal(o, fallbackTax));
+  const total = sumMoneyBy(open, (o) => getOrderGrandTotal(o, fallbackTax));
 
   const title = isRtl ? 'كشف حساب عميل' : 'Customer Account Statement';
   const dateLabel = isRtl ? 'التاريخ' : 'Date';
@@ -774,7 +802,7 @@ export function printCustomerStatement(opts: {
   const storeName = escapeHtml(store.storeName || 'BrewMaster');
 
   const rows = open
-    .map(o => {
+    .map((o) => {
       const amt = getOrderGrandTotal(o, fallbackTax);
       const no = escapeHtml(formatOrderNumber(o));
       return `

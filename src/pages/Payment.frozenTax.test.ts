@@ -35,7 +35,7 @@ describe('settle-time tax snapshot', () => {
     // (taxRate is a fraction: 0.1 = 10%, 0.2 = 20%.)
     const m = getOrderMoney(
       { totalAmount: 100, taxRate: 0.1, taxAmount: 10, grandTotal: 110 },
-      /* current rate */ 0.2,
+      /* current rate */ 0.2
     );
     expect(m.taxAmount).toBe(10);
     expect(m.grandTotal).toBe(110);
@@ -44,7 +44,7 @@ describe('settle-time tax snapshot', () => {
   it('getOrderMoney re-derives only when there is genuinely no tax snapshot', () => {
     const m = getOrderMoney(
       { totalAmount: 100, taxRate: undefined, taxAmount: undefined, grandTotal: undefined },
-      0.2,
+      0.2
     );
     expect(m.taxAmount).toBe(20);
     expect(m.grandTotal).toBe(120);
